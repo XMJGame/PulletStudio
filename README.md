@@ -1,30 +1,24 @@
 # Pullet Studio
 
-> **状态：原文/分镜草案、完整卡/提示词、分镜导出、手工媒体/候选及版本化资产引用已可用；尚未完成 V1。真实模型待联调。**
+Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Drizzle和SQLite。Provider与Storage保留独立边界，工作区/项目权限从第一版实施。
 
-愿景：基于 Web 的多用户 AI 影视创作和生产平台，生成服务、媒体存储和部署环境均可插拔。
+**当前已具备基础生产链，尚未完成团队V1与正式部署验收。** 已实现原文导入、AI分镜草案及人工采纳、完整镜头卡/提示词、媒体导入/生成、资产版本、Take审核/选片、标准交付包及可选低清预演。官方MiniMax H3单首帧I2V已通过实机；文本/T2I/T2V主要由Mock验收。创作画布、团队指派/批次/评论、Mounted/S3和正式部署仍待开发。
 
-## 阅读顺序
-0. `docs/MASTER-PLAN.md`：完整产品与长期架构基线；`docs/IMPLEMENTATION-STATUS.md`：已核实现状、实施优先级、进度与遗留问题。最新实施顺序以此为准，旧编号路线保留历史参考。
-   团队级模块技术规格见 `docs/architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md`；本地差异审计见同目录 `TEAM-V1-GAP-AUDIT.md`，有效 ADR 优先于文档建议性技术命名。
-1. `docs/01-PRD.md`：产品需求、边界和验收
-2. `docs/02-ARCHITECTURE.md`：技术栈、权限和生成/存储架构
-3. `docs/03-DATA-API.md`：核心表和 API 合同
-4. `docs/04-ROADMAP.md`：开发里程碑及给 Codex 的第一张任务单
+产品入口为生产工作台和创作画布（待实施），正式剪辑/调色/转场/合成/混音交外部软件。保留轻量故事板预演，重点把原件、选片、版本与清单有序交给后期；不开发专业剪辑器。完整范围见[ADR-009](docs/ADR-009-production-and-postproduction-handoff.md)。
 
-## 目录
-- `apps/api`：NestJS API、Drizzle/SQLite 迁移、身份认证、权限及项目/分集/镜头
-- `apps/web`：React/Vite 初始化、登录、团队邀请、项目与镜头工作台
-- `packages/contracts`：跨应用类型和 Provider 接口草案
-- `infra`：旧版可选基础设施示例；当前 SQLite 版本不需要运行 Compose
-- `tools`：环境初始化及 API 开发启动脚本
-- `tests/e2e`：独立测试数据库上的浏览器验收
-- `examples`：ComfyUI 工作流绑定样例（不对应实际机器节点）
+## 从哪里开始
 
-## 本地启动（开发环境）
-前提：Node.js 22 或以上（本机验证为 24.18.0）、npm。当前不依赖 Docker、PostgreSQL 或 Redis。
+- [当前完成情况与后续计划](docs/IMPLEMENTATION-STATUS.md)：唯一实时排期与测试证据。
+- [文档导航](docs/README.md)：按产品、模块、运行、历史查阅，避免重读旧路线。
+- [产品基线](docs/MASTER-PLAN.md)：长期需求，用户当前决定及有效ADR优先。
+- [工程目录与整理规则](docs/architecture/REPOSITORY-MAP.md)：代码、测试、文档与运行数据的实际位置。
+- [开发运行与恢复](docs/operations/DEVELOPMENT.md)：完整命令、Worker、检查节奏及备份。
 
-在仓库根目录执行：
+## 本地开发
+
+Node.js≥22、npm；媒体能力及媒体测试需要FFmpeg/FFprobe。当前不依赖Docker、PostgreSQL或Redis。
+
+首次安装在仓库根执行：
 
 ```powershell
 npm ci
@@ -33,60 +27,46 @@ npm run db:migrate
 npm run dev:api
 ```
 
-另开终端，在仓库根目录执行 `npm run dev:web`，打开 `http://127.0.0.1:5173`。
+另开终端运行`npm run dev:web`，打开http://127.0.0.1:5173。首次初始化使用本机.env中的SETUP_TOKEN，自行设置账户和8–16位密码，无默认账户；setup不覆盖已有环境密钥。
 
-AI 分镜分析使用独立后台进程：先 `npm run setup`（补充缺少的本机 Provider 加密密钥）、`npm run build`，再另开终端运行 `npm run worker:text`。项目内“AI 分镜”可配置文本连接并选择原文范围提交。配置真实模型前不调用任何服务；当前自动验收采用隔离 Mock，真实模型尚待联调，详见 `docs/TEXT-ANALYSIS.md`。
+有任务执行需求时，先`npm run build`，再在各自终端运行所需Worker：
 
-手工媒体导入需要后端安装 FFmpeg/FFprobe；Windows 可放到 `data/tools/ffmpeg/bin/`，或设置 `FFMPEG_PATH` / `FFPROBE_PATH`。默认媒体根为数据库同目录下 `media`，默认每文件512MiB。未安装工具不影响登录/文本工作；配置、恢复与完整媒体备份见 [本地媒体说明](docs/LOCAL-MEDIA.md)。
+| 命令 | 用途 |
+|---|---|
+| `npm run worker:text` | 原文范围分析/AI分镜 |
+| `npm run worker:generation` | ComfyUI生成、结果核对与归档 |
+| `npm run worker:animatic` | 可选FFmpeg低清预演 |
 
-ComfyUI 生成使用独立 Worker。执行 `npm run build` 和 `npm run worker:generation`，再从镜头“媒体生成”配置受信连接及 API 格式工作流。图片和视频的提交、恢复及归档已通过模拟服务验收。[ComfyUI 使用说明](docs/COMFYUI-GENERATION.md)
+未配置模型也可以手工创作、导入素材、审核与交付。ComfyUI使用管理员受信连接及固定API图，不移动、不重装用户的ComfyUI或模型。工作流绑定与参数见[使用说明](docs/COMFYUI-GENERATION.md)。
 
-第一次进入页面时，从本机 `.env` 读取 `SETUP_TOKEN` 填入初始化密钥，自己设置管理员邮箱、密码（8–16 位）、姓名与工作区名称。没有默认账户或默认密码，初始化成功后不能再次初始化。`npm run setup` 不覆盖已有 `.env`。已创建账户继续使用原密码登录，长度新规则适用于设置新密码。
+API默认http://127.0.0.1:3100，存活/就绪检查为/health/live和/health/ready；当前接口文档/api/docs、/openapi.json。当前仅本机开发监听，LAN/TLS/正式部署未验收。
 
-API 存活检查：`http://127.0.0.1:3100/health/live`；数据库就绪检查：`/health/ready`；接口文档：`/api/docs`，JSON：`/openapi.json`。前端开发代理统一转发 `/api`，避免宽泛 CORS。
+## 交付与验证
 
-数据库默认为 `data/studio.sqlite`，相对路径统一以仓库根目录解析。API 启动时自动应用版本化迁移；`npm run db:migrate` 也可单独执行。运行文件、会话、密钥及测试数据库均已加入忽略规则。
-
-当前仅监听 `127.0.0.1`，供本机开发验收。局域网/公网部署、HTTPS 反代、持久化限流和生产运维将在交付阶段验收。SQLite 数据库需在后端主机的本地持久化磁盘；不要放在 SMB/NFS 网络共享盘（包括映射盘）。媒体文件可在后续独立配置 NAS/S3。
-
-## 已实现与后续
-
-- 已实现：一次性初始化、登录/退出、持久化会话、CSRF、精确来源限制、请求限速、成员邀请、项目角色、跨工作区隔离。
-- 已实现：项目、分集、镜头创建与编辑；项目设置、分集排序、镜头时长/画面/运镜/对白，版本冲突返回 409。
-- 已实现：项目起始模板、格式、叙事方式、时长、导演说明及设定影响确认；制作结构视图支持嵌套分集/幕/章节/场次等单元、无需分集的项目直属镜头、独立计划制作方式。旧分集与编号保留，说明见 `docs/PRODUCTION-STRUCTURE.md`。
-- 已实现：系统标识统一由后端生成。新建工作区只填名称；项目编号 `P0001`、分集编号 `EP01`、镜头编号 `SH001` 分别在所属父级内递增。创建/编辑 API 不再接受手填 `slug`/`code`，排序和改名不重编旧编号，自动分配跳过已占用值。
-- 已实现：新建项目可选择视觉风格（默认“暂不设定”），包括写实电影、3D 动画、2D 动画、水墨国风和自定义。可补充最多 2,000 字符的视觉描述；自定义风格须填写描述，项目设置可修改。当前仅保存创作设定，尚未映射到生成参数或参考图。
-- 已实现：项目剧本、不可变版本历史、历史预览、恢复为新版本、作者与修改说明；正文最多 60,000 字符。编辑者可保存，只读成员可查看；未保存输入在本窗口暂存，跨视图/刷新可恢复，关闭浏览器后不保证保留，正式内容需点击保存。
-- 已实现：UTF-8 TXT/Markdown 和粘贴原文导入，核对预览后新增版本；支持小说、剧本、旁白、广告 Brief 类型，保留原始字节与 SHA256，可下载导入原文、分页定位已保存版本段落。单份来源最多 180,000 字节，正文最多 60,000 UTF-16 单元；暂不支持 DOCX/PDF。
-- 已实现：项目管理员明确锁定/解锁当前定稿。锁定后所有保存、导入、历史恢复均拒绝；解锁后创建新版本，原历史继续不可变。
-- 已实现：文本连接与模型分离、凭据加密、端点批准与固定 DNS 连接；持久化分析任务、独立 Worker、幂等、租约、限流等待和不确定提交的人工核实入口。分析原文范围并保存带引用的待审核分镜草案。
-- 已实现：候选人工编辑、草案拒绝/重开、审核者明确采纳全部候选为正式镜头；自动编号、完整制作卡及原文引用在同一事务保存。原始模型结果、人工修订、审核决定和正式卡历史均保留，双窗口冲突不丢输入。使用与边界见 `docs/PROPOSAL-REVIEW.md`。
-- 已实现：正式/手动镜头的完整卡编辑与不可变历史；项目提示词 Profile 追加修订、中立离线编译、完整正/负提示词预览/复制/保存及历史变化提示。无需模型或 API Key；资产/模型能力尚未绑定，不冒充可直接生成。使用见 `docs/TEXT-DELIVERY.md`。
-- 已实现：制作结构内导出 Markdown/JSON/CSV 分镜文档，支持项目/单元/当前镜头范围，保留来源和完整提示词快照、过期/缺失警告；先预览再确认，幂等重试、CSV公式防护、固定文件哈希和鉴权历史下载。单份最多200镜头/8MiB，不含媒体或完整项目迁移，见 `docs/STORYBOARD-EXPORT.md`。
-- 已实现项目和镜头内手工导入图片、视频、音频，支持检测、封面、授权播放和下载、不可变版本、上传恢复及草稿候选。媒体生成结果沿用同一归档流程。[本地媒体说明](docs/LOCAL-MEDIA.md)
-- 已实现人物、场景、道具和声音角色资产库。支持不可变修订、参考媒体、镜头固定引用和具体修订的批准或撤销。提示词保留设定、媒体及审批快照，镜头可检查已保存引用的资产准入。声音样本另有文件读取限制。[资产库说明](docs/SEMANTIC-ASSETS.md)
-- 已实现：项目回收站与恢复，保留编号、成员和已保存内容；回收站内项目不能继续读写，当前不自动清理、不提供永久删除。
-- 已实现：项目成员列表、角色调整和移出；工作区成员调整与移出，权限从下一次请求起撤销，历史署名保留。所有者受保护，只有所有者可授予或管理工作区管理员。
-- 后续按团队蓝图推进真实 ComfyUI 联调、参考素材绑定、团队批次审核、声音与预演、画布及受控扩展。跨项目资产共享、Mounted/S3 和分层分析继续增量建设。
-- PostgreSQL 是未来扩展方向，**当前没有 PostgreSQL 驱动、迁移或双库切换能力**。后续实现需要独立迁移与一致性验收。
-
-## 检查与备份
+[标准素材包](docs/MEDIA-PACKAGES.md)包含按类型归档的已批准选片原件、ShotList.csv、ProductionNotes.md及manifest.json。固定卡/Take/媒体/批准/来源，复用原件去重，区分计划与实测时长；旧v1包保持兼容。独立声音/SRT附件和编辑器工程交换尚未实现，不能把包当完整项目备份。
 
 ```powershell
 npm run typecheck
-npm run build
+npm run format:check
 npm test
 npm run test:e2e
-npm audit
 npm run db:backup
 ```
 
-浏览器测试默认调用本机 Edge，不操作正式数据库；也可设置 `PLAYWRIGHT_CHANNEL=chrome` 使用已安装的 Chrome。在线备份保存在 `data/backups/`，执行完整性与外键检查，包含已提交 WAL 内容，不覆盖旧备份。备份包含账户与会话，按敏感文件保管。恢复步骤见 `docs/05-DEVELOPMENT.md`。
+最近代码阶段：176/176 Node测试、Edge全流程1/1、类型/格式/构建通过。本地结果与真实模型/正式作品/远端CI证据分开，详见实时状态。开发中先跑相关测试，文档整理不重复业务全量。
 
-数据库备份不包含媒体；完整备份须停写后复制数据库、整个媒体根及其标记，执行 `npm run media:verify -- --database "副本路径" --root "媒体副本目录" --out "新清单文件路径"`。步骤与当前限制见 [LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。测试现在需要可用的 FFmpeg/FFprobe。
+SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 
-## 与现有 ComfyUI 的关系
-不移动、不重装、不修改任何 ComfyUI 文件。后续 `M3` 才通过 API 配置连接 ComfyUI Master。不要把具体 NAS IP、模型盘符或 API Key 写进仓库。
+## 目录
 
-## 交付说明
-当前工作范围、验证结果和下一步见 `docs/05-DEVELOPMENT.md`；参考项目取舍见 `docs/06-REFERENCES.md`。业务数据安全与生成恢复按阶段测试，尚未完成的能力不能视为已交付。
+| 路径 | 当前用途 |
+|---|---|
+| apps/api | API、三类Worker入口、业务模块、SQLite schema/迁移及Node测试 |
+| apps/web | React工作台、表单与媒体/任务/审核/交付界面 |
+| packages/contracts | 已使用的Storage接口及尚未统一的Provider设计类型 |
+| tests/e2e、tests/fixtures | 隔离浏览器验收、Mock和合成媒体工具 |
+| tools | 环境初始化、API监视、媒体校验 |
+| docs | 当前基线/状态/ADR/指南，及architecture/modules/operations/history/archive分类 |
+| infra、examples | 历史Compose示例与通用绑定示意，非本机配置或正式部署方案 |
+
+当前不提供PostgreSQL驱动、自动双库切换或SaaS；未来扩展须独立兼容、权限和迁移验收。

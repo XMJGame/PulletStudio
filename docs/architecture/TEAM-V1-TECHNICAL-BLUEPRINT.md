@@ -2,10 +2,10 @@
 
 > 2026-11-05工作规格修订：[ADR-009](../ADR-009-production-and-postproduction-handoff.md)确定生产工作台＋创作画布、轻量预演与专业后期交接边界。保留既有版本、预览及FFmpeg，不开发内置专业剪辑器；声音素材/SRT交付按实际来源另包，OTIO/FCPXML待逐软件验证。以下相关段落已同步收紧，不改变原技术栈或重建既有表。
 
-> **规格版本**：1.1（2026-11-05）  
-> **目标读者**：桌面 Codex、未来团队开发者、架构评审  
-> **基准仓库**：[XMJGame/PulletStudio](https://github.com/XMJGame/PulletStudio) `main`；读取时树 SHA `9c0ad77d5bc23ca2ee0e0f24737ebacac303dcec`。  
-> **优先级**：这是对 [现有仓库续开发计划](../PulletStudio-Repo-Audit-Team-V1-Execution-Plan.md) 的 **技术细化附录**。现有代码与用户数据安全优先；`AGENTS.md`、现有 ADR、`IMPLEMENTATION-STATUS.md` 的已落地决定不得被未经评估的旧规划覆盖。  
+> **规格版本**：1.1（2026-11-05）
+> **目标读者**：桌面 Codex、未来团队开发者、架构评审
+> **基准仓库**：[XMJGame/PulletStudio](https://github.com/XMJGame/PulletStudio) `main`；读取时树 SHA `9c0ad77d5bc23ca2ee0e0f24737ebacac303dcec`。
+> **优先级**：这是对 [现有仓库续开发计划](REPOSITORY-CONTINUATION-PLAN.md) 的 **技术细化附录**。现有代码与用户数据安全优先；`AGENTS.md`、现有 ADR、`IMPLEMENTATION-STATUS.md` 的已落地决定不得被未经评估的旧规划覆盖。
 > **证据界限**：项目现状来自仓库文件和其报告；未重新在用户机器执行测试、未接入真实 ComfyUI；外部项目功能来自其 README/许可证及公开源码说明，不能理解为已验证可直接移植。
 
 ## 0. TL;DR：最终冻结的技术方案
@@ -528,12 +528,12 @@ PulletStudio/
 
 ## 16. Codex 执行总指令（建议仅此一段）
 
-> 先阅读本文件与 `AGENTS.md`、`docs/IMPLEMENTATION-STATUS.md`、`docs/MASTER-PLAN.md`、`docs/ADR-001-stack.md`–`ADR-004-production-units.md`，并查看 `README.md`。  
-> 以本地工作树为实际事实源；仓库基准 SHA 仅是规划依据。  
-> **不要迁移 FastAPI；不要重建数据库；不要删除既有剧本、镜头、审核历史；不要整体 Fork 开源软件。**  
-> 按本文件 Phase A→H 的依赖顺序实施，每次只做具备验收条件的最小垂直工作包。已实现部分直接复用并补测。  
-> 本轮先完成 Phase A 复核及 Phase B1/B2 可验证的最小链路；提交实际测试报告、变更清单、迁移/回滚说明、Git commit、下一工作包。  
-> 涉及真实模型凭据、ComfyUI 内网地址/实际工作流 JSON、个人声纹、生产服务器公开访问、昂贵批量任务、破坏性迁移时，请先提交需要用户操作/批准的最小信息；除此之外自主设计并开发。  
+> 先阅读本文件与 `AGENTS.md`、`docs/IMPLEMENTATION-STATUS.md`、`docs/MASTER-PLAN.md`、`docs/ADR-001-stack.md`–`ADR-004-production-units.md`，并查看 `README.md`。
+> 以本地工作树为实际事实源；仓库基准 SHA 仅是规划依据。
+> **不要迁移 FastAPI；不要重建数据库；不要删除既有剧本、镜头、审核历史；不要整体 Fork 开源软件。**
+> 按本文件 Phase A→H 的依赖顺序实施，每次只做具备验收条件的最小垂直工作包。已实现部分直接复用并补测。
+> 本轮先完成 Phase A 复核及 Phase B1/B2 可验证的最小链路；提交实际测试报告、变更清单、迁移/回滚说明、Git commit、下一工作包。
+> 涉及真实模型凭据、ComfyUI 内网地址/实际工作流 JSON、个人声纹、生产服务器公开访问、昂贵批量任务、破坏性迁移时，请先提交需要用户操作/批准的最小信息；除此之外自主设计并开发。
 > 不要只写计划；必须交付可运行代码和验收证据。
 
 ## 17. 产品与工程验收的最后标准

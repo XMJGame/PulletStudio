@@ -1,5 +1,7 @@
 # 团队 V1 技术规格差异审计
 
+> 历史审计快照：下表描述9c0ad77时期，许多缺口此后已完成，不能据此重做。当前覆盖、代码基线与后续依赖唯一见[IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)；产品边界已由ADR-009收紧，正文保留当时证据。
+
 2026-11-05；本地与 origin/main 同为 9c0ad77，开始时工作树干净。两份用户文件原样归档为本目录 REPOSITORY-CONTINUATION-PLAN.md、TEAM-V1-TECHNICAL-BLUEPRINT.md。本文为这次差异判断，不是第二份实时计划；结果和测试统一维护在 IMPLEMENTATION-STATUS。
 
 | 蓝图模块 | 代码事实/可复用 | 差异及下一步验收 |
