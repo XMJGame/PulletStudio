@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 export async function startComfyMock(files) {
   const history = new Map();
   const requests = [];
-  const mock = { mode: 'normal', submissions: [], requests, history };
+  const mock = { mode: 'normal', submissions: [], uploads: [], requests, history };
   const send = (res, data, status = 200) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(data));
@@ -20,8 +20,35 @@ export async function startComfyMock(files) {
         Text: { input: { required: { text: ['STRING'] } }, output_node: false },
         ImageOutput: { output_node: true },
         VideoOutput: { output_node: true },
+        SaveVideo: { output_node: true },
+        LoadImage: { input: { required: { image: [[]] } }, output_node: false },
       };
       return send(res, Object.hasOwn(info, type) ? { [type]: info[type] } : {});
+    }
+    if (req.method === 'POST' && url.pathname === '/upload/image') {
+      try {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const data = await new Response(Buffer.concat(chunks), {
+          headers: { 'content-type': req.headers['content-type'] },
+        }).formData();
+        const image = data.get('image');
+        const entry = {
+          name: image.name,
+          bytes: Buffer.from(await image.arrayBuffer()),
+          type: data.get('type'),
+          subfolder: data.get('subfolder'),
+          overwrite: data.get('overwrite'),
+        };
+        mock.uploads.push(entry);
+        return send(res, {
+          name: mock.mode === 'unsafe-upload' ? '../wrong.png' : entry.name,
+          subfolder: entry.subfolder,
+          type: entry.type,
+        });
+      } catch {
+        return send(res, {}, 400);
+      }
     }
     if (req.method === 'POST' && url.pathname === '/prompt') {
       const chunks = [];
@@ -32,7 +59,9 @@ export async function startComfyMock(files) {
         return send(res, { error: { type: 'prompt_outputs_failed_validation' }, node_errors: {} }, 400);
       if (mock.mode === 'server-error') return send(res, {}, 503);
       const remoteId = mock.mode === 'legacy-lost' ? randomUUID() : data.prompt_id;
-      const node = Object.entries(data.prompt).find(([, value]) => value.class_type.endsWith('Output'));
+      const node = Object.entries(data.prompt).find(
+        ([, value]) => value.class_type.endsWith('Output') || value.class_type === 'SaveVideo',
+      );
       const file = node[1].class_type === 'ImageOutput' ? 'image.png' : 'clip.mp4';
       const result = {
         type: 'output',
@@ -42,7 +71,11 @@ export async function startComfyMock(files) {
       history.set(remoteId, {
         prompt: [0, remoteId, data.prompt, data.extra_data, [node[0]]],
         status: { completed: true, status_str: 'success' },
-        outputs: { [node[0]]: { [file.endsWith('png') ? 'images' : 'videos']: [result] } },
+        outputs: {
+          [node[0]]: {
+            [file.endsWith('png') || node[1].class_type === 'SaveVideo' ? 'images' : 'videos']: [result],
+          },
+        },
       });
       if (['lost', 'legacy-lost'].includes(mock.mode)) return req.socket.destroy();
       return send(res, { prompt_id: remoteId });
@@ -91,5 +124,22 @@ export function fixtureWorkflow(connectionId, video = false) {
     positive: { node: '1', input: 'text' },
     negative: { node: '2', input: 'text' },
     output: { node: '3', field: video ? 'videos' : 'images' },
+  };
+}
+
+export function fixtureI2V(connectionId) {
+  const workflow = fixtureWorkflow(connectionId, true);
+  return {
+    ...workflow,
+    name: 'Mock image to video',
+    capability: 'video.image_to_video',
+    image: { node: '4', input: 'image' },
+    output: { node: '3', field: 'images' },
+    graph: {
+      ...workflow.graph,
+      3: { class_type: 'SaveVideo', inputs: { video: ['5', 0] } },
+      4: { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
+      5: { class_type: 'ImageToVideo', inputs: { first_frame: ['4', 0], prompt: ['1', 0] } },
+    },
   };
 }

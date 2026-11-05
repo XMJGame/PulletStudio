@@ -2,9 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { request as httpRequest, IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { addressAllowed, approvedBaseUrl, SafeTextHttp } from '../providers/safe-text-http';
-import { ResultDescriptor, resultDescriptor, WorkflowInput } from './generation-contract';
+import {
+  ResultDescriptor,
+  resultDescriptor,
+  WorkflowInput,
+  referenceImageLimit,
+  referenceImageExtensions,
+} from './generation-contract';
 
 export class GenerationError extends Error {
   constructor(readonly code: string) {
@@ -17,6 +24,7 @@ export type RemoteObservation =
 export interface MediaProvider {
   probe(signal?: AbortSignal): Promise<void>;
   validate(workflow: WorkflowInput): Promise<void>;
+  uploadImage(jobId: string, mime: string, image: Buffer, signal: AbortSignal): Promise<string>;
   submit(jobId: string, graph: WorkflowInput['graph'], signal: AbortSignal): Promise<string>;
   observe(
     remoteId: string,
@@ -47,10 +55,15 @@ export class ComfyProvider {
     if (!addresses.length || addresses.some((item) => !addressAllowed(item.address, config.trustedPrivate)))
       throw new GenerationError('ENDPOINT_BLOCKED');
     const address = addresses[0];
-    const request = (path: string, signal?: AbortSignal, payload?: unknown, timeout = 15000) =>
+    const request = (
+      path: string,
+      signal?: AbortSignal,
+      encoded?: string | Buffer,
+      timeout = 15000,
+      contentType = 'application/json',
+    ) =>
       new Promise<IncomingMessage>((resolve, reject) => {
         const url = new URL(base + path);
-        const encoded = payload === undefined ? undefined : JSON.stringify(payload);
         const timer = AbortSignal.timeout(timeout);
         const outgoing = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
           url,
@@ -66,7 +79,7 @@ export class ComfyProvider {
               ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
               ...(encoded === undefined
                 ? {}
-                : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(encoded) }),
+                : { 'Content-Type': contentType, 'Content-Length': Buffer.byteLength(encoded) }),
             },
           },
           (incoming) => {
@@ -77,8 +90,7 @@ export class ComfyProvider {
         outgoing.on('error', () => reject(new GenerationError('COMFY_CONNECTION_FAILED')));
         outgoing.end(encoded);
       });
-    const json = async (path: string, signal?: AbortSignal, payload?: unknown) => {
-      const response = await request(path, signal, payload);
+    const readJson = async (path: string, response: IncomingMessage) => {
       try {
         const validationReply = path === '/prompt' && response.statusCode === 400;
         if (response.statusCode !== 200 && !validationReply)
@@ -107,6 +119,11 @@ export class ComfyProvider {
         response.destroy();
       }
     };
+    const json = async (path: string, signal?: AbortSignal, payload?: unknown) =>
+      readJson(
+        path,
+        await request(path, signal, payload === undefined ? undefined : JSON.stringify(payload)),
+      );
     return {
       async probe(signal) {
         const data = await json('/system_stats', signal);
@@ -135,7 +152,44 @@ export class ComfyProvider {
           node(workflow.output.node, signal).then((info) => {
             if (info.output_node !== true) throw new GenerationError('WORKFLOW_OUTPUT_NODE_INVALID');
           }),
+          ...(workflow.image
+            ? [
+                node(workflow.image.node, signal).then((info) => {
+                  if (!Array.isArray(object(object(info.input).required).image))
+                    throw new GenerationError('WORKFLOW_IMAGE_BINDING_INVALID');
+                }),
+              ]
+            : []),
         ]);
+      },
+      async uploadImage(jobId, mime, image, signal) {
+        const extension = referenceImageExtensions[mime];
+        if (!extension || !image.length || image.length > referenceImageLimit)
+          throw new GenerationError('REFERENCE_IMAGE_INVALID');
+        const name = `${uuid.parse(jobId)}.${extension}`,
+          subfolder = 'pullet-studio',
+          boundary = `pullet-${randomUUID()}`;
+        const field = (key: string, value: string) =>
+          `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
+        const prefix =
+          field('type', 'input') +
+          field('subfolder', subfolder) +
+          field('overwrite', 'false') +
+          `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${name}"\r\nContent-Type: ${mime}\r\n\r\n`;
+        const multipart = Buffer.concat([Buffer.from(prefix), image, Buffer.from(`\r\n--${boundary}--\r\n`)]);
+        const result = await readJson(
+          '/upload/image',
+          await request(
+            '/upload/image',
+            signal,
+            multipart,
+            60000,
+            `multipart/form-data; boundary=${boundary}`,
+          ),
+        );
+        if (result.name !== name || result.subfolder !== subfolder || result.type !== 'input')
+          throw new GenerationError('COMFY_IMAGE_UPLOAD_INVALID');
+        return `${subfolder}/${name}`;
       },
       async submit(jobId, graph, signal) {
         const data = await json('/prompt', signal, {

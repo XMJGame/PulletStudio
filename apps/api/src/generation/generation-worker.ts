@@ -1,6 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { addAbortSignal } from 'node:stream';
 import { CurrentUser } from '../common/http';
 import { DatabaseService } from '../db/database.service';
 import { generationJobs, mediaUploads, users } from '../db/schema';
@@ -97,6 +98,42 @@ export class GenerationWorker {
     if (!row) throw new GenerationError('CREATOR_UNAVAILABLE');
     return row;
   }
+  private checkInputs(user: CurrentUser, job: Job, connectionId: string, snapshot: GenerationSnapshot) {
+    this.owns(job);
+    if (
+      this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
+      this.production.project(user, job.projectId).version !== job.projectVersion ||
+      this.jobs.connection(connectionId).version !== job.connectionVersion
+    )
+      throw new GenerationError('GENERATION_INPUT_CHANGED');
+    if (JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals))
+      throw new GenerationError('GENERATION_APPROVAL_CHANGED');
+  }
+  private async readImage(
+    user: CurrentUser,
+    image: NonNullable<GenerationSnapshot['image']>,
+    signal: AbortSignal,
+  ) {
+    const file = await this.media.content(user, image.id, false);
+    try {
+      if (file.total !== image.bytes || file.sha256 !== image.sha256 || file.mime !== image.mime)
+        throw new GenerationError('REFERENCE_IMAGE_INVALID');
+      const chunks: Buffer[] = [];
+      const hash = createHash('sha256');
+      let size = 0;
+      for await (const chunk of addAbortSignal(signal, file.stream)) {
+        size += chunk.length;
+        if (size > image.bytes) throw new GenerationError('REFERENCE_IMAGE_INVALID');
+        hash.update(chunk);
+        chunks.push(chunk);
+      }
+      if (size !== image.bytes || hash.digest('hex') !== image.sha256)
+        throw new GenerationError('REFERENCE_IMAGE_INVALID');
+      return Buffer.concat(chunks, size);
+    } finally {
+      file.stream.destroy();
+    }
+  }
   async tick() {
     const job = this.claim();
     if (!job) return false;
@@ -152,17 +189,16 @@ export class GenerationWorker {
       const provider = await this.jobs.provider(connection);
       await provider.probe(signal);
       const snapshot = JSON.parse(job.snapshotJson) as GenerationSnapshot;
+      if (definition.image) {
+        if (!snapshot.image) throw new GenerationError('REFERENCE_IMAGE_INVALID');
+        const image = await this.readImage(user, snapshot.image, signal);
+        this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot));
+        const path = await provider.uploadImage(job.id, snapshot.image.mime, image, signal);
+        snapshot.graph[definition.image.node].inputs[definition.image.input] = path;
+      }
       this.database.db.transaction(
         () => {
-          this.owns(job);
-          if (
-            this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
-            this.production.project(user, job.projectId).version !== job.projectVersion ||
-            this.jobs.connection(connection.id).version !== job.connectionVersion
-          )
-            throw new GenerationError('GENERATION_INPUT_CHANGED');
-          if (JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals))
-            throw new GenerationError('GENERATION_APPROVAL_CHANGED');
+          this.checkInputs(user, job, connection.id, snapshot);
           this.update(job, { state: 'submitting' });
         },
         { behavior: 'immediate' },

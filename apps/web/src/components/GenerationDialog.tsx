@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, CursorPage } from '../api';
 import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
 
@@ -15,8 +15,15 @@ type Job = {
   remoteId: string | null;
   mediaVersionId: string | null;
   canControl: boolean;
+  image: { id: string; fileName: string; version: number } | null;
 };
 type Prompt = { id: string; createdAt: string; cardVersion: number };
+type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
+const capabilityLabels: Record<string, string> = {
+  'image.text_to_image': '文字生图',
+  'video.text_to_video': '文字生视频',
+  'video.image_to_video': '图生视频',
+};
 const states: Record<string, string> = {
   queued: '等待 Worker',
   preparing: '正在检查输入',
@@ -43,6 +50,8 @@ const errors: Record<string, string> = {
   MEDIA_NOT_READY: '本机媒体存储或检测工具未就绪。',
   REMOTE_JOB_UNVERIFIED: '历史记录无法确认属于此任务。',
   TRACKING_STOPPED: '已结束本地跟踪。请在 ComfyUI 核对远端状态。',
+  REFERENCE_IMAGE_INVALID: '首帧图片无法读取或校验，请核对项目素材。',
+  COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
 };
 
 export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose: () => void }) {
@@ -51,6 +60,9 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [jobs, setJobs] = useState<Job[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflowId, setWorkflowId] = useState('');
+  const [capability, setCapability] = useState('image.text_to_image');
+  const [images, setImages] = useState<CursorPage<ReferenceImage>>();
+  const [imageVersionId, setImageVersionId] = useState('');
   const [promptId, setPromptId] = useState('');
   const [preview, setPreview] = useState<PromptArtifact>();
   const [confirmed, setConfirmed] = useState(false);
@@ -61,6 +73,9 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [remoteIds, setRemoteIds] = useState<Record<string, string>>({});
   const jobPath = `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
+  const needsImage =
+    config?.workflows.find((item) => item.id === workflowId)?.capability === 'video.image_to_video';
+  const selectedImage = images?.items.find((item) => item.id === imageVersionId);
   useEffect(() => {
     let active = true;
     void api<CardEditor>(`/shots/${shotId}/card/editor`)
@@ -160,7 +175,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 const value = await api<Job>(
                   jobPath,
                   'POST',
-                  { workflowId, promptId, confirmed: true },
+                  { workflowId, promptId, ...(needsImage ? { imageVersionId } : {}), confirmed: true },
                   { 'Idempotency-Key': key },
                 );
                 setJobs((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
@@ -181,8 +196,18 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   value={workflowId}
                   required
                   onChange={(event) => {
-                    setWorkflowId(event.target.value);
+                    const id = event.target.value;
+                    setWorkflowId(id);
+                    setImageVersionId('');
                     resetRequest();
+                    if (
+                      config.workflows.find((item) => item.id === id)?.capability ===
+                        'video.image_to_video' &&
+                      !images
+                    )
+                      void run(async () =>
+                        setImages(await api<CursorPage<ReferenceImage>>(`${projectPath}/generation-images`)),
+                      );
                   }}
                 >
                   <option value="">选择工作流</option>
@@ -190,12 +215,62 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     .filter((item) => item.enabled)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} · {item.capability.startsWith('image') ? '文字生图' : '文字生视频'} ·{' '}
+                        {item.name} · {capabilityLabels[item.capability]} ·{' '}
                         {new Date(item.createdAt).toLocaleString()}
                       </option>
                     ))}
                 </select>
               </label>
+              {needsImage && (
+                <>
+                  <label>
+                    首帧图片
+                    <select
+                      aria-label="首帧图片"
+                      required
+                      value={imageVersionId}
+                      onChange={(event) => {
+                        setImageVersionId(event.target.value);
+                        resetRequest();
+                      }}
+                    >
+                      <option value="">选择项目图片版本</option>
+                      {images?.items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.fileName} · v{item.version} · {new Date(item.createdAt).toLocaleString()}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {(!images || images.nextCursor) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void run(async () => {
+                          const cursor = images?.nextCursor;
+                          const more = await api<CursorPage<ReferenceImage>>(
+                            `${projectPath}/generation-images${cursor ? `?cursor=${cursor}` : ''}`,
+                          );
+                          setImages({ ...more, items: [...(images?.items ?? []), ...more.items] });
+                        })
+                      }
+                    >
+                      {images ? '更多图片版本' : '读取项目图片'}
+                    </button>
+                  )}
+                  {images?.items.length === 0 && (
+                    <p className="field-hint">请先导入 PNG、JPEG 或 WebP 图片，大小不超过 16 MiB。</p>
+                  )}
+                  {selectedImage && (
+                    <div className="entity-reference">
+                      <img src={`/api/v1/media-versions/${selectedImage.id}/poster`} alt="选中的首帧" />
+                      <span>
+                        {selectedImage.fileName} · v{selectedImage.version}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
               <label>
                 已保存提示词
                 <select
@@ -264,9 +339,14 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   checked={confirmed}
                   onChange={(event) => setConfirmed(event.target.checked)}
                 />
-                确认发送所选提示词到该工作流并消耗生成资源
+                {needsImage
+                  ? '确认发送所选提示词和首帧图片到该工作流并消耗生成资源'
+                  : '确认发送所选提示词到该工作流并消耗生成资源'}
               </label>
-              <button className="primary" disabled={!workflowId || !promptId || !confirmed}>
+              <button
+                className="primary"
+                disabled={!workflowId || !promptId || !confirmed || (needsImage && !imageVersionId)}
+              >
                 加入生成队列
               </button>
             </fieldset>
@@ -280,6 +360,11 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
               <strong>
                 {job.workflowName} · 制作卡 v{job.shotVersion}
               </strong>
+              {job.image && (
+                <p className="field-hint">
+                  首帧 {job.image.fileName} · v{job.image.version}
+                </p>
+              )}
               <p>{states[job.state] ?? job.state}</p>
               {job.errorCode && (
                 <p className="field-hint">
@@ -437,9 +522,13 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     graph,
                     positive: { node: data.get('positiveNode'), input: data.get('positiveInput') },
                     ...(negativeNode ? { negative: { node: negativeNode, input: negativeInput } } : {}),
+                    ...(data.get('capability') === 'video.image_to_video'
+                      ? { image: { node: data.get('imageNode'), input: 'image' } }
+                      : {}),
                     output: { node: data.get('outputNode'), field: data.get('outputField') },
                   });
                   form.reset();
+                  setCapability('image.text_to_image');
                   await refreshConfig();
                   setMessage('工作流的绑定节点已验证并保存。');
                 });
@@ -465,11 +554,23 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 </label>
                 <label>
                   生成方式
-                  <select name="capability">
+                  <select
+                    aria-label="生成方式"
+                    name="capability"
+                    value={capability}
+                    onChange={(event) => setCapability(event.target.value)}
+                  >
                     <option value="image.text_to_image">文字生图</option>
                     <option value="video.text_to_video">文字生视频</option>
+                    <option value="video.image_to_video">图生视频</option>
                   </select>
                 </label>
+                {capability === 'video.image_to_video' && (
+                  <label>
+                    首帧 LoadImage 节点
+                    <input name="imageNode" required />
+                  </label>
+                )}
                 <label>
                   API 格式工作流 JSON
                   <textarea name="graph" rows={5} required maxLength={160000} />

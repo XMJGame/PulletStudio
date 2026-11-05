@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createMediaFixtures } from '../../../tests/fixtures/media-fixtures.mjs';
-import { startComfyMock, fixtureWorkflow } from '../../../tests/fixtures/comfy-mock.mjs';
+import { startComfyMock, fixtureWorkflow, fixtureI2V } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
 test('ComfyUI jobs freeze inputs, recover safely and archive actual image and video drafts', async (t) => {
@@ -66,11 +66,11 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
   };
-  const queue = (workflowId, key = randomUUID(), actor = owner) =>
+  const queue = (workflowId, key = randomUUID(), actor = owner, imageVersionId) =>
     actor(
       'POST',
       `/shots/${shot.id}/generation-jobs`,
-      { workflowId, promptId: prompt.id, confirmed: true },
+      { workflowId, promptId: prompt.id, imageVersionId, confirmed: true },
       { 'Idempotency-Key': key },
     );
   const read = async (id) => (await owner('GET', `/generation-jobs/${id}`)).data;
@@ -305,6 +305,73 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         await tick();
         assert.equal(remote.mock.submissions.length, before);
         await control(uncertain.id, 'stop');
+        remote.mock.mode = 'normal';
+      },
+    );
+    await t.test(
+      'image to video sends only the frozen image and archives native SaveVideo history',
+      async () => {
+        const configPath = `/projects/${project.id}/generation-workflows`;
+        const definition = fixtureI2V(connectionId);
+        assert.equal(
+          (await owner('POST', configPath, { ...definition, image: { node: '1', input: 'image' } })).status,
+          400,
+        );
+        const saved = await owner('POST', configPath, definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const workflowId = saved.data.id;
+        assert.equal((await queue(workflowId)).data.code, 'REFERENCE_IMAGE_REQUIRED');
+        const imagePage = (await owner('GET', `/projects/${project.id}/generation-images`)).data;
+        assert.equal(imagePage.items.length, 1);
+        const source = imagePage.items[0];
+        const videoId = db().prepare("SELECT id FROM media_versions WHERE media_type='video'").get().id;
+        assert.equal(
+          (await queue(workflowId, randomUUID(), owner, videoId)).data.code,
+          'REFERENCE_IMAGE_INVALID',
+        );
+        const other = (await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Other' })).data;
+        const bytes = fixtures['image.png'].bytes;
+        const intent = (
+          await owner(
+            'POST',
+            `/projects/${other.id}/media-uploads`,
+            { fileName: 'cross.png', byteLength: bytes.length },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).data;
+        const foreign = (await owner('PUT', `/media-uploads/${intent.id}/content`, bytes)).data.mediaVersion;
+        assert.equal((await queue(workflowId, randomUUID(), owner, foreign.id)).status, 404);
+        const key = randomUUID();
+        const queued = await queue(workflowId, key, owner, source.id);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        assert.equal(queued.data.image.id, source.id);
+        assert.equal((await queue(workflowId, key, owner, foreign.id)).data.code, 'IDEMPOTENCY_CONFLICT');
+        await tick();
+        assert.equal((await read(queued.data.id)).state, 'submitted');
+        const upload = remote.mock.uploads.at(-1);
+        assert.equal(upload.overwrite, 'false');
+        assert.equal(upload.type, 'input');
+        assert.deepEqual(upload.bytes, bytes);
+        assert.equal(
+          remote.mock.submissions.at(-1).prompt['4'].inputs.image,
+          `pullet-studio/${queued.data.id}.png`,
+        );
+        assert.equal(
+          JSON.parse(
+            db().prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?').get(queued.data.id)
+              .snapshot_json,
+          ).image.id,
+          source.id,
+        );
+        await tick();
+        await tick();
+        assert.equal((await read(queued.data.id)).state, 'completed');
+        const count = remote.mock.submissions.length;
+        remote.mock.mode = 'unsafe-upload';
+        const invalid = (await queue(workflowId, randomUUID(), owner, source.id)).data;
+        await tick();
+        assert.equal((await read(invalid.id)).errorCode, 'COMFY_IMAGE_UPLOAD_INVALID');
+        assert.equal(remote.mock.submissions.length, count);
         remote.mock.mode = 'normal';
       },
     );

@@ -1,10 +1,11 @@
 import { expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { startComfyMock, fixtureWorkflow } from '../fixtures/comfy-mock.mjs';
+import { startComfyMock, fixtureWorkflow, fixtureI2V } from '../fixtures/comfy-mock.mjs';
 
 export async function exerciseGeneration(page: Page) {
   const image = await readFile('test-results/media-fixtures/image.png');
-  const remote = await startComfyMock({ 'image.png': image });
+  const video = await readFile('test-results/media-fixtures/clip.mp4');
+  const remote = await startComfyMock({ 'image.png': image, 'clip.mp4': video });
   try {
     // The preceding asset approval scenario leaves SH001 intentionally blocked.
     await page.locator('.structure-shot-list button').filter({ hasText: 'SH002' }).click();
@@ -57,11 +58,41 @@ export async function exerciseGeneration(page: Page) {
     ]);
     expect(await readFile((await download.path())!)).toEqual(image);
     await page.setViewportSize({ width: 1440, height: 1000 });
+    await dialog.getByLabel('工作流名称').fill('Studio image-to-video fixture');
+    await dialog.getByLabel('工作流连接').selectOption({ label: 'ComfyUI fixture' });
+    await dialog.getByLabel('生成方式').selectOption('video.image_to_video');
+    await dialog.getByLabel('首帧 LoadImage 节点').fill('4');
+    await dialog.getByLabel('API 格式工作流 JSON').fill(JSON.stringify(fixtureI2V('').graph));
+    await dialog.getByLabel('正向文本节点').fill('1');
+    await dialog.getByLabel('输出节点').fill('3');
+    await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('工作流的绑定节点已验证');
+    await dialog.getByLabel('生成工作流', { exact: true }).selectOption({ index: 1 });
+    await expect(submit).toBeDisabled();
+    await dialog.getByLabel('首帧图片', { exact: true }).selectOption({ index: 1 });
+    await expect(dialog.getByRole('img', { name: '选中的首帧' })).toBeVisible();
+    await dialog.getByLabel('确认发送所选提示词和首帧图片到该工作流并消耗生成资源').check();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dialog.getByRole('img', { name: '选中的首帧' }).scrollIntoViewIfNeeded();
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/generation-i2v-mobile.png' });
+    await submit.click();
+    const videoJob = dialog.locator('article').filter({ hasText: 'Studio image-to-video fixture' });
+    await expect(videoJob.getByText('已归档为镜头候选', { exact: true })).toBeVisible({ timeout: 15000 });
+    expect(remote.mock.uploads).toHaveLength(1);
+    expect(remote.mock.uploads[0].bytes).toEqual(image);
+    const [videoDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      videoJob.getByRole('link', { name: '下载生成原件' }).click(),
+    ]);
+    expect(await readFile((await videoDownload.path())!)).toEqual(video);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: '媒体生成', exact: true })).toBeFocused();
     await page.getByRole('button', { name: '镜头素材', exact: true }).click();
     const media = page.getByRole('dialog', { name: '镜头素材与候选' });
     await expect(media.getByRole('button', { name: /查看候选 Take 01 · image.png/ })).toBeVisible();
+    await expect(media.getByRole('button', { name: /查看候选 Take 02 · clip.mp4/ })).toBeVisible();
     await page.keyboard.press('Escape');
   } finally {
     await remote.close();

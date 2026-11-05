@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, lte, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
@@ -9,14 +9,22 @@ import {
   generationJobs,
   generationWorkflows,
   promptArtifacts,
+  mediaVersions,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
 import { ProviderSecrets } from '../providers/provider-secrets';
 import { approvedBaseUrl } from '../providers/safe-text-http';
 import { AssetApprovalService } from '../assets/asset-approval.service';
+import { MediaService } from '../assets/media.service';
 import { ComfyProvider, GenerationError } from './comfy-provider';
-import { CreateJobInput, renderWorkflow, WorkflowInput } from './generation-contract';
+import {
+  CreateJobInput,
+  renderWorkflow,
+  WorkflowInput,
+  referenceImageLimit,
+  referenceImageExtensions,
+} from './generation-contract';
 
 export type Job = typeof generationJobs.$inferSelect;
 export type Workflow = typeof generationWorkflows.$inferSelect;
@@ -24,6 +32,7 @@ type Connection = typeof generationConnections.$inferSelect;
 export type GenerationSnapshot = {
   graph: WorkflowInput['graph'];
   approvals: { revisionId: string; decisionId: string | null }[];
+  image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
 };
 const now = () => new Date().toISOString();
 
@@ -36,6 +45,7 @@ export class GenerationService {
     private readonly approval: AssetApprovalService,
     private readonly secrets: ProviderSecrets,
     private readonly comfy: ComfyProvider,
+    private readonly media: MediaService,
   ) {}
 
   audit(user: CurrentUser, workspaceId: string, action: string, targetId: string) {
@@ -109,6 +119,46 @@ export class GenerationService {
           .all()
       : [];
     return { canConfigure, canEdit: this.production.access(user, projectId).canEdit, workflows, connections };
+  }
+  images(user: CurrentUser, projectId: string, cursor?: string) {
+    this.authz.project(user, projectId, 'edit');
+    const scope = and(
+      eq(mediaVersions.projectId, projectId),
+      eq(mediaVersions.mediaType, 'image'),
+      lte(mediaVersions.byteLength, referenceImageLimit),
+      inArray(mediaVersions.mime, Object.keys(referenceImageExtensions)),
+    );
+    const boundary = cursor
+      ? this.database.db
+          .select({ id: mediaVersions.id, createdAt: mediaVersions.createdAt })
+          .from(mediaVersions)
+          .where(and(scope, eq(mediaVersions.id, cursor)))
+          .get()
+      : undefined;
+    if (cursor && !boundary) fail(400, 'INVALID_CURSOR', '图片分页位置无效');
+    const rows = this.database.db
+      .select({
+        id: mediaVersions.id,
+        fileName: mediaVersions.fileName,
+        version: mediaVersions.version,
+        createdAt: mediaVersions.createdAt,
+      })
+      .from(mediaVersions)
+      .where(
+        and(
+          scope,
+          boundary
+            ? or(
+                lt(mediaVersions.createdAt, boundary.createdAt),
+                and(eq(mediaVersions.createdAt, boundary.createdAt), lt(mediaVersions.id, boundary.id)),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(desc(mediaVersions.createdAt), desc(mediaVersions.id))
+      .limit(31)
+      .all();
+    return { items: rows.slice(0, 30), nextCursor: rows.length > 30 ? rows[29].id : null };
   }
   createConnection(
     user: CurrentUser,
@@ -224,11 +274,13 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
+    const { image } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
     return {
       id: row.id,
       shotId: row.shotId,
       shotVersion: row.shotVersion,
       promptId: row.promptId,
+      image: image ? { id: image.id, fileName: image.fileName, version: image.version } : null,
       workflowName: workflow.name,
       capability: workflow.capability,
       state: row.state,
@@ -258,7 +310,11 @@ export class GenerationService {
           )
           .get();
         if (replay) {
-          if (replay.workflowId !== input.workflowId || replay.promptId !== input.promptId)
+          if (
+            replay.workflowId !== input.workflowId ||
+            replay.promptId !== input.promptId ||
+            (JSON.parse(replay.snapshotJson) as GenerationSnapshot).image?.id !== input.imageVersionId
+          )
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成输入');
           return this.view(replay, user);
         }
@@ -293,6 +349,27 @@ export class GenerationService {
           .get();
         if (active) fail(409, 'GENERATION_ACTIVE', '此镜头已有待处理任务，请先查看任务记录');
         const approvals = this.approvals(user, shotId);
+        if ((workflow.capability === 'video.image_to_video') !== Boolean(input.imageVersionId))
+          fail(400, 'REFERENCE_IMAGE_REQUIRED', '图生视频须选择一个项目图片版本');
+        let image: GenerationSnapshot['image'];
+        if (input.imageVersionId) {
+          const source = this.media.version(user, input.imageVersionId);
+          if (source.projectId !== project.id) fail(404, 'NOT_FOUND', '首帧不属于当前项目');
+          if (
+            source.mediaType !== 'image' ||
+            !referenceImageExtensions[source.mime] ||
+            source.byteLength > referenceImageLimit
+          )
+            fail(400, 'REFERENCE_IMAGE_INVALID', '首帧须为不超过 16 MiB 的 PNG、JPEG 或 WebP');
+          image = {
+            id: source.id,
+            fileName: source.fileName,
+            version: source.version,
+            mime: source.mime,
+            bytes: source.byteLength,
+            sha256: source.sha256,
+          };
+        }
         const rendered = JSON.parse(prompt.renderedJson) as {
           positivePrompt: string;
           negativePrompt: string;
@@ -318,7 +395,7 @@ export class GenerationService {
             connectionVersion: connection.version,
             creatorId: user.id,
             requestKey: key,
-            snapshotJson: JSON.stringify({ graph, approvals }),
+            snapshotJson: JSON.stringify({ graph, approvals, image }),
             state: 'queued',
             nextAt: Date.now(),
             createdAt,

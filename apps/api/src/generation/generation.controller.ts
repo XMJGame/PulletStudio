@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { parse, StudioRequest } from '../common/http';
@@ -20,6 +20,14 @@ export class GenerationController {
   @Get('projects/:id/generation-config')
   config(@Req() req: StudioRequest, @Param('id') id: string) {
     return this.generation.config(req.user, parse(uuid, id));
+  }
+  @Get('projects/:id/generation-images')
+  images(@Req() req: StudioRequest, @Param('id') id: string, @Query('cursor') cursor?: string) {
+    return this.generation.images(
+      req.user,
+      parse(uuid, id),
+      cursor === undefined ? undefined : parse(uuid, cursor),
+    );
   }
   @Post('projects/:id/generation-connections')
   connection(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {

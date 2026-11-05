@@ -25,7 +25,7 @@ export const workflowInput = z
   .object({
     name,
     connectionId: z.uuid(),
-    capability: z.enum(['image.text_to_image', 'video.text_to_video']),
+    capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video']),
     graph: z.record(
       nodeId,
       z
@@ -42,6 +42,10 @@ export const workflowInput = z
     ),
     positive: target,
     negative: target.optional(),
+    image: z
+      .object({ node: nodeId, input: z.literal('image') })
+      .strict()
+      .optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
   })
   .strict()
@@ -59,17 +63,36 @@ export const workflowInput = z
     if (value.positive.node === value.negative?.node && value.positive.input === value.negative.input)
       issue('正向和负向提示词必须绑定不同输入');
     if (!Object.hasOwn(value.graph, value.output.node)) issue('输出节点不存在');
+    if (value.capability === 'video.image_to_video') {
+      const node = value.image && value.graph[value.image.node];
+      if (node?.class_type !== 'LoadImage' || typeof node.inputs.image !== 'string')
+        issue('图生视频须绑定 LoadImage 的 image 输入');
+      if (
+        value.image &&
+        [value.positive, value.negative].some(
+          (binding) => binding?.node === value.image?.node && binding?.input === 'image',
+        )
+      )
+        issue('首帧和提示词必须绑定不同输入');
+    } else if (value.image) issue('此生成方式不支持首帧绑定');
   });
 export const createJobInput = z
   .object({
     workflowId: z.uuid(),
     promptId: z.uuid(),
+    imageVersionId: z.uuid().optional(),
     confirmed: z.literal(true),
   })
   .strict();
 export const reconcileInput = z.object({ remoteId: z.uuid().optional() }).strict();
 export type WorkflowInput = z.infer<typeof workflowInput>;
 export type CreateJobInput = z.infer<typeof createJobInput>;
+export const referenceImageLimit = 16 * 1024 * 1024;
+export const referenceImageExtensions: Readonly<Record<string, string>> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
 export const resultDescriptor = z.object({
   filename: z
     .string()

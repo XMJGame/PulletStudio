@@ -19,7 +19,16 @@ npm run worker:generation
 - 正向与可选负向绑定指定节点和已有字符串输入。存在负向提示词时须配置负向绑定。输出指定保存节点以及远端历史中的字段，例如图片通常为 `images`。视频字段取决于工作流使用的保存节点。指定位置须返回单个文件。
 - 保存新版工作流时建立新的配置记录，可在名称里标注用途或版本。旧任务继续指向旧记录。停用连接后，尚未提交的任务无法发出。已提交任务在连接恢复后可查询。
 
-首版提供文字生图及文字生视频。参考图、视频或音频的自动上传和槽位绑定、seed/尺寸等参数控件、多输出、批量及远端取消属于后续能力。当前可归档 PNG、JPEG、WebP、MP4、WebM、MOV。通过同一连接的 `/view` 按确切输出描述下载，要求响应提供合法的 Content-Length，大小采用本机媒体配置。实际媒体类型、原件完整性与封面按现有导入规则验证。
+当前支持文字生图、文字生视频，以及单张首帧图生视频。末帧、多图参考、视频或音频输入、seed/尺寸控件、多输出、批量和远端取消属于后续范围。当前可归档 PNG、JPEG、WebP、MP4、WebM、MOV。通过同一连接的 `/view` 读取指定输出，要求合法的 Content-Length。媒体类型、原件完整性与封面按现有归档规则验证。
+
+## 图生视频与 MiniMax H3
+
+1. 在已经跑通的 ComfyUI 中打开工作流并导出 **API 格式 JSON**。官方 `video_minimax_h3_i2v.json` 是画布模板，使用你的版本导出 API 图可以保留实际节点、模型文件和参数。 [官方 MiniMax H3 模板](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_i2v.json)
+2. 在 Studio 工作流设置选择“图生视频”。配置首帧为 API 图中的 `LoadImage.image`。正向词指向实际持有字符串的输入。如果 `MiniMaxH3ImageToVideo.prompt` 是直接字符串，可以绑定它。如果输入来自连线，应绑定提供文本的上游节点。
+3. 输出指定原生 `SaveVideo` 的 API 节点。ComfyUI 0.44.0 的原生保存视频预览在历史中使用 `images` 字段。使用其他保存节点时按其实际历史配置。 [ComfyUI 0.44.0 历史字段实现](https://github.com/Comfy-Org/ComfyUI/blob/v0.44.0/comfy_api/latest/_ui.py#L396-L401)
+4. 在镜头“媒体生成”选择已归档的项目图片版本。支持不超过 16 MiB 的 PNG、JPEG 或 WebP。确认后，Worker 校验并通过 `/upload/image` 将这张图发到已选连接的 `pullet-studio` 输入子目录，再把相对文件名绑定进提交图。任务记录显示所采用的图片及版本。远端输入文件可在 ComfyUI 侧管理。 [ComfyUI 上传接口实现](https://github.com/Comfy-Org/ComfyUI/blob/v0.44.0/server.py#L483-L497)
+
+本轮在目标主机实测连接、首帧输入节点、文本输入节点及视频输出节点的只读校验。真实任务需要用户导出的 API 图和经确认的测试素材。
 
 ## 运行与恢复
 
