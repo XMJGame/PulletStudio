@@ -16,6 +16,7 @@ PulletStudio/
 │  │  ├─ generation/                   ComfyUI、固定工作流、媒体生成任务
 │  │  ├─ timeline/                     已有可选轻量预演
 │  │  ├─ exports/                      分镜与标准媒体交付
+│  │  ├─ boards/                       G1正式Board、修订、固定引用及项目RBAC
 │  │  ├─ db/                           实际schema、连接、备份/迁移执行
 │  │  └─ *-worker.ts                   三个Worker的进程入口
 │  ├─ drizzle/                        已应用的SQL、快照和journal，顺序不可改
@@ -24,10 +25,12 @@ PulletStudio/
 │  ├─ main.tsx / style.css             现有应用入口/布局/样式
 │  ├─ components/                     当前工作台、表单与Dialog
 │  ├─ canvas-lab/                     G0独立交互实验，不读取正式项目/资产
+│  ├─ canvas/                         G1正式React Flow/来源/Inspector/冲突/历史，懒加载
 │  └─ *-types.ts / api.ts              前端类型与HTTP调用
 ├─ packages/contracts/                Storage接口已使用；通用Provider接口仍是草案
 ├─ tests/e2e/ / tests/fixtures/        浏览器业务flow、Mock及合成媒体工具
 ├─ tests/canvas/                      G0独立浏览器验收，另用playwright.canvas.config.ts
+├─ tests/boards/                      G1真实隔离API/媒体验收，playwright.boards.config.ts
 ├─ tools/                             setup、API监视启动、媒体校验
 ├─ examples/                          通用绑定样例，无本机连接配置
 ├─ infra/                             历史Compose示例，非可用SQLite正式部署

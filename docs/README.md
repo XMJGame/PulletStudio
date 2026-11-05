@@ -8,7 +8,7 @@
 |---|---|---|
 | 现在能做什么、缺什么、下一步是什么 | [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md) | 唯一实时状态与实施顺序；不把历史测试数当最新结果 |
 | 产品最终范围、长期需求 | [MASTER-PLAN](MASTER-PLAN.md) | 长期基线；有效ADR与用户新决定优先，文内历史技术示例不构成换栈授权 |
-| 为什么这样设计 | 根目录ADR-001至009，先看[ADR-009产品边界](ADR-009-production-and-postproduction-handoff.md)及[ADR-005生产内核](ADR-005-team-production-and-extension.md) | 决策编号/路径保持稳定；画布取舍见[ADR-008](ADR-008-creative-canvas-reference.md) |
+| 为什么这样设计 | ADR-001至010，先看[产品边界ADR-009](ADR-009-production-and-postproduction-handoff.md)、[实例/画布ADR-010](ADR-010-comfy-instances-and-board-boundary.md)及[生产内核ADR-005](ADR-005-team-production-and-extension.md) | 决策编号/路径保持稳定；画布取舍见[ADR-008](ADR-008-creative-canvas-reference.md) |
 | 本地怎样运行、测试、备份 | [开发运行手册](operations/DEVELOPMENT.md) | 当前有效命令；完整媒体恢复转[LOCAL-MEDIA](LOCAL-MEDIA.md) |
 | 代码/数据/文档各在哪里 | [工程目录与整理规则](architecture/REPOSITORY-MAP.md) | 当前模块映射、保留和渐进拆分规则 |
 | 历次到底测了什么 | [阶段验收历史](history/IMPLEMENTATION-2026-11-04-05.md) | 保存原实施合同、迁移前后备份、实机证据；历史“下一包”不驱动开发 |
@@ -27,7 +27,7 @@
 | Take审核与选片 | LOCAL-MEDIA及镜头候选审核界面 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md)；API assets/take-review* |
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 可选轻量预演 | [ANIMATICS](ANIMATICS.md) | [预演合同](modules/ANIMATIC-IMPLEMENTATION.md)；API timeline/，不再扩展专业剪辑器 |
-| 创作画布 | [G0交互原型](CANVAS-LAB.md)、[参考与取舍ADR](ADR-008-creative-canvas-reference.md) | [G0合同](modules/CANVAS-G0-IMPLEMENTATION.md)；正式Board/项目引用/生成接入仍待G1/G2 |
+| 创作画布 | [G1正式画布/API](CREATIVE-CANVAS.md)、[G0隔离原型](CANVAS-LAB.md)、[参考ADR](ADR-008-creative-canvas-reference.md) | [G1合同](modules/CANVAS-G1-IMPLEMENTATION.md)、[G0合同](modules/CANVAS-G0-IMPLEMENTATION.md)；生成接入待G2 |
 
 ## 技术规格与参考
 

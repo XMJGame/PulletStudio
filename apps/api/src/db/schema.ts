@@ -1269,3 +1269,68 @@ export const generationJobs = sqliteTable(
     ),
   ],
 );
+
+export const boards = sqliteTable(
+  'boards',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    unitId: text('unit_id'),
+    title: text('title').notNull(),
+    version: integer('version').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    creationKey: text('creation_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.unitId, t.projectId, t.workspaceId],
+      foreignColumns: [episodes.id, episodes.projectId, episodes.workspaceId],
+    }),
+    uniqueIndex('board_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('board_create_key').on(t.projectId, t.createdBy, t.creationKey),
+    index('board_project_page').on(t.projectId, t.createdAt, t.id),
+    check('board_version', sql`${t.version}>=0`),
+    check('board_title', sql`length(${t.title}) BETWEEN 1 AND 100`),
+  ],
+);
+export const boardRevisions = sqliteTable(
+  'board_revisions',
+  {
+    id: text('id').primaryKey(),
+    boardId: text('board_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    schemaVersion: text('schema_version').notNull(),
+    layoutJson: text('layout_json').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.boardId, t.projectId, t.workspaceId],
+      foreignColumns: [boards.id, boards.projectId, boards.workspaceId],
+    }),
+    uniqueIndex('board_revision_version').on(t.boardId, t.version),
+    uniqueIndex('board_revision_request').on(t.boardId, t.createdBy, t.requestKey),
+    check(
+      'board_revision_limits',
+      sql`${t.version}>0 AND ${t.schemaVersion}='studio.board.v1' AND length(CAST(${t.layoutJson} AS BLOB))<=262144 AND json_valid(${t.layoutJson})`,
+    ),
+  ],
+);

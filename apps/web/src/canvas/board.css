@@ -1,0 +1,369 @@
+.studio-dialog.creative-board-dialog {
+  width: calc(100vw - 24px);
+  max-width: none;
+  height: calc(100dvh - 24px);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: auto;
+}
+.creative-board-dialog .dialog-header {
+  padding: 16px 22px;
+  flex: 0 0 auto;
+}
+.creative-board-dialog .dialog-header h2 {
+  font-size: 21px;
+}
+.creative-board-dialog .dialog-header p {
+  margin: 5px 0 0;
+}
+.creative-board-home {
+  overflow: auto;
+}
+.creative-create {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  max-width: 640px;
+  margin: 24px 0;
+}
+.creative-create label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.creative-create button {
+  flex-shrink: 0;
+}
+.creative-board-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.creative-board-list button {
+  display: grid;
+  gap: 12px;
+  text-align: left;
+  padding: 20px;
+  overflow-wrap: anywhere;
+}
+.creative-board-list span,
+.creative-save-state,
+.creative-help {
+  color: #a9b2c0;
+  font-size: 12px;
+}
+.creative-toolbar {
+  padding: 12px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #343c48;
+}
+.creative-toolbar > input {
+  width: 190px;
+  min-width: 120px;
+  margin: 0;
+}
+.creative-toolbar > button {
+  padding: 9px 12px;
+}
+.creative-save-state {
+  margin-right: auto;
+  padding: 6px;
+}
+.creative-notice,
+.creative-conflict {
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.creative-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  background: #3d3220;
+  border-bottom: 1px solid #8b6a36;
+}
+.creative-conflict strong {
+  margin-right: auto;
+  font-weight: 500;
+}
+.creative-workspace {
+  display: grid;
+  grid-template-columns: 225px minmax(0, 1fr) 275px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.creative-sources,
+.creative-inspector {
+  min-width: 0;
+  padding: 16px;
+  overflow: auto;
+  background: #191e25;
+}
+.creative-sources {
+  border-right: 1px solid #343c48;
+}
+.creative-inspector {
+  border-left: 1px solid #343c48;
+}
+.creative-sources h3,
+.creative-inspector h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.creative-sources input {
+  margin: 12px 0;
+}
+.creative-source-tabs {
+  display: flex;
+  gap: 5px;
+}
+.creative-source-tabs button {
+  padding: 8px 12px;
+}
+.creative-source-tabs button[aria-pressed='true'],
+.creative-toolbar button[aria-pressed='true'] {
+  border-color: #c9ad79;
+  color: #dec28f;
+}
+.creative-source-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.creative-source-list button {
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.creative-source-list span,
+.creative-source-list small {
+  color: #a9b2c0;
+  font-size: 11px;
+}
+.creative-surface {
+  min-height: 0;
+  background: #11161b;
+}
+.creative-surface .react-flow__node-boardNode {
+  border-radius: 12px;
+  border: 1px solid #485260;
+  background: #1c232c;
+}
+.creative-surface .react-flow__node-boardNode.selected {
+  outline: 2px solid #dec28f;
+  outline-offset: 3px;
+}
+.creative-node {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow: hidden;
+  gap: 9px;
+  border-radius: 12px;
+}
+.creative-node strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.creative-node-kind,
+.creative-node footer {
+  color: #c9ad79;
+  font-size: 11px;
+}
+.creative-node p {
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.creative-node img {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
+  background: #101419;
+  border-radius: 5px;
+}
+.creative-node footer {
+  margin-top: auto;
+}
+.creative-note-text,
+.creative-node-summary {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  overflow: hidden;
+}
+.creative-node.unavailable {
+  opacity: 0.8;
+  border: 1px dashed #92705e;
+}
+.creative-resource-error,
+.creative-reference-state.revoked,
+.creative-reference-state.unavailable {
+  color: #e7a797;
+}
+.creative-reference-state.stale,
+.creative-reference-state.draft {
+  color: #dfc38d;
+}
+.creative-group-card {
+  height: 100%;
+  padding: 20px;
+  background: #b6a0700b;
+  border: 1px dashed #8a7958;
+  border-radius: 12px;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+}
+.creative-group-card small {
+  color: #b6a070;
+}
+.creative-inspector label {
+  margin-top: 20px;
+}
+.creative-inspector textarea {
+  resize: vertical;
+}
+.creative-inspector strong,
+.creative-inspector p {
+  overflow-wrap: anywhere;
+}
+.creative-summary {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 13px;
+}
+.creative-remove {
+  margin-top: 24px;
+  color: #e7a797;
+}
+.creative-media {
+  margin: 16px 0;
+}
+.creative-media img,
+.creative-media video,
+.creative-media audio {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  background: #0c1015;
+}
+.creative-media a {
+  font-size: 12px;
+}
+.creative-help {
+  padding: 8px 18px;
+  border-top: 1px solid #343c48;
+}
+.creative-history {
+  display: grid;
+  gap: 12px;
+}
+.creative-history button {
+  display: grid;
+  text-align: left;
+  gap: 8px;
+}
+.creative-history small {
+  color: #a9b2c0;
+}
+.creative-detail-text {
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.creative-detail-fields {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.creative-detail-fields dt {
+  color: #a9b2c0;
+  margin: 12px 0 5px;
+}
+.creative-detail-fields dd {
+  margin-left: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.creative-compare-dialog li {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .creative-workspace {
+    grid-template-columns: 180px minmax(0, 1fr) 225px;
+  }
+  .creative-sources,
+  .creative-inspector {
+    padding: 12px;
+  }
+}
+@media (max-width: 760px) {
+  .studio-dialog.creative-board-dialog {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+  .creative-board-dialog .dialog-header {
+    padding: 12px;
+  }
+  .creative-board-dialog .dialog-header p {
+    font-size: 11px;
+  }
+  .creative-toolbar {
+    padding: 8px;
+    gap: 6px;
+  }
+  .creative-toolbar > input {
+    width: 145px;
+  }
+  .creative-toolbar > button {
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+  .creative-workspace {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(300px, 1fr) 210px;
+    overflow: auto;
+  }
+  .creative-surface {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .creative-sources,
+  .creative-inspector {
+    grid-row: 2;
+    border-top: 1px solid #343c48;
+  }
+  .creative-source-tabs button {
+    padding: 6px 8px;
+  }
+  .creative-help {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+  .creative-create {
+    flex-wrap: wrap;
+  }
+  .creative-conflict {
+    padding: 8px;
+  }
+  .creative-surface .react-flow__minimap {
+    width: 110px;
+    height: 80px;
+  }
+}

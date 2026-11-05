@@ -2,6 +2,8 @@
 
 > 2026-11-05 决策说明：本文保留长期产品需求；主技术栈已由 ADR-001 确定为 NestJS/React/Drizzle/SQLite，下文 FastAPI/SQLAlchemy/Alembic 及重建 M0 的示例不再执行。团队级模块规格见 `architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md`，实际状态与顺序唯一来源为 `IMPLEMENTATION-STATUS.md`。
 
+> G1与实例决策更新：[正式画布合同](modules/CANVAS-G1-IMPLEMENTATION.md)采用Board/不可变修订、固定业务引用及原RBAC/CAS，连线仅注释。[ADR-010](ADR-010-comfy-instances-and-board-boundary.md)冻结原生POST /prompt＋多个独立实例，默认auto、高级manual；指定实例不可用不静默换机，端点/密钥只在后端。G1不做调度。后续G2生成闭环→独立实例调度→团队/批量/交付/部署，替代原Distributed路线及“画布全部排后”的旧建议。
+
 > 2026-11-05 产品边界更新：[ADR-009](ADR-009-production-and-postproduction-handoff.md)。Pullet负责AI影视生产与素材交付，专业软件承担正式后期。生产工作台和创作画布为核心入口；镜头顺序/计划时长、媒体预览、轻量故事板连续播放、可选FFmpeg低清预演保留，不扩展为多轨剪辑器。标准原件/CSV/JSON先交付，声音与SRT基于确切来源逐步接入，OTIO/FCPXML后置并逐软件验证。不新增转场、关键帧、调色、特效合成或专业混音；旧文中相关长期建议不再驱动实施。
 
 > 版本：1.0 / 2026-11-04  
@@ -25,7 +27,7 @@
 - V1 后台任务：**基于数据库的持久化任务队列 + 单独 Worker 进程**，使用原子领取/租约/幂等/心跳/超时/恢复；不要在 FastAPI 的内存 `BackgroundTasks` 中执行长视频任务。SQLite 下先单实例队列服务，可分多队列逻辑通道；在负载增长时迁移到 PostgreSQL + Redis/Celery 或其他成熟队列，不把任务协议绑定队列实现。
 - 文件存储：Storage Adapter，**默认 Local**，V1 支持管理员配置的挂载目录（NAS），下一迭代支持 S3 兼容（MinIO/S3）；OSS/COS、CDN 分发按后续模块实现。CDN 是 Delivery，非默认主存储。
 - 模型：**Text / Image / Video / Speech / Audio 独立能力接口**；ComfyUI 是第一个真实图像/视频 Provider；文本 Provider 优先标准 OpenAI-compatible API（可连接具有兼容接口的本地或云端 LLM）。不同模态、任务模式能力独立，不声称所有厂商协议一致。
-- 本地推理：ComfyUI-Distributed 由用户独立部署，Pullet Studio 只调指定 Master Endpoint；普通 `POST /prompt` 和插件 `POST /distributed/queue` 作为不同的提交策略，不能假设任意普通工作流自动分配 GPU。默认 LAN only，禁止公网裸露 ComfyUI。
+- 本地推理：原生ComfyUI POST /prompt，后续支持多个独立实例，默认auto、高级manual，不接Distributed专用API。当前仍为工作流绑定单连接；多实例须独立验收。画布只调用Studio Generation API。
 - 部署：Docker Compose 为主，Windows Docker Desktop + WSL2 / Linux / 支持容器的 NAS；Web 可局域网多用户访问。无 GPU 的用户也能运行项目管理与外部云生成。
 - SaaS：预留租户隔离、配额和权限模型，不在 V1 实现支付、公共云租户服务或弹性 GPU 调度。
 
@@ -104,7 +106,7 @@ FastAPI (Auth / Workspace / Project / Script / Shot / Asset /
    │                         └─ Delivery → protected stream / signed URL / CDN
    ├─ Persistent Job Table → Worker Process
    │                              ├─ Text LLM Provider
-   │                              ├─ ComfyUI Provider (Standard / Distributed)
+   │                              ├─ ComfyUI Provider (native /prompt, independent instances)
    │                              ├─ Cloud Image/Video/Speech Providers
    │                              ├─ Asset Ingestion + FFprobe/FFmpeg
    │                              └─ Prompt Compiler / AI Stage Worker
@@ -248,11 +250,11 @@ class TextProvider(Protocol):
 - 同一个生成任务重试可能重复扣费，**先对上游按 provider_task_id 查询**；连接超时不能直接判断提交失败。
 - 生成结果 URL 可能短期失效，需限时导入；服务端下载远端文件必须有 SSRF 防护（允许 HTTPS、拒绝保留/回环/链路本地地址、DNS 复核、重定向重检和体积限制）。对于用户批准的内网 ComfyUI 端点，使用独立受控的 trusted endpoint 策略，禁止任意输入 URL。
 
-### 6.4 ComfyUI Provider 的两种提交模式
+### 6.4 ComfyUI原生提交与独立实例
 
 **普通工作流**：使用服务器 `POST /prompt`；返回 `prompt_id`，使用 `/history/{prompt_id}` 与 `/ws` 获取状态，`/view` 接收输出，参考图可能需 `/upload/image`。该模式不应承诺分布式负载均衡。
 
-**Distributed 模式**：使用插件 `POST /distributed/queue`，提供 API 格式 prompt、client_id、插件配置中的 enabled_worker_ids、可选 trace_execution_id。必须是支持分布式节点的工作流；如果无分布式节点可能退回 Master 普通队列。Worker 管理完全交给插件；Pullet Studio 只处理返回的 prompt_id、任务状态、素材。插件 API 属实验性，必须做版本兼容测试。详情参考：`https://github.com/robertvoy/ComfyUI-Distributed/blob/main/docs/comfyui-distributed-api.md`。
+**实例选择（G2后实施）**：后端维护受信地址、加密凭据、启用/健康、模型节点能力、并发/队列容量及工作区授权。auto按工作流确切依赖、权限、健康与容量选机；manual只列有权且匹配的实例，不可用须明确失败或等待，不能隐式换机。Job冻结实际实例和外部prompt_id。不使用Distributed Collector/Seed或专用提交API，不承诺跨机显存合并。
 
 **Workflow Binding**：上传 *API-format* JSON（非仅普通 UI workflow）。可手动绑定 `positive_prompt`, `negative_prompt`, `source_image`, `last_image`, `seed`, `width`, `height`, `frames`, `fps` 等到节点 JSON path；绑定时通过 ComfyUI `/object_info` 验证可用类型；输出映射可支持多图/多视频/音频，不能仅假设 SaveImage 节点。绑定快照不可变且随 Job 存档。暂不做“自动猜节点 ID 一定正确”。
 
@@ -382,7 +384,7 @@ class StorageBackend(Protocol):
 10. **轻量故事板预演与交付**：按已选镜头顺序检查叙事节奏、缺片、计划时长及原件完整性，可选FFmpeg低清预演；保留已有简单片段能力，不再扩展专业轨道UI。重点交付原件、声音/字幕来源、CSV镜头清单、制作说明及manifest，专业后期在外部完成。
 11. **系统设置**：用户成员、Storage、Provider、Workflow Binding、备份与健康检查。
 
-**无限画布排后**，但画布 Node 引用 `shot_id/asset_version_id/job_id`，不复制业务实体。后续加入 `Canvas/CanvasNode/CanvasEdge`，数据与镜头、资产库保持单一真相源。
+**画布按G0→G1→G2实施**。G1固定引用镜头卡version、实体revision ID及媒体version ID，不复制业务实体；注释连线不改卡、不执行生成。G2调用现有Generation/Take，不重做队列或审批。
 
 ## 13. 部署方案
 
@@ -400,10 +402,10 @@ class StorageBackend(Protocol):
 
 ### 13.3 我们现有硬件适配
 
-- 保留第一台 `G:\AICluster\ComfyUI_windows_portable` 不动；Studio 只新增一个 ComfyUI Connection 指向 Master `http://<实际局域网IP>:8188`。
-- 飞牛 NAS `\\192.168.0.116\团队文件-AIStudio` 只是**我们部署时的示例 Storage Connection**，不可硬编码进产品默认值。
-- 已有 Master 插件 ComfyUI-Distributed；Worker 扩展由该插件管理；Pullet Studio 不直接控制 7 台独立 16GB GPU 的显存或模型缓存。
-- 分布式模式在真正接入第二台 Worker 并验证 `/distributed/queue` 后才标注为可用；插件版本升级后做契约回归测试。
+- 保留已有ComfyUI和模型；每台独立实例由管理员配置，地址只在后端受控配置。
+- NAS路径属于部署配置，不写进产品默认值，Storage适配及迁移单独验收。
+- 不安装或控制Distributed Workers，不管理跨机显存或模型缓存。
+- G2后再验收独立实例auto/manual及双机并行；未实现前不声称可自动分机。
 
 ### 13.4 备份恢复
 
@@ -502,7 +504,7 @@ class StorageBackend(Protocol):
 ## 19. 对外可用的文档清单
 
 - 用户安装、第一管理员 Setup、Workspace/用户权限、项目制作教程。
-- 模型 Provider 连接教程：标准 ComfyUI、Distributed、OpenAI-compatible text；含版本说明。
+- 模型Provider连接教程：原生ComfyUI、后续独立实例auto/manual、OpenAI-compatible text；含已验收范围。
 - Storage 教程：Local、NAS 挂载与权限、S3 后续。
 - API OpenAPI 文档、导入导出格式、迁移与备份。
 - 安全部署清单（LAN/HTTPS、凭据、访问控制、数据与版权）。

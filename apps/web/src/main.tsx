@@ -1,6 +1,6 @@
-import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { api, ApiError, Episode, Project, Shot, User, Workspace } from './api';
+import { api, ApiError, Episode, Project, ProductionUnit, Shot, User, Workspace } from './api';
 import { Dialog } from './components/Dialog';
 import { WorkspaceMenu } from './components/WorkspaceMenu';
 import { AspectRatioField } from './components/AspectRatioField';
@@ -17,6 +17,7 @@ import { StructureWorkbench } from './components/StructureWorkbench';
 import { AnalysisWorkbench } from './components/AnalysisWorkbench';
 import { projectFormData } from './project-settings';
 import './style.css';
+const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
 
 type Status = { initialized: boolean; setupEnabled: boolean };
 type Access = { canEdit: boolean; canManage: boolean };
@@ -179,7 +180,10 @@ function App() {
   const [projectForm, setProjectForm] = useState(false);
   const [editProject, setEditProject] = useState<Project>();
   const [editEpisode, setEditEpisode] = useState<Episode>();
-  const [projectView, setProjectView] = useState<'shots' | 'script' | 'structure' | 'analysis'>('shots');
+  const [projectView, setProjectView] = useState<'shots' | 'script' | 'structure' | 'analysis' | 'canvas'>(
+    'shots',
+  );
+  const [canvasUnit, setCanvasUnit] = useState<ProductionUnit>();
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [episodeForm, setEpisodeForm] = useState(false);
   const [shotForm, setShotForm] = useState(false);
@@ -323,7 +327,11 @@ function App() {
   useEffect(() => {
     setEpisodes([]);
     setProjectView(
-      project && project.workFormat !== 'custom' && project.workFormat !== 'series' ? 'structure' : 'shots',
+      window.location.hash.startsWith('#canvas')
+        ? 'canvas'
+        : project && project.workFormat !== 'custom' && project.workFormat !== 'series'
+          ? 'structure'
+          : 'shots',
     );
     setEpisodeId('');
     setAccess({ canEdit: false, canManage: false });
@@ -844,8 +852,38 @@ function App() {
                 >
                   AI 分镜
                 </button>
+                <button
+                  aria-pressed={projectView === 'canvas'}
+                  onClick={() => {
+                    setCanvasUnit(undefined);
+                    setProjectView('canvas');
+                    window.history.replaceState(null, '', '#canvas');
+                  }}
+                >
+                  创作画布
+                </button>
               </div>
-              {projectView === 'script' ? (
+              {projectView === 'canvas' ? (
+                <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
+                  <BoardWorkspace
+                    key={`${projectId}.${canvasUnit?.id ?? ''}`}
+                    projectId={projectId}
+                    projectTitle={project.title}
+                    unit={canvasUnit}
+                    canEdit={access.canEdit}
+                    onUnauthorized={() => setUser(undefined)}
+                    onClose={() => {
+                      window.history.replaceState(
+                        null,
+                        '',
+                        window.location.pathname + window.location.search,
+                      );
+                      setCanvasUnit(undefined);
+                      setProjectView('structure');
+                    }}
+                  />
+                </Suspense>
+              ) : projectView === 'script' ? (
                 <ScriptWorkbench
                   key={projectId}
                   projectId={projectId}
@@ -870,6 +908,11 @@ function App() {
                   projectId={projectId}
                   canEdit={access.canEdit}
                   onUnauthorized={() => setUser(undefined)}
+                  onOpenCanvas={(unit) => {
+                    setCanvasUnit(unit);
+                    setProjectView('canvas');
+                    window.history.replaceState(null, '', '#canvas');
+                  }}
                 />
               ) : (
                 <>

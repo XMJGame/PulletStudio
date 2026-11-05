@@ -225,6 +225,27 @@
       "when": 1793864285110,
       "tag": "0031_animatic_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793873452071,
+      "tag": "0032_high_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1793873452797,
+      "tag": "0033_board_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1793873506850,
+      "tag": "0034_board_history_protection",
+      "breakpoints": true
     }
   ]
 }

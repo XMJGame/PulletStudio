@@ -50,6 +50,9 @@ import { TimelineService } from './timeline/timeline.service';
 import { TimelineController } from './timeline/timeline.controller';
 import { AnimaticRenderer } from './timeline/animatic-renderer';
 import { AnimaticWorker } from './timeline/animatic-worker';
+import { BoardsService } from './boards/boards.service';
+import { BoardReferencesService } from './boards/board-references.service';
+import { BoardsController } from './boards/boards.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -71,6 +74,7 @@ import { AnimaticWorker } from './timeline/animatic-worker';
     TakeReviewController,
     MediaPackageController,
     TimelineController,
+    BoardsController,
   ],
   providers: [
     AppConfig,
@@ -104,6 +108,8 @@ import { AnimaticWorker } from './timeline/animatic-worker';
     TimelineService,
     AnimaticRenderer,
     AnimaticWorker,
+    BoardsService,
+    BoardReferencesService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

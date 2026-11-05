@@ -223,7 +223,7 @@
 
 - 分离 ProviderType、Connection、ModelProfile、WorkflowProfile、PromptProfile；能力声明至少包含：text、image T2I/I2I、video T2V/I2V/first-last、audio TTS/music/SFX、edit/upscale。
 - 每个模型给出 JSON Schema、必填输入、支持参考图数量、画幅、时长、分辨率、Seed、音轨、回调/取消/轮询能力；UI 按真实 capability 呈现。
-- 第一媒体 Provider 选 **ComfyUI 标准 API**；只连接现有 Master，不安装、不管理其 Distributed Workers；分布式提交在经过真实工作流验证后独立适配。
+- 第一媒体Provider采用ComfyUI原生POST /prompt；[ADR-010](../ADR-010-comfy-instances-and-board-boundary.md)冻结G2后多独立实例、auto/manual、后端授权，不开发Distributed专用提交。先保留单连接工作流，不安装或管理ComfyUI Workers。
 - 第二媒体 Provider 待选择实际可用云端服务；不可硬编码平台私有未公开接口或依赖人工 cookie。
 
 ### 7.2 任务状态机与重复扣费防护
@@ -257,7 +257,7 @@
 
 ### 9.1 画布选型
 
-`@xyflow/react` (React Flow) 作为可视化底座。**画布不是唯一真实数据源**：`BoardNode = {id, kind, entityRef?, position, uiState, configRef?}`；`BoardEdge` 分 `reference`, `execution`, `annotation`，执行有类型/循环校验。后端仍校验权限和能力，不信任前端。
+`@xyflow/react` (React Flow)为底座。G1按[正式合同](../modules/CANVAS-G1-IMPLEMENTATION.md)只保存布局、便签和固定引用，业务仍由原API维护；连线统一注释关系，不执行生成或改卡。未来execution须另立合同，不因注释允许循环而跳过执行图校验。
 
 画布按照 Project/Unit/Board 分区，支持一镜一板或章节看板；不要把 80 分钟电影的几千个镜头塞进同一张无限画布。与列表/故事板使用相同 Shot ID、AssetVersion ID，提供由正式镜头投射到 Board 与“将画布草案显式提交为正式镜头”的双向工作流。
 

@@ -75,6 +75,8 @@ G0画布另有 `npm run test:canvas`：只构建Web并运行playwright.canvas.co
 
 ## 备份与恢复
 
+G1正式画布使用`npm run test:boards`，已构建时可直接`npx playwright test --config playwright.boards.config.ts`。独立API3112/Web5192、SQLite/真实合成媒体，不调用模型/Worker、不读G0布局；4场景覆盖正式引用/播放/恢复、双窗口409/失响应、只读/撤权和交互/失效媒体。API另有boards及board-migrations测试，CI已加入独立画布验收。
+
 ```powershell
 npm run db:backup
 ```

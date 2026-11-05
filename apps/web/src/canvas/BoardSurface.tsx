@@ -1,0 +1,133 @@
+import { memo, useEffect, useState } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  SelectionMode,
+  type NodeProps,
+  type OnNodesChange,
+  type OnEdgesChange,
+  type OnConnect,
+  type Edge,
+  type Viewport,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { CanvasNode, kindLabels, statusLabels } from './board-types';
+const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
+  const { domain, value } = data;
+  const [broken, setBroken] = useState(false);
+  const poster = value?.media?.mediaType === 'image' ? value.media.contentUrl : value?.media?.posterUrl;
+  useEffect(() => setBroken(false), [poster]);
+  if (domain.type === 'group')
+    return (
+      <div className="creative-group-card">
+        <strong>{domain.data.label}</strong>
+        <small>{domain.data.collapsed ? '已折叠' : '创作分组'}</small>
+      </div>
+    );
+  return (
+    <article className={`creative-node ${value?.status === 'unavailable' ? 'unavailable' : ''}`}>
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="in"
+        aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
+      />
+      <span className="creative-node-kind">{kindLabels[value?.kind ?? domain.type] ?? '业务引用'}</span>
+      <strong>
+        {domain.type === 'reference' ? (value?.title ?? '正在读取引用…') : kindLabels[domain.type]}
+      </strong>
+      {domain.type === 'reference' ? (
+        <>
+          {poster && !broken && (
+            <img
+              src={poster}
+              alt={value?.title}
+              draggable={false}
+              loading="lazy"
+              onError={() => setBroken(true)}
+            />
+          )}
+          {broken && <p className="creative-resource-error">媒体无法读取，请检查文件或权限</p>}
+          {!poster && (
+            <p className="creative-node-summary">
+              {value?.summary || (value?.status === 'unavailable' ? '资源已缺失或无权读取' : '固定业务引用')}
+            </p>
+          )}
+          <footer>
+            {value && statusLabels[value.status]}
+            {value?.version ? ` · v${value.version}` : ''}
+          </footer>
+        </>
+      ) : (
+        <p className="creative-note-text">{domain.data.text || '选择后在检查器填写创作内容'}</p>
+      )}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="out"
+        aria-label={`${value?.title ?? kindLabels[domain.type]} 输出`}
+      />
+    </article>
+  );
+});
+const nodeTypes = { boardNode: BoardCard };
+export function BoardSurface({
+  nodes,
+  edges,
+  viewport,
+  editable,
+  onNodesChange,
+  onEdgesChange,
+  onConnect,
+  onViewportChange,
+  pan,
+}: {
+  nodes: CanvasNode[];
+  edges: Edge[];
+  viewport: Viewport;
+  editable: boolean;
+  pan: boolean;
+  onNodesChange: OnNodesChange<CanvasNode>;
+  onEdgesChange: OnEdgesChange;
+  onConnect: OnConnect;
+  onViewportChange: (value: Viewport) => void;
+}) {
+  return (
+    <div className="creative-surface" aria-label="正式画布工作区">
+      <ReactFlow<CanvasNode>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        viewport={viewport}
+        onViewportChange={onViewportChange}
+        nodesDraggable={editable}
+        nodesConnectable={editable}
+        elementsSelectable
+        nodesFocusable
+        edgesFocusable
+        deleteKeyCode={editable ? ['Delete', 'Backspace'] : null}
+        selectionOnDrag={!pan}
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={pan ? true : [1, 2]}
+        panActivationKeyCode="Space"
+        minZoom={0.15}
+        maxZoom={2}
+        multiSelectionKeyCode="Shift"
+        onlyRenderVisibleElements
+        colorMode="dark"
+        defaultEdgeOptions={{ style: { stroke: '#c2a369', strokeWidth: 2 } }}
+      >
+        <Background gap={26} color="#38424b" />
+        <MiniMap nodeColor="#9f8c68" pannable zoomable />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+    </div>
+  );
+}

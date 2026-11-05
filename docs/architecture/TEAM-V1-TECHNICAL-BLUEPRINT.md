@@ -10,6 +10,8 @@
 
 ## 0. TL;DR：最终冻结的技术方案
 
+G1实施修订：[正式画布合同](../modules/CANVAS-G1-IMPLEMENTATION.md)使用boards/board_revisions、固定卡/实体/媒体引用与原RBAC/CAS，连线只注释，不自动改Shot。原G1–G5命名仅作历史需求映射；当前顺序G1→G2现有生成/候选闭环→ComfyUI多独立实例→团队/批次/交付/部署。依据[ADR-010](../ADR-010-comfy-instances-and-board-boundary.md)，不为G1提前实现执行DAG、Skills或调度。
+
 - **主技术栈**：保留现有 NestJS 11 + TypeScript + React 19/Vite + Drizzle + better-sqlite3，不整体迁移 FastAPI。
 - **部署**：先单实例 API + SQLite 本机盘 + 同机独立 Worker；媒体可存本地盘/NAS，后续 S3；未来多实例和 PostgreSQL 是独立迁移项目。
 - **业务中心**：一个 Production Core 维护剧本、制作层级、角色、场景、道具、镜头、Take、版本、审核。画布和 Agent 都是客户端/调用者，**不是另一个事实源**。
@@ -293,7 +295,7 @@ any valid state → retry_waiting / failed (受错误类型和重试预算限制
 ### 7.4 ComfyUI 的接法
 
 - 普通模式：API workflow JSON + 输入绑定 Schema → `POST /prompt` → 通过历史/WS 查结果 → `/view` 或受控文件取回 → Studio Storage 归档。
-- Distributed 插件模式：作为**独立适配策略**，不要假定任何部署都存在 `/distributed/queue`；只有完成功能探测与指定工作流验证后才可用。
+- V1不接Distributed专用API。G2后支持多个原生独立实例：后端维护能力/健康/容量/队列及工作区授权，默认auto、高级manual失败不静默换机；地址/密钥仅在后端，Job冻结实际实例及外部Prompt ID。当前单连接工作流保持兼容，不声称调度已实现。
 - 不强制修改或安装已有 ComfyUI；连接只是用户填入的受信端点；模型盘符、机器 IP、ComfyUI 节点 ID 不写死在业务库。
 - 验收先用 Mock，再用用户手头实际工作流 JSON 做 1 个图片+1 个视频，记录输入绑定、输出归档与失败重试证据。
 
@@ -481,7 +483,7 @@ PulletStudio/
 | D 生成 | D1 Provider 契约/能力；D2 数据库队列/Worker；D3 ComfyUI Mock；D4 真实图/视频联调；D5 Take 归档 | C | 实际生成结果成为可审核的 MediaVersion/Take | 超时盲目二次付费 |
 | E 团队 | E1 分工/任务；E2 Take 审批/评论；E3 Batch Dry Run/限流；E4 通知/进度 | D | 3 人 2 项目、20 镜头，跨租户/409/失权安全 | WebSocket 实时同改先行 |
 | F 交接 | 声音素材/字幕来源；既有顺序预演；原件/CSV/JSON/说明ZIP；SRT按来源增量 | D/E | 独立解包核对镜头/Take/媒体/审核版本；可选样片，项目重导入另验 | 多轨剪辑、转场、关键帧、调色、特效、专业混音 |
-| G 画布/AI | G1 React Flow + BoardRevision；G2 资产/镜头节点；G3 类型边；G4 Skills/Recipe；G5 受控 Agent | C/D/E | 画布改 Shot 与列表一致；批量执行调用现有任务 API | Fork 其它影视平台/未授权插件执行 |
+| G 画布/AI | G0底座；G1 BoardRevision/真实引用/RBAC/CAS；G2现有生成/候选闭环；Skills/Recipe/Agent后置 | C/D/E | 同一固定业务版本；注释连线不改Shot；正式写入/生成走现有API | 第二业务事实源/执行DAG/未授权插件执行 |
 | H 发布 | H1 Compose+安全反代；H2 备份/恢复; H3 S3/迁移；H4 SDK/示例插件/文档 | A–G 可穿插 | 干净机器可部署、打包导入、示例 Provider 能跑 | 在未测试下声称生产可用 |
 
 ### 13.1 必须遵循的开发节奏

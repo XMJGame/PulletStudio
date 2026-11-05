@@ -16,10 +16,12 @@ export function StructureWorkbench({
   projectId,
   canEdit,
   onUnauthorized,
+  onOpenCanvas,
 }: {
   projectId: string;
   canEdit: boolean;
   onUnauthorized: () => void;
+  onOpenCanvas: (unit?: ProductionUnit) => void;
 }) {
   const [units, setUnits] = useState<ProductionUnit[]>([]);
   const [unitCursor, setUnitCursor] = useState<string | null>(null);
@@ -138,6 +140,9 @@ export function StructureWorkbench({
           <h2>制作结构</h2>
         </div>
         <div className="heading-actions">
+          <button onClick={() => onOpenCanvas(selectedUnit)}>
+            {selectedUnit ? '打开单元画布' : '打开项目画布'}
+          </button>
           <button onClick={() => setShowMedia(true)}>项目素材</button>
           <button onClick={() => setShowEntities(true)}>资产库</button>
           <button onClick={() => setShowExport(true)}>导出分镜文档</button>
