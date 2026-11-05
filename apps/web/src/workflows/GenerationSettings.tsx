@@ -1,7 +1,9 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { readParameterBindings, WorkflowParameterFields } from '../components/GenerationParameters';
-import type { GenerationConfig } from './workflow-types';
+import type { GenerationConfig, WorkflowEditing } from './workflow-types';
+import { ExposedFieldsEditor } from './ExposedFieldsEditor';
+import type { ExposedField } from '../../../../packages/contracts/src/workflow';
 import { readWorkflowGraph } from './workflow-graph';
 const WorkflowGraphPreview = lazy(() => import('./WorkflowGraphPreview'));
 const initialBindings: Record<string, string> = {
@@ -23,6 +25,8 @@ export function GenerationSettings({
   setMessage,
   expanded = false,
   onDraftChange,
+  editing,
+  onSaved,
 }: {
   config: GenerationConfig;
   projectPath: string;
@@ -32,14 +36,34 @@ export function GenerationSettings({
   setMessage: (value: string) => void;
   expanded?: boolean;
   onDraftChange?: (dirty: boolean) => void;
+  editing?: WorkflowEditing;
+  onSaved?: (id: string) => void | Promise<void>;
 }) {
   const [dirtyForms, setDirtyForms] = useState({ connection: false, workflow: false });
-  const [bindings, setBindings] = useState(initialBindings);
+  const definition = editing?.definition;
+  const initial = {
+    ...initialBindings,
+    ...(definition
+      ? {
+          positiveNode: definition.positive.node,
+          positiveInput: definition.positive.input,
+          negativeNode: definition.negative?.node ?? '',
+          negativeInput: definition.negative?.input ?? '',
+          imageNode: definition.image?.node ?? '',
+          imageInput: definition.image?.input ?? 'image',
+          outputNode: definition.output.node,
+          outputField: definition.output.field,
+        }
+      : {}),
+  };
+  const [bindings, setBindings] = useState(initial);
+  const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
+  const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
   useEffect(() => onDraftChange?.(dirtyForms.connection || dirtyForms.workflow), [dirtyForms, onDraftChange]);
   const [bindingFormVersion, setBindingFormVersion] = useState(0);
-  const [capability, setCapability] = useState('image.text_to_image');
-  const [graphText, setGraphText] = useState('');
+  const [capability, setCapability] = useState(definition?.capability ?? 'image.text_to_image');
+  const [graphText, setGraphText] = useState(definition ? JSON.stringify(definition.graph, null, 2) : '');
   const nodeListId = useId();
   const workflowNodes = useMemo(() => {
     try {
@@ -147,7 +171,7 @@ export function GenerationSettings({
                   negativeInput = data.get('negativeInput');
                 if (Boolean(negativeNode) !== Boolean(negativeInput))
                   throw new Error('负向绑定须同时填写节点和输入。');
-                await api(`${projectPath}/generation-workflows`, 'POST', {
+                const definition = {
                   name: data.get('name'),
                   connectionId: data.get('connectionId'),
                   capability: data.get('capability'),
@@ -159,27 +183,55 @@ export function GenerationSettings({
                     : {}),
                   output: { node: data.get('outputNode'), field: data.get('outputField') },
                   parameters: readParameterBindings(data),
-                });
+                  fields,
+                  ...(fields.length ? { fieldSchemaVersion: 'studio.workflow-fields.v1' } : {}),
+                };
+                const body = editing
+                  ? {
+                      expectedVersion: editing.catalog.version,
+                      summary: String(data.get('revisionSummary')),
+                      definition,
+                    }
+                  : definition;
+                const serialized = JSON.stringify(body);
+                if (attempt.current.body !== serialized)
+                  attempt.current = { body: serialized, key: crypto.randomUUID() };
+                const result = await api<{ id: string; revision: number }>(
+                  editing
+                    ? `/workflow-catalogs/${editing.catalog.familyId}/revisions`
+                    : `${projectPath}/generation-workflows`,
+                  'POST',
+                  body,
+                  { 'Idempotency-Key': attempt.current.key },
+                );
                 form.reset();
                 setDirtyForms((value) => ({ ...value, workflow: false }));
                 setBindings(initialBindings);
                 setShowGraph(false);
                 setCapability('image.text_to_image');
                 setGraphText('');
+                setFields([]);
+                attempt.current = { body: '', key: '' };
                 setBindingFormVersion((value) => value + 1);
                 await refreshConfig();
-                setMessage('工作流的绑定节点已验证并保存。');
+                setMessage(`工作流的绑定节点已验证并保存。修订 v${result.revision ?? 1}`);
+                await onSaved?.(result.id);
               });
             }}
           >
             <fieldset className="plain-fieldset" disabled={busy}>
               <label>
                 工作流名称
-                <input name="name" required maxLength={120} />
+                <input name="name" required maxLength={120} defaultValue={definition?.name} />
               </label>
               <label>
                 工作流连接
-                <select name="connectionId" aria-label="工作流连接" required>
+                <select
+                  name="connectionId"
+                  aria-label="工作流连接"
+                  required
+                  defaultValue={definition?.connectionId}
+                >
                   <option value="">选择连接</option>
                   {config.connections
                     .filter((item) => item.enabled)
@@ -378,7 +430,34 @@ export function GenerationSettings({
                 key={bindingFormVersion}
                 nodeListId={nodeListId}
                 capability={capability}
+                initial={definition?.parameters}
               />
+              <ExposedFieldsEditor
+                fields={fields}
+                graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+                change={(value) => {
+                  setFields(value);
+                  setDirtyForms((current) => ({ ...current, workflow: true }));
+                }}
+              />
+              {editing && (
+                <>
+                  <p className="field-hint">
+                    正在基于固定 v{editing.catalog.revision} 创建新修订；目录当前 v
+                    {editing.catalog.headRevision}。旧定义与历史任务保持原样。
+                  </p>
+                  <label>
+                    修订说明
+                    <input
+                      name="revisionSummary"
+                      aria-label="工作流修订说明"
+                      maxLength={1000}
+                      required
+                      defaultValue="更新工作流配置"
+                    />
+                  </label>
+                </>
+              )}
               <button>验证绑定并保存</button>
             </fieldset>
           </form>

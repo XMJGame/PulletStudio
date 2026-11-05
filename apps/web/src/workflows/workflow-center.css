@@ -113,6 +113,54 @@
 .workflow-map-actions button {
   padding: 9px;
 }
+.workflow-field-editor {
+  margin: 16px 0;
+  border: 1px solid #3b4655;
+  padding: 14px;
+  border-radius: 8px;
+  min-width: 0;
+}
+.workflow-field-editor legend {
+  color: #c6ae7b;
+  padding: 0 6px;
+}
+.workflow-field-editor .dialog-field-row {
+  flex-wrap: wrap;
+}
+.workflow-field-editor input,
+.workflow-field-editor select {
+  min-width: 0;
+}
+.workflow-dependency {
+  padding: 16px;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+.workflow-dependency p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.workflow-dependency details > div {
+  margin: 14px 0;
+  font-size: 12px;
+}
+.workflow-history {
+  display: grid;
+  gap: 12px;
+}
+.workflow-history article {
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+.workflow-history article button {
+  margin: 4px;
+}
+.workflow-editor-heading {
+  margin-bottom: 18px;
+}
+.exposed-fields {
+  margin: 16px 0;
+}
 .workflow-graph-preview .notice p {
   overflow-wrap: anywhere;
 }

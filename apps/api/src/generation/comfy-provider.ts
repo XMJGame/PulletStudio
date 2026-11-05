@@ -13,6 +13,7 @@ import {
   referenceImageExtensions,
   WorkflowParameter,
 } from './generation-contract';
+import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
 
 export class GenerationError extends Error {
   constructor(readonly code: string) {
@@ -25,6 +26,7 @@ export type RemoteObservation =
 export interface MediaProvider {
   probe(signal?: AbortSignal): Promise<void>;
   validate(workflow: WorkflowInput): Promise<void>;
+  inspect(workflow: WorkflowInput): Promise<DependencyReport>;
   uploadImage(jobId: string, mime: string, image: Buffer, signal: AbortSignal): Promise<string>;
   submit(jobId: string, graph: WorkflowInput['graph'], signal: AbortSignal): Promise<string>;
   observe(
@@ -131,10 +133,15 @@ export class ComfyProvider {
         if (!data.system) throw new GenerationError('COMFY_RESPONSE_INVALID');
       },
       async validate(workflow) {
+        const cache = new Map<string, Promise<Record<string, unknown>>>();
         const node = async (id: string, signal: AbortSignal) => {
           const type = workflow.graph[id].class_type;
-          const data = await json(`/object_info/${encodeURIComponent(type)}`, signal);
-          const info = object(data[type]);
+          if (!cache.has(type))
+            cache.set(
+              type,
+              json(`/object_info/${encodeURIComponent(type)}`, signal).then((data) => object(data[type])),
+            );
+          const info = await cache.get(type)!;
           if (!Object.keys(info).length) throw new GenerationError('WORKFLOW_NODE_UNAVAILABLE');
           return info;
         };
@@ -155,6 +162,17 @@ export class ComfyProvider {
           }),
           ...(workflow.image ? [validateImage(workflow.image)] : []),
           ...(workflow.parameters ?? []).map(validateParameter),
+          ...(workflow.fields ?? []).map(async (field) => {
+            const info = await node(field.node, signal),
+              inputs = object(info.input);
+            if (
+              !fieldMatchesMetadata(
+                field,
+                object(inputs.required)[field.input] ?? object(inputs.optional)[field.input],
+              )
+            )
+              throw new GenerationError('WORKFLOW_FIELD_BINDING_INVALID');
+          }),
         ]);
         async function validateParameter(binding: WorkflowParameter) {
           const info = await node(binding.node, signal);
@@ -187,6 +205,11 @@ export class ComfyProvider {
           if (!Array.isArray(definition) || object(definition[1]).image_upload !== true)
             throw new GenerationError('WORKFLOW_IMAGE_BINDING_INVALID');
         }
+      },
+      async inspect(workflow) {
+        return inspectWorkflow(workflow, async (type, signal) =>
+          object((await json(`/object_info/${encodeURIComponent(type)}`, signal))[type]),
+        );
       },
       async uploadImage(jobId, mime, image, signal) {
         const extension = referenceImageExtensions[mime];

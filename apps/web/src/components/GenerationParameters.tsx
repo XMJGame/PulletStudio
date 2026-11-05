@@ -48,11 +48,13 @@ export function readParameterBindings(data: FormData): WorkflowParameter[] {
 export function WorkflowParameterFields({
   nodeListId,
   capability,
+  initial = [],
 }: {
   nodeListId: string;
   capability: string;
+  initial?: WorkflowParameter[];
 }) {
-  const [enabled, setEnabled] = useState<ParameterKey[]>([]);
+  const [enabled, setEnabled] = useState<ParameterKey[]>(initial.map((item) => item.key));
   const keys = (Object.keys(parameterLabels) as ParameterKey[]).filter(
     (key) => key !== 'durationSeconds' || capability !== 'image.text_to_image',
   );
@@ -78,11 +80,20 @@ export function WorkflowParameterFields({
               <div className="dialog-field-row">
                 <label>
                   {parameterLabels[key]}绑定节点
-                  <input name={`${key}-node`} list={nodeListId} required />
+                  <input
+                    name={`${key}-node`}
+                    list={nodeListId}
+                    required
+                    defaultValue={initial.find((item) => item.key === key)?.node}
+                  />
                 </label>
                 <label>
                   {parameterLabels[key]}绑定输入
-                  <input name={`${key}-input`} required />
+                  <input
+                    name={`${key}-input`}
+                    required
+                    defaultValue={initial.find((item) => item.key === key)?.input}
+                  />
                 </label>
               </div>
               {key === 'aspectRatio' ? (
@@ -93,6 +104,12 @@ export function WorkflowParameterFields({
                     rows={4}
                     required
                     placeholder={'横屏=16:9\n方形=1:1\n请使用节点接受的完整值'}
+                    defaultValue={initial
+                      .filter((item) => item.key === 'aspectRatio')
+                      .map((item) =>
+                        item.options.map((option) => `${option.label}=${option.value}`).join('\n'),
+                      )
+                      .join('')}
                   />
                   <span className="field-hint">每行填写显示名称=实际值，实际值须与节点选项完全一致。</span>
                 </label>
@@ -106,7 +123,10 @@ export function WorkflowParameterFields({
                       required
                       step={key === 'seed' ? 1 : 'any'}
                       min={key === 'seed' ? 0 : undefined}
-                      defaultValue={key === 'seed' ? 0 : 1}
+                      defaultValue={
+                        initial.filter((item) => item.key !== 'aspectRatio').find((item) => item.key === key)
+                          ?.min ?? (key === 'seed' ? 0 : 1)
+                      }
                     />
                   </label>
                   <label>
@@ -117,13 +137,26 @@ export function WorkflowParameterFields({
                       required
                       step={key === 'seed' ? 1 : 'any'}
                       max={key === 'seed' ? Number.MAX_SAFE_INTEGER : 3600}
-                      defaultValue={key === 'seed' ? Number.MAX_SAFE_INTEGER : 30}
+                      defaultValue={
+                        initial.filter((item) => item.key !== 'aspectRatio').find((item) => item.key === key)
+                          ?.max ?? (key === 'seed' ? Number.MAX_SAFE_INTEGER : 30)
+                      }
                     />
                   </label>
                   {key === 'durationSeconds' && (
                     <label>
                       时长步长
-                      <input name="durationSeconds-step" type="number" step="any" required defaultValue={1} />
+                      <input
+                        name="durationSeconds-step"
+                        type="number"
+                        step="any"
+                        required
+                        defaultValue={
+                          initial
+                            .filter((item) => item.key !== 'aspectRatio')
+                            .find((item) => item.key === 'durationSeconds')?.step ?? 1
+                        }
+                      />
                     </label>
                   )}
                 </div>

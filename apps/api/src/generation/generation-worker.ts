@@ -189,6 +189,7 @@ export class GenerationWorker {
       const provider = await this.jobs.provider(connection);
       await provider.probe(signal);
       const snapshot = JSON.parse(job.snapshotJson) as GenerationSnapshot;
+      if (definition.fields?.length) await provider.validate({ ...definition, graph: snapshot.graph });
       if (definition.image) {
         if (!snapshot.image) throw new GenerationError('REFERENCE_IMAGE_INVALID');
         const image = await this.readImage(user, snapshot.image, signal);

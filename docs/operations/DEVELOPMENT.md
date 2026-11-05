@@ -87,6 +87,8 @@ npm run db:backup
 
 ## 当前验收界限
 
-工作流中心：`npm run test:workflow-graph`运行4项纯解析/边界测试，`npm run test:workflows`先构建再跑解析及playwright.workflows.config.ts的3项浏览器验收。复用正式画布隔离启动配置/3112与5192端口，因此`test:workflows`和`test:boards`顺序执行。测试不调用用户ComfyUI；只用隔离ComfyMock校验/object_info，不提交生成。配置/API/DB未变的纯Web增量不无故重跑全量媒体API。
+工作流中心：`npm run test:workflow-graph`运行4项纯解析/边界测试，`npm run test:workflows`构建后跑解析及5项浏览器验收，覆盖不可变修订/冲突/恢复/归档和四类创作字段。复用正式画布隔离3112/5192，因此test:workflows与test:boards顺序执行。浏览器中的新Job停在隔离队列后取消，API集成通过ComfyMock实际提交并归档合成媒体；均不访问用户ComfyUI。纯Web增量按实际影响选择测试，不无故全量重复。
+
+字段Schema/Worker更新后须重新build并启动新版generation Worker，避免旧进程跳过新字段的提交前声明复核；已有任务及快照保留。迁移先备份，在忽略的独立目录生成并补齐SQL/保护/回填，再放正式SQL和快照，最后登记journal；不要让热重载应用未写完的迁移。
 
 最新证据见[实施状态](../IMPLEMENTATION-STATUS.md)。Mock证明协议/权限/恢复，不能证明远端模型画质；真实I2V已独立验收，真实文本/T2I/T2V、正式作品、多GB/长片、LAN/TLS/S3及灾备仍需要对应门禁。详细历史不再塞入此运行手册。

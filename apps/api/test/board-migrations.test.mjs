@@ -69,7 +69,7 @@ test('G1 upgrades an existing 0031 database without changing any old rows or app
     const applied = upgraded.sqlite
       .prepare('SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at')
       .all();
-    assert.equal(applied.length, 35);
+    assert.equal(applied.length, journal.entries.length);
     assert.deepEqual(applied.slice(0, 32), oldHashes);
     for (const [index, entry] of journal.entries.entries())
       assert.equal(

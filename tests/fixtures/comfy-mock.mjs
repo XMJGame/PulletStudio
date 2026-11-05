@@ -17,8 +17,27 @@ export async function startComfyMock(files) {
     if (url.pathname.startsWith('/object_info/')) {
       const type = decodeURIComponent(url.pathname.split('/').at(-1));
       const info = {
-        Text: { input: { required: { text: ['STRING'] } }, output_node: false },
-        ImageOutput: { output_node: true },
+        Text: { input: { required: { text: ['STRING'] } }, output_node: false, output: ['CONDITIONING'] },
+        ImageOutput: {
+          output_node: true,
+          input: { required: { conditioning: ['CONDITIONING'] }, optional: { controls: ['CONTROL'] } },
+          output: [],
+        },
+        CreativeControls: {
+          input: {
+            required: {
+              note: ['STRING'],
+              iterations: ['INT', { min: 1, max: 20 }],
+              enabled: ['BOOLEAN'],
+              quality: [['draft', 'high']],
+            },
+          },
+          output: ['CONTROL'],
+        },
+        CheckpointLoaderSimple: {
+          input: { required: { ckpt_name: [['fixture.safetensors']] } },
+          output: ['MODEL'],
+        },
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
         LoadImage: { input: { required: { image: [[], { image_upload: true }] } }, output_node: false },
@@ -31,7 +50,9 @@ export async function startComfyMock(files) {
         SecondsInput: { input: { required: { value: ['FLOAT', { min: 0.5, max: 30 }] } } },
         SeedInput: { input: { required: { noise_seed: ['INT', { min: 0, max: 4294967295 }] } } },
       };
-      return send(res, Object.hasOwn(info, type) ? { [type]: info[type] } : {});
+      const override = mock.objectInfoOverrides;
+      const definition = override && Object.hasOwn(override, type) ? override[type] : info[type];
+      return send(res, definition ? { [type]: definition } : {});
     }
     if (req.method === 'POST' && url.pathname === '/upload/image') {
       try {
@@ -135,6 +156,40 @@ export function fixtureWorkflow(connectionId, video = false) {
   };
 }
 
+export function fixtureCreativeFields(connectionId) {
+  const workflow = fixtureWorkflow(connectionId);
+  workflow.name = 'Creative fields fixture';
+  workflow.graph['5'] = {
+    class_type: 'CreativeControls',
+    inputs: { note: 'Studio reference', iterations: 4, enabled: true, quality: 'draft' },
+  };
+  workflow.graph['3'].inputs.controls = ['5', 0];
+  workflow.fields = [
+    { id: randomUUID(), label: '补充描述', node: '5', input: 'note', type: 'text', maxLength: 100 },
+    {
+      id: randomUUID(),
+      label: '迭代次数',
+      node: '5',
+      input: 'iterations',
+      type: 'number',
+      integer: true,
+      min: 1,
+      max: 20,
+      step: 1,
+    },
+    { id: randomUUID(), label: '细节增强', node: '5', input: 'enabled', type: 'boolean' },
+    {
+      id: randomUUID(),
+      label: '质量档位',
+      node: '5',
+      input: 'quality',
+      type: 'enum',
+      options: ['draft', 'high'],
+    },
+  ];
+  workflow.fieldSchemaVersion = 'studio.workflow-fields.v1';
+  return workflow;
+}
 export function fixtureI2V(connectionId) {
   const workflow = fixtureWorkflow(connectionId, true);
   return {

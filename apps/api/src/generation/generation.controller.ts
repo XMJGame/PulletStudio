@@ -10,6 +10,7 @@ import {
   workflowInput,
 } from './generation-contract';
 import { GenerationService } from './generation.service';
+import { randomUUID } from 'node:crypto';
 
 const uuid = z.uuid();
 @ApiTags('媒体生成')
@@ -43,8 +44,18 @@ export class GenerationController {
     return this.generation.testConnection(req.user, parse(uuid, id));
   }
   @Post('projects/:id/generation-workflows')
-  workflow(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.generation.createWorkflow(req.user, parse(uuid, id), parse(workflowInput, body));
+  workflow(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.generation.createWorkflow(
+      req.user,
+      parse(uuid, id),
+      parse(workflowInput, body),
+      key ? parse(uuid, key) : randomUUID(),
+    );
   }
   @Get('shots/:id/generation-jobs')
   jobs(@Req() req: StudioRequest, @Param('id') id: string) {

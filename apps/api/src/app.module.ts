@@ -53,6 +53,8 @@ import { AnimaticWorker } from './timeline/animatic-worker';
 import { BoardsService } from './boards/boards.service';
 import { BoardReferencesService } from './boards/board-references.service';
 import { BoardsController } from './boards/boards.controller';
+import { WorkflowCatalogService } from './generation/workflow-catalog.service';
+import { WorkflowCatalogController } from './generation/workflow-catalog.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -75,6 +77,7 @@ import { BoardsController } from './boards/boards.controller';
     MediaPackageController,
     TimelineController,
     BoardsController,
+    WorkflowCatalogController,
   ],
   providers: [
     AppConfig,
@@ -110,6 +113,7 @@ import { BoardsController } from './boards/boards.controller';
     AnimaticWorker,
     BoardsService,
     BoardReferencesService,
+    WorkflowCatalogService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

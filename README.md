@@ -10,7 +10,7 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 正式项目点击“创作画布”，或在制作结构“打开项目/单元画布”。可选真实业务版本、预览、布局/分组、保存/历史和冲突处理；不依赖原型数据、不因连线改卡或调用模型，见[正式画布/API](docs/CREATIVE-CANVAS.md)。后续模型执行仅经现有Generation API，[ADR-010](docs/ADR-010-comfy-instances-and-board-boundary.md)冻结原生/prompt＋独立实例auto/manual，调度尚未实现。
 
-项目新增[工作流中心](docs/WORKFLOW-CENTER.md)：复用既有API导入/绑定与连接配置，补已保存列表、只读技术图及点选映射；G2-A1已交付，通用Schema/完整依赖/修订审批、G2-B画布生成与G2-C实例调度仍待后续。参考hero8152项目的[能力对照](docs/architecture/HERO-INFINITE-CANVAS-REVIEW.md)只读研究，未复制受限源码或资源。
+项目[工作流中心](docs/WORKFLOW-CENTER.md)支持API图导入/绑定、只读技术图、不可变修订/历史恢复/归档、四类标量创作参数及有界依赖诊断。G2-A1/A2核心已交付；正式工作流审批/受控测试、G2-B画布生成与G2-C实例调度仍待后续。参考项目的[能力对照](docs/architecture/HERO-INFINITE-CANVAS-REVIEW.md)只读研究，未复制受限源码或资源。
 
 ## 从哪里开始
 
@@ -59,7 +59,7 @@ npm run test:e2e
 npm run db:backup
 ```
 
-最近代码阶段：176/176 Node测试、Edge全流程1/1、类型/格式/构建通过。本地结果与真实模型/正式作品/远端CI证据分开，详见实时状态。开发中先跑相关测试，文档整理不重复业务全量。
+最近代码阶段：198/198 Node测试、图解析4/4、工作流中心5/5、正式画布4/4、Edge生产全流程1/1、类型/格式/构建通过。本地结果与真实模型/正式作品/远端CI证据分开，详见实时状态。开发中先跑相关测试，文档整理不重复业务全量。
 
 SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 

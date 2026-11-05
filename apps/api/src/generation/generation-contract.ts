@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { fail } from '../common/http';
+import {
+  exposedField,
+  fieldValuesInput,
+  FieldValues,
+  resolveFields,
+  validateFieldTargets,
+} from './workflow-fields';
 
 const name = z.string().trim().min(1).max(120);
 const nodeId = z.string().regex(/^[\w:.-]{1,80}$/u);
@@ -82,6 +89,8 @@ export const workflowInput = z
     negative: target.optional(),
     image: target.optional(),
     parameters: z.array(parameter).max(3).optional(),
+    fields: z.array(exposedField).max(20).optional(),
+    fieldSchemaVersion: z.literal('studio.workflow-fields.v1').optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
   })
   .strict()
@@ -131,6 +140,7 @@ export const workflowInput = z
       if (binding.key === 'durationSeconds' && value.capability === 'image.text_to_image')
         issue('图片工作流不支持视频时长');
     }
+    validateFieldTargets(value.fields ?? [], value.graph, occupied, issue);
   });
 export const createJobInput = z
   .object({
@@ -138,6 +148,7 @@ export const createJobInput = z
     promptId: z.uuid(),
     imageVersionId: z.uuid().optional(),
     parameterValues: parameterValues.optional(),
+    fieldValues: fieldValuesInput.optional(),
     confirmed: z.literal(true),
   })
   .strict();
@@ -204,6 +215,7 @@ export function renderWorkflow(
   positive: string,
   negative: string,
   parameters: ParameterValues = {},
+  fields: FieldValues = {},
 ) {
   if (negative && !workflow.negative)
     fail(409, 'WORKFLOW_NEGATIVE_UNBOUND', '此提示词包含负向词，请选择配置了负向绑定的工作流');
@@ -213,6 +225,8 @@ export function renderWorkflow(
   const resolved = resolveParameters(workflow, parameters);
   for (const binding of workflow.parameters ?? [])
     graph[binding.node].inputs[binding.input] = resolved[binding.key]!;
+  const resolvedFields = resolveFields(workflow, fields);
+  for (const field of workflow.fields ?? []) graph[field.node].inputs[field.input] = resolvedFields[field.id];
   if (Buffer.byteLength(JSON.stringify(graph)) > 512_000)
     fail(413, 'WORKFLOW_INPUT_LIMIT', '填入提示词后工作流过大');
   return graph;

@@ -13,7 +13,7 @@ PulletStudio/
 │  │  ├─ providers/ analysis/          文本连接、分析任务、草案人工门禁
 │  │  ├─ prompt/                       Profile、编译与固定Artifact
 │  │  ├─ storage/ assets/              Local、媒体、语义资产、Take审核/选片
-│  │  ├─ generation/                   ComfyUI、固定工作流、媒体生成任务
+│  │  ├─ generation/                   ComfyUI/Job、工作流目录修订、字段Schema/依赖报告
 │  │  ├─ timeline/                     已有可选轻量预演
 │  │  ├─ exports/                      分镜与标准媒体交付
 │  │  ├─ boards/                       G1正式Board、修订、固定引用及项目RBAC
@@ -26,7 +26,7 @@ PulletStudio/
 │  ├─ components/                     当前工作台、表单与Dialog
 │  ├─ canvas-lab/                     G0独立交互实验，不读取正式项目/资产
 │  ├─ canvas/                         G1正式React Flow/来源/Inspector/冲突/历史，懒加载
-│  ├─ workflows/                      工作流中心、共享GenerationSettings、只读技术图/解析
+│  ├─ workflows/                      中心/历史/报告、共享配置、只读图、公开字段编辑/创作者表单
 │  └─ *-types.ts / api.ts              前端类型与HTTP调用
 ├─ packages/contracts/                Storage接口已使用；通用Provider接口仍是草案
 ├─ tests/e2e/ / tests/fixtures/        浏览器业务flow、Mock及合成媒体工具
@@ -46,6 +46,8 @@ PulletStudio/
 ```
 
 没有独立apps/worker、provider-sdk或storage-sdk应用，旧技术图中的同名目录属于建议。Provider实际实现为providers/text-provider与generation/comfy-provider，LocalStorage实现contracts/storage-port；可插拔边界保留，但不能把草案类型当成已交付多Provider/S3。
+
+G2-A2在generation/追加workflow-catalog.service/controller/state管理原不可变定义的目录关联，workflow-fields负责标量合同，workflow-inspection负责有界声明诊断。仅新增0035的两张关联表；不拆迁旧定义/Job，不新建队列。packages/contracts/src/workflow.d.ts共享Web字段声明，API以Zod为运行校验事实。模块合同/使用/验收分别放modules/、根指南和history/。
 
 G0新增apps/web/canvas-lab.html独立Vite入口、canvas-lab/共享模型/卡片/两底座/样式，生产main只增加导航链接；React Flow分块懒加载，未将画布依赖直接导入生产工作台。原浏览器结果改为test-results/production，画布结果为test-results/canvas，避免不同验收清空同一根目录。实验框架不直接搬到正式Board，G1保留可复用节点/模型边界并按正式数据合同接入。
 

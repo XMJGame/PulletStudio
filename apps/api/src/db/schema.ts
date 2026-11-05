@@ -1204,6 +1204,71 @@ export const generationWorkflows = sqliteTable(
   ],
 );
 
+export const workflowCatalogs = sqliteTable(
+  'workflow_catalogs',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    headWorkflowId: text('head_workflow_id'),
+    revision: integer('revision').notNull(),
+    version: integer('version').notNull(),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.headWorkflowId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        generationWorkflows.id,
+        generationWorkflows.projectId,
+        generationWorkflows.workspaceId,
+      ],
+    }),
+    uniqueIndex('workflow_catalog_scope').on(t.id, t.projectId, t.workspaceId),
+    check('workflow_catalog_versions', sql`${t.revision}>=0 AND ${t.version}>=0`),
+  ],
+);
+export const workflowCatalogRevisions = sqliteTable(
+  'workflow_catalog_revisions',
+  {
+    workflowId: text('workflow_id').primaryKey(),
+    familyId: text('family_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    revision: integer('revision').notNull(),
+    summary: text('summary').notNull(),
+    restoredFromId: text('restored_from_id').references(() => generationWorkflows.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key'),
+    requestHash: text('request_hash'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.workflowId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        generationWorkflows.id,
+        generationWorkflows.projectId,
+        generationWorkflows.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.familyId, t.projectId, t.workspaceId],
+      foreignColumns: [workflowCatalogs.id, workflowCatalogs.projectId, workflowCatalogs.workspaceId],
+    }),
+    uniqueIndex('workflow_catalog_revision').on(t.familyId, t.revision),
+    uniqueIndex('workflow_catalog_request').on(t.projectId, t.createdBy, t.requestKey),
+    check('workflow_revision_positive', sql`${t.revision}>0 AND length(${t.summary})<=1000`),
+  ],
+);
+
 export const generationStates = [
   'queued',
   'preparing',

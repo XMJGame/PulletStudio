@@ -1,6 +1,6 @@
 import { expect, test, request, type APIRequestContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { startComfyMock, fixtureWorkflow } from '../fixtures/comfy-mock.mjs';
+import { startComfyMock, fixtureWorkflow, fixtureCreativeFields } from '../fixtures/comfy-mock.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
 async function api(method: string, path: string, data?: unknown, actor = owner) {
   const session = await (await actor.get('/api/v1/auth/me')).json();
@@ -198,4 +198,143 @@ test('invalid files preserve drafts; untrusted graph text never becomes external
   expect(external).toEqual([]);
   expect(errors).toEqual([]);
   expect(remote.mock.submissions).toHaveLength(0);
+});
+
+test('saved schemas revise immutably, preserve conflicting input, load latest and restore/ archive explicitly', async ({
+  page,
+}) => {
+  const value = await project('Revision management');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Revision fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const definition = fixtureCreativeFields(connection.id),
+    first = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
+  await open(page, value);
+  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue(definition.name);
+  await dialog.getByText(/^公开创作参数/).click();
+  await dialog.getByLabel('参数1名称', { exact: true }).fill('镜头补充说明');
+  await dialog.getByLabel('参数2最大值', { exact: true }).fill('10');
+  await dialog.getByLabel('工作流修订说明').fill('Expose precise creative controls');
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('修订 v2');
+  await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText('v2');
+  expect((await api('GET', `/generation-workflows/${first.id}/definition`)).definition.fields[0].label).toBe(
+    '补充描述',
+  );
+  await dialog.getByRole('button', { name: '检查已保存依赖' }).click();
+  await expect(dialog.getByRole('region', { name: '工作流依赖报告' })).toContainText('声明匹配');
+  const current = await api('GET', `/workflow-catalogs/${first.familyId}/definition`);
+  await dialog.getByLabel('工作流名称', { exact: true }).fill('LOCAL REVISION DRAFT');
+  await api('POST', `/workflow-catalogs/${first.familyId}/revisions`, {
+    expectedVersion: current.catalog.version,
+    summary: 'Concurrent writer',
+    definition: { ...current.definition, name: 'Remote writer revision' },
+  });
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('草稿');
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('LOCAL REVISION DRAFT');
+  await dialog.getByRole('button', { name: '载入最新配置' }).click();
+  await expect(page.getByRole('dialog', { name: '切换工作流配置' })).toBeVisible();
+  await page.getByRole('button', { name: '保留草稿', exact: true }).click();
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('LOCAL REVISION DRAFT');
+  await dialog.getByRole('button', { name: '载入最新配置' }).click();
+  await page.getByRole('button', { name: '丢弃草稿并切换' }).click();
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Remote writer revision');
+  await dialog.getByRole('button', { name: '修订历史', exact: true }).click();
+  await page.getByRole('button', { name: '恢复 v1 为新修订', exact: true }).click();
+  await page.getByRole('button', { name: '确认恢复为新修订', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('已从历史追加');
+  const restored = await api('GET', `/workflow-catalogs/${first.familyId}/definition`);
+  expect(restored.catalog.revision).toBe(4);
+  expect(restored.definition.fields[0].label).toBe('补充描述');
+  await dialog.getByRole('button', { name: '归档目录', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText('已归档');
+  expect((await api('GET', `/projects/${value.id}/generation-config`)).workflows[0].enabled).toBeFalsy();
+  await dialog.getByRole('button', { name: '取消归档', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('已取消归档');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await dialog.getByText(/^公开创作参数/).click();
+  await page.screenshot({ path: 'test-results/workflow-fields-mobile.png' });
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+});
+
+test('creator form renders declared scalar controls and freezes overrides into a normal generation job', async ({
+  page,
+}) => {
+  const value = await project('Creative parameter job');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Scalar fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const definition = fixtureCreativeFields(connection.id),
+    workflow = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
+  const basic = await api('POST', `/projects/${value.id}/shots`, {
+    description: 'A train enters a covered platform.',
+  });
+  const editor = await api('GET', `/shots/${basic.id}/card/editor`);
+  const shot = (
+    await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
+  ).shot;
+  await api('POST', `/shots/${shot.id}/prompts/compile`, {
+    mode: 'commit',
+    expectedShotVersion: shot.version,
+    expectedProjectVersion: value.version,
+    profileRevisionId: null,
+  });
+  await open(page, value);
+  await page.getByRole('button', { name: '关闭工作流中心' }).click();
+  await page.getByRole('button', { name: '制作结构', exact: true }).click();
+  await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
+  await page.getByRole('button', { name: '媒体生成', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '镜头媒体生成', exact: true });
+  await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+  await dialog.getByLabel('已保存提示词', { exact: true }).selectOption({ index: 1 });
+  await dialog.getByLabel('创作参数：补充描述', { exact: true }).fill('Soft rain across the platform');
+  await dialog.getByLabel('创作参数：迭代次数', { exact: true }).fill('8');
+  await dialog.getByLabel('创作参数：细节增强', { exact: true }).uncheck();
+  await dialog.getByLabel('创作参数：质量档位', { exact: true }).selectOption('high');
+  // A refreshed catalog must not silently replace a selected fixed revision or its form schema.
+  const latest = await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`);
+  const updated = structuredClone(latest.definition);
+  updated.name = 'Newer controls';
+  updated.fields[0].label = '新版本说明';
+  await api('POST', `/workflow-catalogs/${workflow.familyId}/revisions`, {
+    expectedVersion: latest.catalog.version,
+    summary: 'New head while creator is editing',
+    definition: updated,
+  });
+  await dialog.getByText('配置 ComfyUI 连接与工作流', { exact: true }).click();
+  await dialog.getByLabel('连接名称', { exact: true }).fill('Refresh configuration fixture');
+  await dialog.getByLabel('ComfyUI 基础地址', { exact: true }).fill(remote.baseUrl);
+  await dialog.getByLabel('批准自部署 HTTP 或私有网络地址').check();
+  await dialog.getByRole('button', { name: '添加连接', exact: true }).click();
+  await expect(dialog.getByLabel('创作参数：补充描述', { exact: true })).toHaveValue(
+    'Soft rain across the platform',
+  );
+  await expect(dialog.getByLabel('创作参数：新版本说明', { exact: true })).toHaveCount(0);
+  await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
+  await dialog.getByRole('button', { name: '加入生成队列', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('生成任务已加入队列');
+  await expect(dialog.getByText('补充描述：Soft rain across the platform', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('细节增强：关闭', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/工作流 v1 · 制作卡/)).toBeVisible();
+  const jobs = await api('GET', `/shots/${shot.id}/generation-jobs`);
+  const job = jobs.items ? jobs.items[0] : jobs[0];
+  expect(job.workflowRevision).toBe(1);
+  expect(job.fieldValues).toEqual(
+    Object.fromEntries(
+      definition.fields.map((field: any, index: number) => [
+        field.id,
+        ['Soft rain across the platform', 8, false, 'high'][index],
+      ]),
+    ),
+  );
+  expect(job.state).toBe('queued');
+  expect(remote.mock.submissions).toHaveLength(0);
+  await api('POST', `/generation-jobs/${job.id}/cancel`, {});
 });

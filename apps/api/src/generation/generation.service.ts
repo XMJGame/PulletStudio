@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, lt, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
@@ -10,6 +10,8 @@ import {
   generationWorkflows,
   promptArtifacts,
   mediaVersions,
+  workflowCatalogs,
+  workflowCatalogRevisions,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -17,6 +19,8 @@ import { ProviderSecrets } from '../providers/provider-secrets';
 import { approvedBaseUrl } from '../providers/safe-text-http';
 import { AssetApprovalService } from '../assets/asset-approval.service';
 import { MediaService } from '../assets/media.service';
+import { catalogState, registerWorkflow, workflowHash, workflowReplay } from './workflow-catalog-state';
+import { FieldValues, resolveFields } from './workflow-fields';
 import { ComfyProvider, GenerationError } from './comfy-provider';
 import {
   CreateJobInput,
@@ -36,6 +40,7 @@ export type GenerationSnapshot = {
   approvals: { revisionId: string; decisionId: string | null }[];
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
   parameterValues?: ParameterValues;
+  fieldValues?: FieldValues;
 };
 const now = () => new Date().toISOString();
 
@@ -60,7 +65,7 @@ export class GenerationService {
   private canConfigure(user: CurrentUser, workspaceId: string) {
     return user.instanceAdmin && this.authz.workspace(user, workspaceId).role !== 'MEMBER';
   }
-  private manage(user: CurrentUser, workspaceId: string) {
+  manage(user: CurrentUser, workspaceId: string) {
     if (!this.canConfigure(user, workspaceId))
       fail(403, 'ENDPOINT_APPROVAL_REQUIRED', '配置生成连接或工作流需要实例和工作区管理权限');
   }
@@ -102,10 +107,24 @@ export class GenerationService {
         createdAt: generationWorkflows.createdAt,
         enabled: generationConnections.enabled,
         definitionJson: generationWorkflows.definitionJson,
+        familyId: workflowCatalogs.id,
+        revision: workflowCatalogRevisions.revision,
+        catalogVersion: workflowCatalogs.version,
+        archived: workflowCatalogs.archived,
       })
       .from(generationWorkflows)
       .innerJoin(generationConnections, eq(generationWorkflows.connectionId, generationConnections.id))
-      .where(eq(generationWorkflows.projectId, projectId))
+      .leftJoin(workflowCatalogRevisions, eq(workflowCatalogRevisions.workflowId, generationWorkflows.id))
+      .leftJoin(workflowCatalogs, eq(workflowCatalogs.id, workflowCatalogRevisions.familyId))
+      .where(
+        and(
+          eq(generationWorkflows.projectId, projectId),
+          or(
+            isNull(workflowCatalogRevisions.workflowId),
+            eq(workflowCatalogs.headWorkflowId, generationWorkflows.id),
+          ),
+        ),
+      )
       .orderBy(desc(generationWorkflows.createdAt), desc(generationWorkflows.id))
       .limit(100)
       .all();
@@ -127,12 +146,18 @@ export class GenerationService {
       canEdit: this.production.access(user, projectId).canEdit,
       workflows: workflows.map(({ definitionJson, ...workflow }) => {
         const definition = JSON.parse(definitionJson) as WorkflowInput;
-        const values = resolveParameters(definition);
+        const values = resolveParameters(definition),
+          fieldValues = resolveFields(definition);
         return {
           ...workflow,
+          enabled: workflow.enabled && !workflow.archived,
           parameters: (definition.parameters ?? []).map((binding) => ({
             ...binding,
             defaultValue: values[binding.key],
+          })),
+          fields: (definition.fields ?? []).map(({ node: _node, input: _input, ...field }) => ({
+            ...field,
+            defaultValue: fieldValues[field.id],
           })),
         };
       }),
@@ -237,9 +262,17 @@ export class GenerationService {
     }
     return { reachable: true };
   }
-  async createWorkflow(user: CurrentUser, projectId: string, input: WorkflowInput) {
+  async createWorkflow(
+    user: CurrentUser,
+    projectId: string,
+    input: WorkflowInput,
+    key: string = randomUUID(),
+  ) {
     const project = this.authz.project(user, projectId);
     this.manage(user, project.workspaceId);
+    const hash = workflowHash({ action: 'create', definition: input });
+    const replay = workflowReplay(this.database, user, projectId, key, hash);
+    if (replay) return replay;
     const connection = this.connection(input.connectionId, project.workspaceId);
     try {
       await (await this.provider(connection)).validate(input);
@@ -250,6 +283,8 @@ export class GenerationService {
       () => {
         this.authz.project(user, projectId);
         this.manage(user, project.workspaceId);
+        const replay = workflowReplay(this.database, user, projectId, key, hash);
+        if (replay) return replay;
         if (this.connection(connection.id).version !== connection.version)
           fail(409, 'VERSION_CONFLICT', '连接已变化，请重新验证');
         const id = randomUUID();
@@ -267,19 +302,23 @@ export class GenerationService {
             createdAt: now(),
           })
           .run();
+        const row = this.workflow(id);
+        const result = registerWorkflow(this.database, row, key, hash);
         this.audit(user, project.workspaceId, 'generation.workflow.create', id);
-        return { id };
+        return result;
       },
       { behavior: 'immediate' },
     );
   }
-  private remoteFailure(error: unknown): never {
+  remoteFailure(error: unknown): never {
     if (error instanceof HttpException) throw error;
     const code = error instanceof GenerationError ? error.code : 'COMFY_CONNECTION_FAILED';
     if (code === 'WORKFLOW_IMAGE_BINDING_INVALID')
       fail(400, code, '请绑定 ComfyUI 声明可上传图片的输入，例如 LoadImage.image');
     if (code === 'WORKFLOW_PARAMETER_BINDING_INVALID')
       fail(400, code, '参数绑定与远端输入类型、可选值或数值范围不匹配');
+    if (code === 'WORKFLOW_FIELD_BINDING_INVALID')
+      fail(400, code, '公开字段与节点声明的类型、范围或选项不匹配，请核对参数合同');
     fail(
       502,
       code,
@@ -297,7 +336,8 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, parameterValues } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const { image, parameterValues, fieldValues } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     return {
       id: row.id,
@@ -306,6 +346,12 @@ export class GenerationService {
       promptId: row.promptId,
       image: image ? { id: image.id, fileName: image.fileName, version: image.version } : null,
       parameterValues: parameterValues ?? {},
+      fieldValues: fieldValues ?? {},
+      creativeParameters: (definition.fields ?? []).map((field) => ({
+        label: field.label,
+        value: fieldValues?.[field.id] ?? definition.graph[field.node].inputs[field.input],
+      })),
+      workflowRevision: catalogState(this.database, row.workflowId)?.revision ?? 1,
       result: result ? { mediaType: result.mediaType, metadata: result.metadata } : null,
       workflowName: workflow.name,
       capability: workflow.capability,
@@ -347,10 +393,17 @@ export class GenerationService {
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
           if (JSON.stringify(snapshot.parameterValues ?? {}) !== JSON.stringify(requested))
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成参数');
+          if (
+            JSON.stringify(snapshot.fieldValues ?? {}) !==
+            JSON.stringify(resolveFields(definition, input.fieldValues))
+          )
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他创作字段值');
           return this.view(replay, user);
         }
         const workflow = this.workflow(input.workflowId);
         if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
+        if (catalogState(this.database, workflow.id)?.archived)
+          fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const connection = this.connection(workflow.connectionId, project.workspaceId);
         if (!connection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
         const prompt = this.database.db
@@ -407,11 +460,13 @@ export class GenerationService {
         };
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
         const parameterValues = resolveParameters(definition, input.parameterValues);
+        const fieldValues = resolveFields(definition, input.fieldValues);
         const graph = renderWorkflow(
           definition,
           rendered.positivePrompt,
           rendered.negativePrompt,
           parameterValues,
+          fieldValues,
         );
         const id = randomUUID(),
           createdAt = now();
@@ -429,7 +484,7 @@ export class GenerationService {
             connectionVersion: connection.version,
             creatorId: user.id,
             requestKey: key,
-            snapshotJson: JSON.stringify({ graph, approvals, image, parameterValues }),
+            snapshotJson: JSON.stringify({ graph, approvals, image, parameterValues, fieldValues }),
             state: 'queued',
             nextAt: Date.now(),
             createdAt,

@@ -24,7 +24,7 @@
 | 完整卡、提示词、文本交付 | [提示词](TEXT-DELIVERY.md)、[分镜导出](STORYBOARD-EXPORT.md) | [文本交付合同](modules/TEXT-DELIVERY-IMPLEMENTATION.md)、[导出合同](modules/STORYBOARD-EXPORT-IMPLEMENTATION.md) |
 | 媒体和语义资产 | [Local媒体/恢复](LOCAL-MEDIA.md)、[语义资产](SEMANTIC-ASSETS.md) | [媒体合同](modules/LOCAL-MEDIA-IMPLEMENTATION.md)、[资产合同](modules/SEMANTIC-ASSETS-IMPLEMENTATION.md)、[资产审批合同](modules/ASSET-APPROVAL-IMPLEMENTATION.md) |
 | ComfyUI生成 | [配置与运行](COMFYUI-GENERATION.md) | [生成](modules/COMFY-GENERATION-IMPLEMENTATION.md)、[首帧I2V](modules/COMFY-I2V-IMPLEMENTATION.md)、[参数](modules/WORKFLOW-PARAMETERS-IMPLEMENTATION.md)合同 |
-| 工作流中心 | [中心/技术图与限制](WORKFLOW-CENTER.md)、[四类能力对照](architecture/HERO-INFINITE-CANVAS-REVIEW.md) | [G2-A1合同](modules/WORKFLOW-CENTER-G2-A1.md)；共用既有配置API，通用Schema/修订/依赖待后续 |
+| 工作流中心 | [中心/技术图/修订/参数与限制](WORKFLOW-CENTER.md)、[四类能力对照](architecture/HERO-INFINITE-CANVAS-REVIEW.md) | [A1合同](modules/WORKFLOW-CENTER-G2-A1.md)、[A2合同](modules/WORKFLOW-CENTER-G2-A2.md)、[A2验收](history/WORKFLOW-CENTER-G2-A2-2026-11-05.md)；正式审批/受控测试待后续 |
 | Take审核与选片 | LOCAL-MEDIA及镜头候选审核界面 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md)；API assets/take-review* |
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 可选轻量预演 | [ANIMATICS](ANIMATICS.md) | [预演合同](modules/ANIMATIC-IMPLEMENTATION.md)；API timeline/，不再扩展专业剪辑器 |

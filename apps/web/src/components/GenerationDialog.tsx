@@ -4,14 +4,17 @@ import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
 import { ParameterValues, parameterLabels, describeParameters } from './GenerationParameters';
 
-import type { GenerationConfig as Config } from '../workflows/workflow-types';
+import type { GenerationConfig as Config, Workflow } from '../workflows/workflow-types';
 import { GenerationSettings } from '../workflows/GenerationSettings';
+import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
 
 type Job = {
   id: string;
   state: string;
   shotVersion: number;
   workflowName: string;
+  workflowRevision: number;
+  creativeParameters: { label: string; value: string | number | boolean }[];
   errorCode: string | null;
   remoteId: string | null;
   mediaVersionId: string | null;
@@ -62,6 +65,7 @@ const errors: Record<string, string> = {
   TRACKING_STOPPED: '已结束本地跟踪。请在 ComfyUI 核对远端状态。',
   REFERENCE_IMAGE_INVALID: '首帧图片无法读取或校验，请核对项目素材。',
   COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
+  WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
 };
 
 export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose: () => void }) {
@@ -70,7 +74,9 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [jobs, setJobs] = useState<Job[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflowId, setWorkflowId] = useState('');
+  const [pinnedWorkflow, setPinnedWorkflow] = useState<Workflow>();
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
+  const [fieldOverrides, setFieldOverrides] = useState<Record<string, string | boolean>>({});
   const [images, setImages] = useState<CursorPage<ReferenceImage>>();
   const [imageVersionId, setImageVersionId] = useState('');
   const [promptId, setPromptId] = useState('');
@@ -83,7 +89,16 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [remoteIds, setRemoteIds] = useState<Record<string, string>>({});
   const jobPath = `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
-  const selectedWorkflow = config?.workflows.find((item) => item.id === workflowId);
+  const selectedWorkflow =
+    pinnedWorkflow?.id === workflowId
+      ? pinnedWorkflow
+      : config?.workflows.find((item) => item.id === workflowId);
+  const workflows = [
+    ...(config?.workflows ?? []),
+    ...(pinnedWorkflow && !config?.workflows.some((item) => item.id === pinnedWorkflow.id)
+      ? [pinnedWorkflow]
+      : []),
+  ];
   const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
   const selectedParameters: ParameterValues = Object.fromEntries(
     (selectedWorkflow?.parameters ?? []).map((binding) => {
@@ -195,6 +210,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     workflowId,
                     promptId,
                     parameterValues: selectedParameters,
+                    fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
                     ...(needsImage ? { imageVersionId } : {}),
                     confirmed: true,
                   },
@@ -220,7 +236,9 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   onChange={(event) => {
                     const id = event.target.value;
                     setWorkflowId(id);
+                    setPinnedWorkflow(workflows.find((item) => item.id === id));
                     setParameterOverrides({});
+                    setFieldOverrides({});
                     setImageVersionId('');
                     resetRequest();
                     if (
@@ -234,11 +252,11 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   }}
                 >
                   <option value="">选择工作流</option>
-                  {config.workflows
+                  {workflows
                     .filter((item) => item.enabled)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} · {capabilityLabels[item.capability]} ·{' '}
+                        {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
                         {new Date(item.createdAt).toLocaleString()}
                       </option>
                     ))}
@@ -293,6 +311,14 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                       : '尺寸、时长和 Seed 沿用工作流配置。'}
                   </p>
                   <p className="field-hint">实际尺寸和时长以生成文件为准。</p>
+                  <CreativeParameters
+                    fields={selectedWorkflow.fields ?? []}
+                    overrides={fieldOverrides}
+                    change={(id, value) => {
+                      setFieldOverrides((current) => ({ ...current, [id]: value }));
+                      resetRequest();
+                    }}
+                  />
                 </>
               )}
               {needsImage && (
@@ -432,7 +458,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
           <article className="entity-reference" key={job.id}>
             <div>
               <strong>
-                {job.workflowName} · 制作卡 v{job.shotVersion}
+                {job.workflowName} · 工作流 v{job.workflowRevision} · 制作卡 v{job.shotVersion}
               </strong>
               {job.image && (
                 <p className="field-hint">
@@ -442,6 +468,16 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
               {Object.keys(job.parameterValues ?? {}).length > 0 && (
                 <p className="field-hint">请求参数 · {describeParameters(job.parameterValues)}</p>
               )}
+              {job.creativeParameters?.map((parameter, index) => (
+                <p className="field-hint" key={index}>
+                  {parameter.label}：
+                  {typeof parameter.value === 'boolean'
+                    ? parameter.value
+                      ? '开启'
+                      : '关闭'
+                    : String(parameter.value)}
+                </p>
+              ))}
               {job.result && (
                 <p className="field-hint">
                   实际产物 ·{' '}
