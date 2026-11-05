@@ -21,7 +21,12 @@ export async function startComfyMock(files) {
         ImageOutput: { output_node: true },
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
-        LoadImage: { input: { required: { image: [[]] } }, output_node: false },
+        LoadImage: { input: { required: { image: [[], { image_upload: true }] } }, output_node: false },
+        'Custom Input': {
+          input: { optional: { 'source.file': ['STRING', { image_upload: true }] } },
+          output_node: false,
+        },
+        'Plain Filename': { input: { required: { 'source.file': ['STRING'] } }, output_node: false },
       };
       return send(res, Object.hasOwn(info, type) ? { [type]: info[type] } : {});
     }

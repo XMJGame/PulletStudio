@@ -61,8 +61,14 @@ export async function exerciseGeneration(page: Page) {
     await dialog.getByLabel('工作流名称').fill('Studio image-to-video fixture');
     await dialog.getByLabel('工作流连接').selectOption({ label: 'ComfyUI fixture' });
     await dialog.getByLabel('生成方式').selectOption('video.image_to_video');
-    await dialog.getByLabel('首帧 LoadImage 节点').fill('4');
-    await dialog.getByLabel('API 格式工作流 JSON').fill(JSON.stringify(fixtureI2V('').graph));
+    await dialog.getByLabel('首帧图片节点').fill('4');
+    const graph = JSON.stringify(fixtureI2V('').graph);
+    await dialog.getByLabel('选择 API 格式 JSON 文件').setInputFiles({
+      name: 'image-to-video.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(graph),
+    });
+    await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(graph);
     await dialog.getByLabel('正向文本节点').fill('1');
     await dialog.getByLabel('输出节点').fill('3');
     await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();

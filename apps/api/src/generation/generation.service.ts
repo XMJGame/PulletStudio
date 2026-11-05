@@ -257,6 +257,8 @@ export class GenerationService {
   private remoteFailure(error: unknown): never {
     if (error instanceof HttpException) throw error;
     const code = error instanceof GenerationError ? error.code : 'COMFY_CONNECTION_FAILED';
+    if (code === 'WORKFLOW_IMAGE_BINDING_INVALID')
+      fail(400, code, '请绑定 ComfyUI 声明可上传图片的输入，例如 LoadImage.image');
     fail(
       502,
       code,

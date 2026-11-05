@@ -3,7 +3,7 @@ import { fail } from '../common/http';
 
 const name = z.string().trim().min(1).max(120);
 const nodeId = z.string().regex(/^[\w:.-]{1,80}$/u);
-const slot = z.string().regex(/^[a-zA-Z][\w-]{0,79}$/u);
+const slot = z.string().regex(/^[a-zA-Z][\w.-]{0,79}$/u);
 const target = z.object({ node: nodeId, input: slot }).strict();
 export const connectionInput = z
   .object({
@@ -42,10 +42,7 @@ export const workflowInput = z
     ),
     positive: target,
     negative: target.optional(),
-    image: z
-      .object({ node: nodeId, input: z.literal('image') })
-      .strict()
-      .optional(),
+    image: target.optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
   })
   .strict()
@@ -64,13 +61,14 @@ export const workflowInput = z
       issue('正向和负向提示词必须绑定不同输入');
     if (!Object.hasOwn(value.graph, value.output.node)) issue('输出节点不存在');
     if (value.capability === 'video.image_to_video') {
-      const node = value.image && value.graph[value.image.node];
-      if (node?.class_type !== 'LoadImage' || typeof node.inputs.image !== 'string')
-        issue('图生视频须绑定 LoadImage 的 image 输入');
+      const image = value.image;
+      const inputs = image && value.graph[image.node]?.inputs;
+      if (!image || !inputs || !Object.hasOwn(inputs, image.input) || typeof inputs[image.input] !== 'string')
+        issue('图生视频须绑定现有的图片文件名输入');
       if (
-        value.image &&
+        image &&
         [value.positive, value.negative].some(
-          (binding) => binding?.node === value.image?.node && binding?.input === 'image',
+          (binding) => binding?.node === image.node && binding.input === image.input,
         )
       )
         issue('首帧和提示词必须绑定不同输入');

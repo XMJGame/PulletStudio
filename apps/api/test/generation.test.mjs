@@ -373,6 +373,26 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         assert.equal((await read(invalid.id)).errorCode, 'COMFY_IMAGE_UPLOAD_INVALID');
         assert.equal(remote.mock.submissions.length, count);
         remote.mock.mode = 'normal';
+
+        const custom = structuredClone(definition);
+        custom.name = 'Custom image loader';
+        custom.image = { node: '4', input: 'source.file' };
+        custom.graph['4'] = { class_type: 'Plain Filename', inputs: { 'source.file': 'placeholder.png' } };
+        const incompatible = await owner('POST', configPath, custom);
+        assert.equal(incompatible.data.code, 'WORKFLOW_IMAGE_BINDING_INVALID');
+        custom.graph['4'].class_type = 'Custom Input';
+        const customSaved = await owner('POST', configPath, custom);
+        assert.equal(customSaved.status, 201, JSON.stringify(customSaved.data));
+        const customJob = await queue(customSaved.data.id, randomUUID(), owner, source.id);
+        assert.equal(customJob.status, 201);
+        await tick();
+        assert.equal(
+          remote.mock.submissions.at(-1).prompt['4'].inputs['source.file'],
+          `pullet-studio/${customJob.data.id}.png`,
+        );
+        await tick();
+        await tick();
+        assert.equal((await read(customJob.data.id)).state, 'completed');
       },
     );
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {

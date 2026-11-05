@@ -152,15 +152,15 @@ export class ComfyProvider {
           node(workflow.output.node, signal).then((info) => {
             if (info.output_node !== true) throw new GenerationError('WORKFLOW_OUTPUT_NODE_INVALID');
           }),
-          ...(workflow.image
-            ? [
-                node(workflow.image.node, signal).then((info) => {
-                  if (!Array.isArray(object(object(info.input).required).image))
-                    throw new GenerationError('WORKFLOW_IMAGE_BINDING_INVALID');
-                }),
-              ]
-            : []),
+          ...(workflow.image ? [validateImage(workflow.image)] : []),
         ]);
+        async function validateImage(binding: NonNullable<WorkflowInput['image']>) {
+          const info = await node(binding.node, signal);
+          const inputs = object(info.input);
+          const definition = object(inputs.required)[binding.input] ?? object(inputs.optional)[binding.input];
+          if (!Array.isArray(definition) || object(definition[1]).image_upload !== true)
+            throw new GenerationError('WORKFLOW_IMAGE_BINDING_INVALID');
+        }
       },
       async uploadImage(jobId, mime, image, signal) {
         const extension = referenceImageExtensions[mime];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { api, CursorPage } from '../api';
 import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
@@ -19,6 +19,25 @@ type Job = {
 };
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
+function readWorkflowGraph(text: string) {
+  const graph: unknown = JSON.parse(text.replace(/^\uFEFF/u, ''));
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw new Error();
+  const entries = Object.entries(graph);
+  if (
+    !entries.length ||
+    entries.length > 200 ||
+    entries.some(
+      ([, node]) =>
+        !node ||
+        typeof node.class_type !== 'string' ||
+        !node.inputs ||
+        typeof node.inputs !== 'object' ||
+        Array.isArray(node.inputs),
+    )
+  )
+    throw new Error();
+  return graph as Record<string, { class_type: string }>;
+}
 const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
   'video.text_to_video': '文字生视频',
@@ -61,6 +80,15 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflowId, setWorkflowId] = useState('');
   const [capability, setCapability] = useState('image.text_to_image');
+  const [graphText, setGraphText] = useState('');
+  const nodeListId = useId();
+  const workflowNodes = useMemo(() => {
+    try {
+      return Object.entries(readWorkflowGraph(graphText));
+    } catch {
+      return [];
+    }
+  }, [graphText]);
   const [images, setImages] = useState<CursorPage<ReferenceImage>>();
   const [imageVersionId, setImageVersionId] = useState('');
   const [promptId, setPromptId] = useState('');
@@ -507,7 +535,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 void run(async () => {
                   let graph: unknown;
                   try {
-                    graph = JSON.parse(String(data.get('graph')));
+                    graph = readWorkflowGraph(graphText);
                   } catch {
                     throw new Error('请输入有效的 API 格式 JSON。');
                   }
@@ -523,12 +551,13 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     positive: { node: data.get('positiveNode'), input: data.get('positiveInput') },
                     ...(negativeNode ? { negative: { node: negativeNode, input: negativeInput } } : {}),
                     ...(data.get('capability') === 'video.image_to_video'
-                      ? { image: { node: data.get('imageNode'), input: 'image' } }
+                      ? { image: { node: data.get('imageNode'), input: data.get('imageInput') } }
                       : {}),
                     output: { node: data.get('outputNode'), field: data.get('outputField') },
                   });
                   form.reset();
                   setCapability('image.text_to_image');
+                  setGraphText('');
                   await refreshConfig();
                   setMessage('工作流的绑定节点已验证并保存。');
                 });
@@ -566,22 +595,62 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   </select>
                 </label>
                 {capability === 'video.image_to_video' && (
-                  <label>
-                    首帧 LoadImage 节点
-                    <input name="imageNode" required />
-                  </label>
+                  <div className="dialog-field-row">
+                    <label>
+                      首帧图片节点
+                      <input name="imageNode" list={nodeListId} required />
+                    </label>
+                    <label>
+                      首帧图片输入
+                      <input name="imageInput" defaultValue="image" required />
+                    </label>
+                  </div>
                 )}
                 <label>
-                  API 格式工作流 JSON
-                  <textarea name="graph" rows={5} required maxLength={160000} />
+                  选择 API 格式 JSON 文件
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = '';
+                      if (!file) return;
+                      void run(async () => {
+                        if (file.size > 160000) throw new Error('工作流文件不能超过 160 KB。');
+                        const content = await file.text();
+                        try {
+                          readWorkflowGraph(content);
+                        } catch {
+                          throw new Error('请选择从 ComfyUI 导出的 API 格式 JSON。');
+                        }
+                        setGraphText(content);
+                      });
+                    }}
+                  />
                 </label>
+                <label>
+                  API 格式工作流 JSON
+                  <textarea
+                    aria-label="API 格式工作流 JSON"
+                    rows={5}
+                    required
+                    maxLength={160000}
+                    value={graphText}
+                    onChange={(event) => setGraphText(event.target.value)}
+                  />
+                </label>
+                <datalist id={nodeListId}>
+                  {workflowNodes.map(([id, node]) => (
+                    <option key={id} value={id} label={node.class_type} />
+                  ))}
+                </datalist>
                 <p className="field-hint">
                   使用你已验证并信任的工作流。节点可能访问该 ComfyUI 主机上的文件或外部服务。
                 </p>
                 <div className="dialog-field-row">
                   <label>
                     正向文本节点
-                    <input name="positiveNode" required />
+                    <input name="positiveNode" list={nodeListId} required />
                   </label>
                   <label>
                     正向文本输入
@@ -591,7 +660,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 <div className="dialog-field-row">
                   <label>
                     负向文本节点（可选）
-                    <input name="negativeNode" />
+                    <input name="negativeNode" list={nodeListId} />
                   </label>
                   <label>
                     负向文本输入（可选）
@@ -601,7 +670,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 <div className="dialog-field-row">
                   <label>
                     输出节点
-                    <input name="outputNode" required />
+                    <input name="outputNode" list={nodeListId} required />
                   </label>
                   <label>
                     历史输出字段
