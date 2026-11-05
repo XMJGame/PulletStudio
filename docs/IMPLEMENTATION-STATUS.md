@@ -191,6 +191,7 @@ P0、P1-A 已完成并测试，完整 V1 未完成。
 
 ## 2026-11-05 Phase B3 验收
 
+- 实现与验收代码提交：`12ac12dbcea31309e87986a9266f081557fb23f5`（Add immutable storyboard exports in Markdown JSON and CSV）。本轮为本地提交，尚未推送；未将初始提交的CI结果当作本轮远端验证。
 - 按 `modules/STORYBOARD-EXPORT-IMPLEMENTATION.md` 施工，复用统一卡历史、PromptArtifact/离线 Compiler、制作树、RBAC/CSRF/审计和 Dialog。新 exports 模块/制作结构导出弹窗贯通，未改认证、旧草案或 Provider，未新增第三方依赖。
 - 支持整个项目、项目直属、指定单元（明确选择后代）、显式镜头集合；UI支持当前镜头，API可传最多200个不同镜头ID。单元树/sequence/ID稳定排序、输出完整单元路径，避免各范围重复 SH 编号混淆，不暴露 project_root。无镜头/跨项目ID明确拒绝，不截断大范围。
 - 提示词可选每镜最新已保存 Artifact（保留原卡快照及 stale 警告），或本次中立离线编译（明确未另存Artifact、无自定义Profile）。缺卡/词如实标记；不重写旧词或冒充已审核媒体。JSON/MD保留固定卡/来源/原词全输入输出，CSV含完整卡/来源/Prompt JSON列；没有凭据/会话/宿主路径。
