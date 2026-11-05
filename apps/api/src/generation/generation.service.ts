@@ -24,6 +24,8 @@ import {
   WorkflowInput,
   referenceImageLimit,
   referenceImageExtensions,
+  ParameterValues,
+  resolveParameters,
 } from './generation-contract';
 
 export type Job = typeof generationJobs.$inferSelect;
@@ -33,6 +35,7 @@ export type GenerationSnapshot = {
   graph: WorkflowInput['graph'];
   approvals: { revisionId: string; decisionId: string | null }[];
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
+  parameterValues?: ParameterValues;
 };
 const now = () => new Date().toISOString();
 
@@ -98,6 +101,7 @@ export class GenerationService {
         capability: generationWorkflows.capability,
         createdAt: generationWorkflows.createdAt,
         enabled: generationConnections.enabled,
+        definitionJson: generationWorkflows.definitionJson,
       })
       .from(generationWorkflows)
       .innerJoin(generationConnections, eq(generationWorkflows.connectionId, generationConnections.id))
@@ -118,7 +122,22 @@ export class GenerationService {
           .limit(50)
           .all()
       : [];
-    return { canConfigure, canEdit: this.production.access(user, projectId).canEdit, workflows, connections };
+    return {
+      canConfigure,
+      canEdit: this.production.access(user, projectId).canEdit,
+      workflows: workflows.map(({ definitionJson, ...workflow }) => {
+        const definition = JSON.parse(definitionJson) as WorkflowInput;
+        const values = resolveParameters(definition);
+        return {
+          ...workflow,
+          parameters: (definition.parameters ?? []).map((binding) => ({
+            ...binding,
+            defaultValue: values[binding.key],
+          })),
+        };
+      }),
+      connections,
+    };
   }
   images(user: CurrentUser, projectId: string, cursor?: string) {
     this.authz.project(user, projectId, 'edit');
@@ -259,6 +278,8 @@ export class GenerationService {
     const code = error instanceof GenerationError ? error.code : 'COMFY_CONNECTION_FAILED';
     if (code === 'WORKFLOW_IMAGE_BINDING_INVALID')
       fail(400, code, '请绑定 ComfyUI 声明可上传图片的输入，例如 LoadImage.image');
+    if (code === 'WORKFLOW_PARAMETER_BINDING_INVALID')
+      fail(400, code, '参数绑定与远端输入类型、可选值或数值范围不匹配');
     fail(
       502,
       code,
@@ -276,13 +297,16 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const { image, parameterValues } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     return {
       id: row.id,
       shotId: row.shotId,
       shotVersion: row.shotVersion,
       promptId: row.promptId,
       image: image ? { id: image.id, fileName: image.fileName, version: image.version } : null,
+      parameterValues: parameterValues ?? {},
+      result: result ? { mediaType: result.mediaType, metadata: result.metadata } : null,
       workflowName: workflow.name,
       capability: workflow.capability,
       state: row.state,
@@ -318,6 +342,11 @@ export class GenerationService {
             (JSON.parse(replay.snapshotJson) as GenerationSnapshot).image?.id !== input.imageVersionId
           )
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成输入');
+          const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
+          const requested = resolveParameters(definition, input.parameterValues);
+          const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
+          if (JSON.stringify(snapshot.parameterValues ?? {}) !== JSON.stringify(requested))
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成参数');
           return this.view(replay, user);
         }
         const workflow = this.workflow(input.workflowId);
@@ -376,10 +405,13 @@ export class GenerationService {
           positivePrompt: string;
           negativePrompt: string;
         };
+        const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
+        const parameterValues = resolveParameters(definition, input.parameterValues);
         const graph = renderWorkflow(
-          JSON.parse(workflow.definitionJson),
+          definition,
           rendered.positivePrompt,
           rendered.negativePrompt,
+          parameterValues,
         );
         const id = randomUUID(),
           createdAt = now();
@@ -397,7 +429,7 @@ export class GenerationService {
             connectionVersion: connection.version,
             creatorId: user.id,
             requestKey: key,
-            snapshotJson: JSON.stringify({ graph, approvals, image }),
+            snapshotJson: JSON.stringify({ graph, approvals, image, parameterValues }),
             state: 'queued',
             nextAt: Date.now(),
             createdAt,

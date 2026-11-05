@@ -8,7 +8,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createMediaFixtures } from '../../../tests/fixtures/media-fixtures.mjs';
-import { startComfyMock, fixtureWorkflow, fixtureI2V } from '../../../tests/fixtures/comfy-mock.mjs';
+import {
+  startComfyMock,
+  fixtureWorkflow,
+  fixtureI2V,
+  fixtureParameterized,
+} from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
 test('ComfyUI jobs freeze inputs, recover safely and archive actual image and video drafts', async (t) => {
@@ -393,6 +398,199 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         await tick();
         await tick();
         assert.equal((await read(customJob.data.id)).state, 'completed');
+      },
+    );
+    await t.test(
+      'parameter bindings validate constants, distinct targets and remote constraints',
+      async () => {
+        const path = `/projects/${project.id}/generation-workflows`;
+        const original = fixtureParameterized(connectionId);
+        for (const mutate of [
+          (w) => {
+            w.parameters[0].node = 'missing';
+          },
+          (w) => {
+            w.graph['7'].inputs.value = ['1', 0];
+          },
+          (w) => {
+            w.graph['8'].inputs.noise_seed = Number.MAX_SAFE_INTEGER + 1;
+          },
+          (w) => {
+            w.parameters[1].min = 31;
+          },
+          (w) => {
+            w.parameters[0].options[1].value = w.parameters[0].options[0].value;
+          },
+          (w) => {
+            w.parameters[2] = { ...w.parameters[1] };
+          },
+          (w) => {
+            w.parameters[0].node = '1';
+            w.parameters[0].input = 'text';
+            w.parameters[0].options[0].value = w.graph['1'].inputs.text;
+          },
+          (w) => {
+            w.parameters[2].node = '7';
+            w.parameters[2].input = 'value';
+          },
+          (w) => {
+            w.capability = 'image.text_to_image';
+          },
+        ]) {
+          const input = structuredClone(original);
+          mutate(input);
+          const response = await owner('POST', path, input);
+          assert.equal(response.status, 400, JSON.stringify(response.data));
+        }
+        for (const mutate of [
+          (w) => {
+            w.parameters[0].options[1].value = 'unsupported';
+          },
+          (w) => {
+            w.parameters[1].max = 31;
+          },
+          (w) => {
+            w.graph['8'].class_type = 'SecondsInput';
+            w.graph['8'].inputs = { value: 37 };
+            w.parameters[2].input = 'value';
+          },
+        ]) {
+          const input = structuredClone(original);
+          mutate(input);
+          assert.equal((await owner('POST', path, input)).data.code, 'WORKFLOW_PARAMETER_BINDING_INVALID');
+        }
+        // A STRING primitive can carry a custom workflow's aspect ratio as well.
+        const stringInput = structuredClone(original);
+        stringInput.graph['6'] = { class_type: 'Text', inputs: { text: '1:1 (Square)' } };
+        stringInput.parameters[0].input = 'text';
+        assert.equal((await owner('POST', path, stringInput)).status, 201);
+        assert.equal((await viewer('POST', path, original)).status, 403);
+      },
+    );
+    await t.test(
+      'parameters freeze across restart, preserve frame expressions and distinguish retries',
+      async () => {
+        const workflow = fixtureParameterized(connectionId);
+        const saved = await owner('POST', `/projects/${project.id}/generation-workflows`, workflow);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const id = saved.data.id;
+        const config = (await viewer('GET', `/projects/${project.id}/generation-config`)).data;
+        const publicWorkflow = config.workflows.find((item) => item.id === id);
+        assert.equal(publicWorkflow.parameters[1].defaultValue, 2.5);
+        assert.equal(publicWorkflow.parameters[2].defaultValue, 37);
+        assert.equal(publicWorkflow.graph, undefined);
+        assert.equal(publicWorkflow.definitionJson, undefined);
+        const submit = (values, key = randomUUID(), workflowId = id) =>
+          owner(
+            'POST',
+            `/shots/${shot.id}/generation-jobs`,
+            {
+              workflowId,
+              promptId: prompt.id,
+              confirmed: true,
+              ...(values === undefined ? {} : { parameterValues: values }),
+            },
+            { 'Idempotency-Key': key },
+          );
+        const defaults = await submit();
+        assert.equal(defaults.status, 201, JSON.stringify(defaults.data));
+        assert.deepEqual(defaults.data.parameterValues, {
+          aspectRatio: '1:1 (Square)',
+          durationSeconds: 2.5,
+          seed: 37,
+        });
+        const stored = db()
+          .prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?')
+          .get(defaults.data.id);
+        assert.equal(JSON.parse(stored.snapshot_json).graph['8'].inputs.noise_seed, 37);
+        await control(defaults.data.id, 'cancel');
+        for (const values of [
+          { seed: -1 },
+          { seed: 1.2 },
+          { seed: 4294967296 },
+          { seed: Number.MAX_SAFE_INTEGER + 1 },
+          { durationSeconds: 0 },
+          { durationSeconds: 31 },
+          { durationSeconds: 2.25 },
+          { durationSeconds: '' },
+          { durationSeconds: null },
+          { aspectRatio: '16:9' },
+          { width: 640 },
+        ])
+          assert.equal((await submit(values)).status, 400, JSON.stringify(values));
+        assert.equal(
+          (await submit({ seed: 1 }, randomUUID(), videoWorkflow)).data.code,
+          'WORKFLOW_PARAMETER_INVALID',
+        );
+        const key = randomUUID();
+        const requested = { aspectRatio: '16:9 (Landscape)', durationSeconds: 3.5, seed: 0 };
+        const queued = await submit(requested, key);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        assert.equal(
+          (await submit({ seed: 0, durationSeconds: 3.5, aspectRatio: '16:9 (Landscape)' }, key)).data.id,
+          queued.data.id,
+        );
+        assert.equal((await submit({ ...requested, seed: 1 }, key)).data.code, 'IDEMPOTENCY_CONFLICT');
+        assert.equal(
+          (await submit({ ...requested, durationSeconds: 4 }, key)).data.code,
+          'IDEMPOTENCY_CONFLICT',
+        );
+        await app.close();
+        await start();
+        const before = remote.mock.submissions.length;
+        await tick();
+        assert.equal(remote.mock.submissions.length, before + 1);
+        const graph = remote.mock.submissions.at(-1).prompt;
+        assert.equal(graph['6'].inputs.aspect_ratio, requested.aspectRatio);
+        assert.equal(graph['7'].inputs.value, 3.5);
+        assert.equal(graph['8'].inputs.noise_seed, 0);
+        assert.deepEqual(graph['9'], workflow.graph['9']);
+        await tick();
+        await tick();
+        const completed = await read(queued.data.id);
+        assert.equal(completed.state, 'completed', JSON.stringify(completed));
+        assert.deepEqual(completed.parameterValues, requested);
+        const media = (await owner('GET', `/media-versions/${completed.mediaVersionId}`)).data;
+        assert.deepEqual(completed.result.metadata, media.metadata);
+        assert.ok(completed.result.metadata.width > 0);
+        assert.ok(completed.result.metadata.durationMs > 0);
+        const legacy = (await owner('GET', `/shots/${shot.id}/generation-jobs`)).data.find(
+          (item) => item.workflowName === 'Mock image',
+        );
+        assert.deepEqual(legacy.parameterValues, {});
+        const { generationJobs } = await import('../dist/db/schema.js');
+        const database = app.get(DatabaseService).db;
+        const oldRow = database
+          .select()
+          .from(generationJobs)
+          .all()
+          .find((row) => row.id === legacy.id);
+        const oldSnapshot = JSON.parse(oldRow.snapshotJson);
+        delete oldSnapshot.parameterValues;
+        const legacyId = randomUUID(),
+          legacyKey = randomUUID();
+        database
+          .insert(generationJobs)
+          .values({
+            ...oldRow,
+            id: legacyId,
+            requestKey: legacyKey,
+            state: 'canceled',
+            snapshotJson: JSON.stringify(oldSnapshot),
+            mediaVersionId: null,
+            takeId: null,
+          })
+          .run();
+        assert.deepEqual((await read(legacyId)).parameterValues, {});
+        assert.equal((await submit(undefined, legacyKey, imageWorkflow)).data.id, legacyId);
+        assert.equal((await submit({}, key)).data.code, 'IDEMPOTENCY_CONFLICT');
+        const defaultReplayKey = db()
+          .prepare('SELECT request_key FROM generation_jobs WHERE id=?')
+          .get(defaults.data.id).request_key;
+        assert.equal(
+          (await submit(defaults.data.parameterValues, defaultReplayKey)).data.id,
+          defaults.data.id,
+        );
       },
     );
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {

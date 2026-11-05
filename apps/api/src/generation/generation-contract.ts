@@ -5,6 +5,44 @@ const name = z.string().trim().min(1).max(120);
 const nodeId = z.string().regex(/^[\w:.-]{1,80}$/u);
 const slot = z.string().regex(/^[a-zA-Z][\w.-]{0,79}$/u);
 const target = z.object({ node: nodeId, input: slot }).strict();
+const parameter = z.discriminatedUnion('key', [
+  target.extend({
+    key: z.literal('aspectRatio'),
+    options: z
+      .array(z.object({ label: name, value: z.string().min(1).max(120) }).strict())
+      .min(2)
+      .max(20),
+  }),
+  target.extend({
+    key: z.literal('durationSeconds'),
+    min: z.number().positive().max(3600),
+    max: z.number().positive().max(3600),
+    step: z.number().positive().max(3600),
+  }),
+  target.extend({
+    key: z.literal('seed'),
+    min: z.number().int().nonnegative(),
+    max: z.number().int().nonnegative(),
+    step: z.literal(1),
+  }),
+]);
+export const parameterValues = z
+  .object({
+    aspectRatio: z.string().min(1).max(120).optional(),
+    durationSeconds: z.number().positive().max(3600).optional(),
+    seed: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type ParameterValues = z.infer<typeof parameterValues>;
+export type WorkflowParameter = z.infer<typeof parameter>;
+export function parameterAccepts(binding: WorkflowParameter, value: unknown): boolean {
+  if (binding.key === 'aspectRatio') return binding.options.some((option) => option.value === value);
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < binding.min || value > binding.max)
+    return false;
+  if (binding.key === 'seed') return Number.isSafeInteger(value);
+  const steps = (value - binding.min) / binding.step;
+  return Math.abs(steps - Math.round(steps)) < 1e-7;
+}
 export const connectionInput = z
   .object({
     name,
@@ -43,6 +81,7 @@ export const workflowInput = z
     positive: target,
     negative: target.optional(),
     image: target.optional(),
+    parameters: z.array(parameter).max(3).optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
   })
   .strict()
@@ -73,12 +112,32 @@ export const workflowInput = z
       )
         issue('首帧和提示词必须绑定不同输入');
     } else if (value.image) issue('此生成方式不支持首帧绑定');
+    const occupied = [value.positive, value.negative, value.image].filter((item) => item !== undefined);
+    const keysUsed = new Set<string>();
+    for (const binding of value.parameters ?? []) {
+      if (keysUsed.has(binding.key)) issue('同一参数只能绑定一次');
+      keysUsed.add(binding.key);
+      if (occupied.some((item) => item.node === binding.node && item.input === binding.input))
+        issue('创作参数必须绑定独立输入');
+      occupied.push(binding);
+      if (binding.key !== 'aspectRatio' && binding.min > binding.max) issue('参数范围无效');
+      if (
+        binding.key === 'aspectRatio' &&
+        new Set(binding.options.map((option) => option.value)).size !== binding.options.length
+      )
+        issue('画幅选项不能重复');
+      const current = value.graph[binding.node]?.inputs[binding.input];
+      if (!parameterAccepts(binding, current)) issue('参数须绑定符合选项或范围的现有常量');
+      if (binding.key === 'durationSeconds' && value.capability === 'image.text_to_image')
+        issue('图片工作流不支持视频时长');
+    }
   });
 export const createJobInput = z
   .object({
     workflowId: z.uuid(),
     promptId: z.uuid(),
     imageVersionId: z.uuid().optional(),
+    parameterValues: parameterValues.optional(),
     confirmed: z.literal(true),
   })
   .strict();
@@ -124,12 +183,36 @@ export const resultDescriptor = z.object({
 });
 export type ResultDescriptor = z.infer<typeof resultDescriptor>;
 
-export function renderWorkflow(workflow: WorkflowInput, positive: string, negative: string) {
+export function resolveParameters(workflow: WorkflowInput, requested: ParameterValues = {}) {
+  const resolved: ParameterValues = {};
+  const bindings = workflow.parameters ?? [];
+  for (const key of Object.keys(requested)) {
+    if (!bindings.some((binding) => binding.key === key))
+      fail(400, 'WORKFLOW_PARAMETER_INVALID', '此工作流未配置所选参数');
+  }
+  for (const binding of bindings) {
+    const value = requested[binding.key] ?? workflow.graph[binding.node].inputs[binding.input];
+    if (!parameterAccepts(binding, value))
+      fail(400, 'WORKFLOW_PARAMETER_INVALID', '生成参数超出工作流的可用范围或选项');
+    Object.assign(resolved, { [binding.key]: value });
+  }
+  return resolved;
+}
+
+export function renderWorkflow(
+  workflow: WorkflowInput,
+  positive: string,
+  negative: string,
+  parameters: ParameterValues = {},
+) {
   if (negative && !workflow.negative)
     fail(409, 'WORKFLOW_NEGATIVE_UNBOUND', '此提示词包含负向词，请选择配置了负向绑定的工作流');
   const graph = structuredClone(workflow.graph);
   graph[workflow.positive.node].inputs[workflow.positive.input] = positive;
   if (workflow.negative) graph[workflow.negative.node].inputs[workflow.negative.input] = negative;
+  const resolved = resolveParameters(workflow, parameters);
+  for (const binding of workflow.parameters ?? [])
+    graph[binding.node].inputs[binding.input] = resolved[binding.key]!;
   if (Buffer.byteLength(JSON.stringify(graph)) > 512_000)
     fail(413, 'WORKFLOW_INPUT_LIMIT', '填入提示词后工作流过大');
   return graph;

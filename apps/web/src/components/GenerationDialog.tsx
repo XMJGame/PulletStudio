@@ -2,8 +2,23 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { api, CursorPage } from '../api';
 import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
+import {
+  AvailableParameter,
+  ParameterValues,
+  parameterLabels,
+  describeParameters,
+  readParameterBindings,
+  WorkflowParameterFields,
+} from './GenerationParameters';
 
-type Workflow = { id: string; name: string; capability: string; enabled: boolean; createdAt: string };
+type Workflow = {
+  id: string;
+  name: string;
+  capability: string;
+  enabled: boolean;
+  createdAt: string;
+  parameters: AvailableParameter[];
+};
 type Connection = { id: string; name: string; version: number; enabled: boolean };
 type Config = { canConfigure: boolean; canEdit: boolean; workflows: Workflow[]; connections: Connection[] };
 type Job = {
@@ -16,6 +31,15 @@ type Job = {
   mediaVersionId: string | null;
   canControl: boolean;
   image: { id: string; fileName: string; version: number } | null;
+  parameterValues: ParameterValues;
+  result: {
+    metadata: {
+      width: number | null;
+      height: number | null;
+      durationMs: number | null;
+      frameRate: string | null;
+    };
+  } | null;
 };
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
@@ -79,6 +103,8 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [jobs, setJobs] = useState<Job[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflowId, setWorkflowId] = useState('');
+  const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
+  const [bindingFormVersion, setBindingFormVersion] = useState(0);
   const [capability, setCapability] = useState('image.text_to_image');
   const [graphText, setGraphText] = useState('');
   const nodeListId = useId();
@@ -101,8 +127,14 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [remoteIds, setRemoteIds] = useState<Record<string, string>>({});
   const jobPath = `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
-  const needsImage =
-    config?.workflows.find((item) => item.id === workflowId)?.capability === 'video.image_to_video';
+  const selectedWorkflow = config?.workflows.find((item) => item.id === workflowId);
+  const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
+  const selectedParameters: ParameterValues = Object.fromEntries(
+    (selectedWorkflow?.parameters ?? []).map((binding) => {
+      const value = parameterOverrides[binding.key] ?? String(binding.defaultValue);
+      return [binding.key, binding.key === 'aspectRatio' || value === '' ? value : Number(value)];
+    }),
+  );
   const selectedImage = images?.items.find((item) => item.id === imageVersionId);
   useEffect(() => {
     let active = true;
@@ -203,7 +235,13 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 const value = await api<Job>(
                   jobPath,
                   'POST',
-                  { workflowId, promptId, ...(needsImage ? { imageVersionId } : {}), confirmed: true },
+                  {
+                    workflowId,
+                    promptId,
+                    parameterValues: selectedParameters,
+                    ...(needsImage ? { imageVersionId } : {}),
+                    confirmed: true,
+                  },
                   { 'Idempotency-Key': key },
                 );
                 setJobs((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
@@ -226,6 +264,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   onChange={(event) => {
                     const id = event.target.value;
                     setWorkflowId(id);
+                    setParameterOverrides({});
                     setImageVersionId('');
                     resetRequest();
                     if (
@@ -249,6 +288,57 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     ))}
                 </select>
               </label>
+              {selectedWorkflow && (
+                <>
+                  {(selectedWorkflow.parameters ?? []).map((binding) => (
+                    <label key={binding.key}>
+                      {parameterLabels[binding.key]}
+                      {binding.key === 'aspectRatio' ? (
+                        <select
+                          aria-label="生成画幅"
+                          value={parameterOverrides[binding.key] ?? String(binding.defaultValue)}
+                          onChange={(event) => {
+                            setParameterOverrides({
+                              ...parameterOverrides,
+                              [binding.key]: event.target.value,
+                            });
+                            resetRequest();
+                          }}
+                        >
+                          {binding.options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          aria-label={binding.key === 'seed' ? '生成 Seed' : '生成时长（秒）'}
+                          type="number"
+                          required
+                          min={binding.min}
+                          max={binding.max}
+                          step={binding.step}
+                          value={parameterOverrides[binding.key] ?? String(binding.defaultValue)}
+                          onChange={(event) => {
+                            setParameterOverrides({
+                              ...parameterOverrides,
+                              [binding.key]: event.target.value,
+                            });
+                            resetRequest();
+                          }}
+                        />
+                      )}
+                    </label>
+                  ))}
+                  <p className="field-hint" aria-label="将发送的生成参数">
+                    {Object.keys(selectedParameters).length
+                      ? `将发送 · ${describeParameters(selectedParameters)}`
+                      : '尺寸、时长和 Seed 沿用工作流配置。'}
+                  </p>
+                  <p className="field-hint">实际尺寸和时长以生成文件为准。</p>
+                </>
+              )}
               {needsImage && (
                 <>
                   <label>
@@ -391,6 +481,21 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
               {job.image && (
                 <p className="field-hint">
                   首帧 {job.image.fileName} · v{job.image.version}
+                </p>
+              )}
+              {Object.keys(job.parameterValues ?? {}).length > 0 && (
+                <p className="field-hint">请求参数 · {describeParameters(job.parameterValues)}</p>
+              )}
+              {job.result && (
+                <p className="field-hint">
+                  实际产物 ·{' '}
+                  {job.result.metadata.width
+                    ? `${job.result.metadata.width}×${job.result.metadata.height}`
+                    : ''}
+                  {job.result.metadata.durationMs !== null
+                    ? ` · ${(job.result.metadata.durationMs / 1000).toFixed(2)} 秒`
+                    : ''}
+                  {job.result.metadata.frameRate ? ` · ${job.result.metadata.frameRate} fps` : ''}
                 </p>
               )}
               <p>{states[job.state] ?? job.state}</p>
@@ -554,10 +659,12 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                       ? { image: { node: data.get('imageNode'), input: data.get('imageInput') } }
                       : {}),
                     output: { node: data.get('outputNode'), field: data.get('outputField') },
+                    parameters: readParameterBindings(data),
                   });
                   form.reset();
                   setCapability('image.text_to_image');
                   setGraphText('');
+                  setBindingFormVersion((value) => value + 1);
                   await refreshConfig();
                   setMessage('工作流的绑定节点已验证并保存。');
                 });
@@ -677,6 +784,11 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     <input name="outputField" required defaultValue="images" />
                   </label>
                 </div>
+                <WorkflowParameterFields
+                  key={bindingFormVersion}
+                  nodeListId={nodeListId}
+                  capability={capability}
+                />
                 <button>验证绑定并保存</button>
               </fieldset>
             </form>

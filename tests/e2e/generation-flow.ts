@@ -1,6 +1,11 @@
 import { expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { startComfyMock, fixtureWorkflow, fixtureI2V } from '../fixtures/comfy-mock.mjs';
+import {
+  startComfyMock,
+  fixtureWorkflow,
+  fixtureI2V,
+  fixtureParameterized,
+} from '../fixtures/comfy-mock.mjs';
 
 export async function exerciseGeneration(page: Page) {
   const image = await readFile('test-results/media-fixtures/image.png');
@@ -62,7 +67,7 @@ export async function exerciseGeneration(page: Page) {
     await dialog.getByLabel('工作流连接').selectOption({ label: 'ComfyUI fixture' });
     await dialog.getByLabel('生成方式').selectOption('video.image_to_video');
     await dialog.getByLabel('首帧图片节点').fill('4');
-    const graph = JSON.stringify(fixtureI2V('').graph);
+    const graph = JSON.stringify({ ...fixtureParameterized('').graph, ...fixtureI2V('').graph });
     await dialog.getByLabel('选择 API 格式 JSON 文件').setInputFiles({
       name: 'image-to-video.json',
       mimeType: 'application/json',
@@ -71,14 +76,53 @@ export async function exerciseGeneration(page: Page) {
     await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(graph);
     await dialog.getByLabel('正向文本节点').fill('1');
     await dialog.getByLabel('输出节点').fill('3');
+    await dialog.getByText('可调生成参数（可选）', { exact: true }).click();
+    await dialog.getByLabel('允许调整画幅', { exact: true }).check();
+    await dialog.getByLabel('画幅绑定节点', { exact: true }).fill('6');
+    await dialog.getByLabel('画幅绑定输入', { exact: true }).fill('aspect_ratio');
+    await dialog.getByLabel('画幅选项').fill('方形=1:1 (Square)\n横屏=16:9 (Landscape)');
+    await dialog.getByLabel('允许调整时长（秒）', { exact: true }).check();
+    await dialog.getByLabel('时长（秒）绑定节点', { exact: true }).fill('7');
+    await dialog.getByLabel('时长（秒）绑定输入', { exact: true }).fill('value');
+    await dialog.getByLabel('时长（秒）最小值', { exact: true }).fill('0.5');
+    await dialog.getByLabel('时长（秒）最大值', { exact: true }).fill('31');
+    await dialog.getByLabel('时长步长', { exact: true }).fill('0.5');
+    await dialog.getByLabel('允许调整Seed', { exact: true }).check();
+    await dialog.getByLabel('Seed绑定节点', { exact: true }).fill('8');
+    await dialog.getByLabel('Seed绑定输入', { exact: true }).fill('noise_seed');
+    await dialog.getByLabel('Seed最大值', { exact: true }).fill('4294967295');
+    await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('参数绑定与远端输入类型');
+    await expect(dialog.getByLabel('工作流名称')).toHaveValue('Studio image-to-video fixture');
+    await expect(dialog.getByLabel('画幅绑定节点', { exact: true })).toHaveValue('6');
+    await dialog.getByLabel('时长（秒）最大值', { exact: true }).fill('30');
+    await dialog.getByText('可调生成参数（可选）', { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/generation-binding-desktop.png' });
     await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
     await expect(dialog.getByRole('status')).toContainText('工作流的绑定节点已验证');
     await dialog.getByLabel('生成工作流', { exact: true }).selectOption({ index: 1 });
+    await expect(dialog.getByLabel('生成时长（秒）', { exact: true })).toHaveValue('2.5');
+    await expect(dialog.getByLabel('生成 Seed', { exact: true })).toHaveValue('37');
     await expect(submit).toBeDisabled();
     await dialog.getByLabel('首帧图片', { exact: true }).selectOption({ index: 1 });
     await expect(dialog.getByRole('img', { name: '选中的首帧' })).toBeVisible();
     await dialog.getByLabel('确认发送所选提示词和首帧图片到该工作流并消耗生成资源').check();
+    await dialog.getByLabel('生成画幅', { exact: true }).selectOption('16:9 (Landscape)');
+    await expect(dialog.getByLabel('确认发送所选提示词和首帧图片到该工作流并消耗生成资源')).not.toBeChecked();
+    await expect(submit).toBeDisabled();
+    await dialog.getByLabel('生成时长（秒）', { exact: true }).fill('3.5');
+    await dialog.getByLabel('生成 Seed', { exact: true }).fill('0');
+    await expect(dialog.getByLabel('将发送的生成参数')).toContainText('3.5');
+    await dialog.getByLabel('确认发送所选提示词和首帧图片到该工作流并消耗生成资源').check();
+    await dialog.locator('.dialog-body').evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await page.screenshot({ path: 'test-results/generation-parameters-desktop.png' });
     await page.setViewportSize({ width: 390, height: 844 });
+    await dialog.locator('.dialog-body').evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await page.screenshot({ path: 'test-results/generation-parameters-input-mobile.png' });
     await dialog.getByRole('img', { name: '选中的首帧' }).scrollIntoViewIfNeeded();
     expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: 'test-results/generation-i2v-mobile.png' });
@@ -87,6 +131,15 @@ export async function exerciseGeneration(page: Page) {
     await expect(videoJob.getByText('已归档为镜头候选', { exact: true })).toBeVisible({ timeout: 15000 });
     expect(remote.mock.uploads).toHaveLength(1);
     expect(remote.mock.uploads[0].bytes).toEqual(image);
+    const sent = remote.mock.submissions.at(-1).prompt;
+    expect(sent['6'].inputs.aspect_ratio).toBe('16:9 (Landscape)');
+    expect(sent['7'].inputs.value).toBe(3.5);
+    expect(sent['8'].inputs.noise_seed).toBe(0);
+    await expect(videoJob).toContainText('请求参数');
+    await expect(videoJob).toContainText('实际产物');
+    await videoJob.scrollIntoViewIfNeeded();
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/generation-parameters-mobile.png' });
     const [videoDownload] = await Promise.all([
       page.waitForEvent('download'),
       videoJob.getByRole('link', { name: '下载生成原件' }).click(),

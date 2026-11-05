@@ -27,6 +27,9 @@ export async function startComfyMock(files) {
           output_node: false,
         },
         'Plain Filename': { input: { required: { 'source.file': ['STRING'] } }, output_node: false },
+        AspectInput: { input: { required: { aspect_ratio: [['1:1 (Square)', '16:9 (Landscape)']] } } },
+        SecondsInput: { input: { required: { value: ['FLOAT', { min: 0.5, max: 30 }] } } },
+        SeedInput: { input: { required: { noise_seed: ['INT', { min: 0, max: 4294967295 }] } } },
       };
       return send(res, Object.hasOwn(info, type) ? { [type]: info[type] } : {});
     }
@@ -146,5 +149,33 @@ export function fixtureI2V(connectionId) {
       4: { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
       5: { class_type: 'ImageToVideo', inputs: { first_frame: ['4', 0], prompt: ['1', 0] } },
     },
+  };
+}
+
+export function fixtureParameterized(connectionId) {
+  const workflow = fixtureWorkflow(connectionId, true);
+  return {
+    ...workflow,
+    name: 'Configurable video',
+    graph: {
+      ...workflow.graph,
+      6: { class_type: 'AspectInput', inputs: { aspect_ratio: '1:1 (Square)' } },
+      7: { class_type: 'SecondsInput', inputs: { value: 2.5 } },
+      8: { class_type: 'SeedInput', inputs: { noise_seed: 37 } },
+      9: { class_type: 'FrameExpression', inputs: { seconds: ['7', 0], expression: 'round(a * 24)' } },
+    },
+    parameters: [
+      {
+        key: 'aspectRatio',
+        node: '6',
+        input: 'aspect_ratio',
+        options: [
+          { label: '方形', value: '1:1 (Square)' },
+          { label: '横屏', value: '16:9 (Landscape)' },
+        ],
+      },
+      { key: 'durationSeconds', node: '7', input: 'value', min: 0.5, max: 30, step: 0.5 },
+      { key: 'seed', node: '8', input: 'noise_seed', min: 0, max: 4294967295, step: 1 },
+    ],
   };
 }

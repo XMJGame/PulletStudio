@@ -11,6 +11,7 @@ import {
   WorkflowInput,
   referenceImageLimit,
   referenceImageExtensions,
+  WorkflowParameter,
 } from './generation-contract';
 
 export class GenerationError extends Error {
@@ -153,7 +154,32 @@ export class ComfyProvider {
             if (info.output_node !== true) throw new GenerationError('WORKFLOW_OUTPUT_NODE_INVALID');
           }),
           ...(workflow.image ? [validateImage(workflow.image)] : []),
+          ...(workflow.parameters ?? []).map(validateParameter),
         ]);
+        async function validateParameter(binding: WorkflowParameter) {
+          const info = await node(binding.node, signal);
+          const inputs = object(info.input);
+          const definition = object(inputs.required)[binding.input] ?? object(inputs.optional)[binding.input];
+          if (!Array.isArray(definition)) throw new GenerationError('WORKFLOW_PARAMETER_BINDING_INVALID');
+          const [type, constraints] = definition;
+          if (binding.key === 'aspectRatio') {
+            if (
+              type !== 'STRING' &&
+              (!Array.isArray(type) || binding.options.some((option) => !type.includes(option.value)))
+            )
+              throw new GenerationError('WORKFLOW_PARAMETER_BINDING_INVALID');
+            return;
+          }
+          const range = object(constraints);
+          if (
+            !['INT', 'FLOAT'].includes(type) ||
+            (binding.key === 'seed' && type !== 'INT') ||
+            (type === 'INT' && ![binding.min, binding.max, binding.step].every(Number.isSafeInteger)) ||
+            (typeof range.min === 'number' && binding.min < range.min) ||
+            (typeof range.max === 'number' && binding.max > range.max)
+          )
+            throw new GenerationError('WORKFLOW_PARAMETER_BINDING_INVALID');
+        }
         async function validateImage(binding: NonNullable<WorkflowInput['image']>) {
           const info = await node(binding.node, signal);
           const inputs = object(info.input);
