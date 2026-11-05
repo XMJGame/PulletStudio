@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, CursorPage, uploadMediaContent } from '../api';
 import { CardEditor } from '../prompt-types';
-import { MediaAsset, MediaUpload, MediaVersion, Take } from '../media-types';
+import { MediaAsset, MediaUpload, MediaVersion, Take, TakeSelection, takeReviewLabels } from '../media-types';
 import { Dialog } from './Dialog';
+import { TakeReviewPanel } from './TakeReviewPanel';
 type Status = { available: boolean; maxBytes: number; error?: { message: string }; formats?: string };
 type Versions = { items: MediaVersion[]; nextCursor: number | null };
 export function MediaDialog({
@@ -23,6 +24,8 @@ export function MediaDialog({
     nextCursor: null,
   });
   const [selected, setSelected] = useState<MediaVersion>();
+  const [selectedTake, setSelectedTake] = useState<Take>();
+  const [selection, setSelection] = useState<TakeSelection>();
   const [versions, setVersions] = useState<Versions>();
   const [file, setFile] = useState<File>();
   const [target, setTarget] = useState('');
@@ -51,13 +54,14 @@ export function MediaDialog({
         const access = await api<{ canEdit: boolean }>(`/projects/${pid}/access`);
         canEdit = access.canEdit;
       }
-      const [state, library, pending, linked] = await Promise.all([
+      const [state, library, pending, linked, selectedCandidate] = await Promise.all([
         api<Status>(`/projects/${pid}/media-status`),
         api<CursorPage<MediaAsset>>(`/projects/${pid}/media-assets`),
         api<CursorPage<MediaUpload>>(`/projects/${pid}/media-uploads`),
         shotId
           ? api<{ items: Take[]; nextCursor: number | null }>(`/shots/${shotId}/takes`)
           : Promise.resolve({ items: [], nextCursor: null }),
+        shotId ? api<TakeSelection>(`/shots/${shotId}/take-selection`) : Promise.resolve(undefined),
       ]);
       if (active) {
         setContext({ projectId: pid!, canEdit, shotVersion });
@@ -65,6 +69,7 @@ export function MediaDialog({
         setAssets(library);
         setUploads(pending);
         setTakes(linked);
+        setSelection(selectedCandidate);
       }
     })().catch((reason) => {
       if (active) report(reason);
@@ -83,8 +88,18 @@ export function MediaDialog({
     setAssets(library);
     setUploads(pending);
   }
-  async function select(version: MediaVersion) {
+  async function refreshTakes() {
+    if (!shotId) return;
+    const [linked, selectedCandidate] = await Promise.all([
+      api<typeof takes>(`/shots/${shotId}/takes`),
+      api<TakeSelection>(`/shots/${shotId}/take-selection`),
+    ]);
+    setTakes(linked);
+    setSelection(selectedCandidate);
+  }
+  async function select(version: MediaVersion, take?: Take) {
     setSelected(version);
+    setSelectedTake(take);
     setVersions(undefined);
     setMessage('');
     setError('');
@@ -185,7 +200,7 @@ export function MediaDialog({
   return (
     <Dialog
       title={shotId ? '镜头素材与候选' : '项目素材'}
-      description="手工导入图片、视频或音频，原件与版本保留。候选素材尚未审核，也不会自动替换制作卡。"
+      description="导入和预览媒体，查看候选审核记录，选用已批准的版本。"
       busy={busy}
       onClose={onClose}
     >
@@ -374,9 +389,10 @@ export function MediaDialog({
                           mediaVersionId: selected.id,
                           expectedShotVersion: context.shotVersion,
                         })
-                          .then(async () => {
-                            setTakes(await api(`/shots/${shotId}/takes`));
-                            setMessage('已添加镜头草稿候选，尚未审核');
+                          .then(async (take) => {
+                            setSelectedTake(take);
+                            await refreshTakes();
+                            setMessage('候选已关联，可查看审核记录。');
                           })
                           .catch(report)
                           .finally(() => setBusy(false));
@@ -389,7 +405,14 @@ export function MediaDialog({
                 {versions && (
                   <div className="review-actions">
                     {versions.items.map((item) => (
-                      <button key={item.id} disabled={busy} onClick={() => setSelected(item)}>
+                      <button
+                        key={item.id}
+                        disabled={busy}
+                        onClick={() => {
+                          setSelected(item);
+                          setSelectedTake(undefined);
+                        }}
+                      >
                         查看媒体 v{item.version}
                       </button>
                     ))}
@@ -418,19 +441,35 @@ export function MediaDialog({
                 )}
               </section>
             )}
+            {shotId && selectedTake && selected?.id === selectedTake.media.id && (
+              <TakeReviewPanel
+                key={selectedTake.id}
+                takeId={selectedTake.id}
+                shotId={shotId}
+                onChanged={refreshTakes}
+                onBusyChange={setBusy}
+              />
+            )}
             {shotId && (
               <section>
-                <h3>镜头候选（尚未审核）</h3>
+                <h3>镜头候选</h3>
+                <p className="field-hint">
+                  当前选片 ·{' '}
+                  {selection?.takeId
+                    ? `Take ${String(selection.takeNo).padStart(2, '0')}${selection.valid ? '（有效）' : '（已失效）'}`
+                    : '尚未选用'}
+                </p>
                 {!takes.items.length && <p className="muted">尚无候选媒体。</p>}
                 {takes.items.map((take) => (
                   <button
                     className="revision-item"
                     key={take.id}
                     disabled={busy}
-                    onClick={() => void select(take.media)}
+                    onClick={() => void select(take.media, take)}
                   >
                     查看候选 Take {String(take.takeNo).padStart(2, '0')} · {take.media.fileName} v
-                    {take.media.version}
+                    {take.media.version} · {takeReviewLabels[take.review?.status ?? 'draft']}
+                    {take.review?.stale ? ' · 审核依据已变化' : ''}
                   </button>
                 ))}
                 {takes.nextCursor && (

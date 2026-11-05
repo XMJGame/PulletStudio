@@ -829,7 +829,90 @@ export const takes = sqliteTable(
     }),
     uniqueIndex('take_number').on(t.shotId, t.takeNo),
     uniqueIndex('take_media_once').on(t.shotId, t.mediaVersionId),
+    uniqueIndex('take_review_scope').on(t.id, t.shotId, t.projectId, t.workspaceId, t.mediaVersionId),
     check('take_positive', sql`${t.takeNo}>0`),
+  ],
+);
+
+export const takeReviewEvents = sqliteTable(
+  'take_review_events',
+  {
+    id: text('id').primaryKey(),
+    takeId: text('take_id').notNull(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    mediaVersionId: text('media_version_id').notNull(),
+    version: integer('version').notNull(),
+    action: text('action', { enum: ['submit', 'withdraw', 'approve', 'reject', 'revoke'] }).notNull(),
+    shotVersion: integer('shot_version').notNull(),
+    projectVersion: integer('project_version').notNull(),
+    promptId: text('prompt_id').references(() => promptArtifacts.id),
+    generationJobId: text('generation_job_id').references(() => generationJobs.id),
+    reason: text('reason').notNull(),
+    actorId: text('actor_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.takeId, t.shotId, t.projectId, t.workspaceId, t.mediaVersionId],
+      foreignColumns: [takes.id, takes.shotId, takes.projectId, takes.workspaceId, takes.mediaVersionId],
+    }),
+    uniqueIndex('take_review_version').on(t.takeId, t.version),
+    uniqueIndex('take_review_request').on(t.takeId, t.actorId, t.requestKey),
+    uniqueIndex('take_review_selection_scope').on(t.id, t.takeId, t.shotId, t.projectId, t.workspaceId),
+    check('take_review_action', sql`${t.action} IN ('submit','withdraw','approve','reject','revoke')`),
+    check(
+      'take_review_version_positive',
+      sql`${t.version}>0 AND ${t.shotVersion}>0 AND ${t.projectVersion}>0`,
+    ),
+    check('take_review_reason', sql`length(trim(${t.reason})) BETWEEN 1 AND 1000`),
+  ],
+);
+
+export const shotTakeSelections = sqliteTable(
+  'shot_take_selections',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    takeId: text('take_id'),
+    approvalId: text('approval_id'),
+    reason: text('reason').notNull(),
+    actorId: text('actor_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.approvalId, t.takeId, t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        takeReviewEvents.id,
+        takeReviewEvents.takeId,
+        takeReviewEvents.shotId,
+        takeReviewEvents.projectId,
+        takeReviewEvents.workspaceId,
+      ],
+    }),
+    uniqueIndex('shot_selection_version').on(t.shotId, t.version),
+    uniqueIndex('shot_selection_request').on(t.shotId, t.actorId, t.requestKey),
+    check(
+      'shot_selection_pair',
+      sql`(${t.takeId} IS NULL AND ${t.approvalId} IS NULL) OR (${t.takeId} IS NOT NULL AND ${t.approvalId} IS NOT NULL)`,
+    ),
+    check('shot_selection_version_positive', sql`${t.version}>0`),
+    check('shot_selection_reason', sql`length(trim(${t.reason})) BETWEEN 1 AND 1000`),
   ],
 );
 

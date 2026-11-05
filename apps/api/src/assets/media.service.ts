@@ -18,6 +18,7 @@ import { LocalStorage, objectPrefix, StorageFailure } from '../storage/local-sto
 import { MediaDetails, MediaProbe } from './media-probe';
 import { UploadInput } from './media-contract';
 import { assertSampleAccess } from './entity-references';
+import { takeReviewState } from './take-review-state';
 type Upload = typeof mediaUploads.$inferSelect;
 type Prepared = { original: { bytes: number; sha256: string }; details: MediaDetails };
 export function safeMediaError(error: unknown) {
@@ -628,18 +629,25 @@ export class MediaService {
     };
   }
   takeList(user: CurrentUser, shotId: string, before?: number) {
-    this.production.shot(user, shotId);
-    const rows = this.database.db
-      .select()
-      .from(takes)
-      .where(and(eq(takes.shotId, shotId), before ? lt(takes.takeNo, before) : undefined))
-      .orderBy(desc(takes.takeNo))
-      .limit(21)
-      .all();
-    return {
-      items: rows.slice(0, 20).map((row) => ({ ...row, media: this.version(user, row.mediaVersionId) })),
-      nextCursor: rows.length > 20 ? rows[19].takeNo : null,
-    };
+    return this.database.db.transaction(() => {
+      const shot = this.production.shot(user, shotId);
+      const project = this.authz.project(user, shot.projectId);
+      const rows = this.database.db
+        .select()
+        .from(takes)
+        .where(and(eq(takes.shotId, shotId), before ? lt(takes.takeNo, before) : undefined))
+        .orderBy(desc(takes.takeNo))
+        .limit(21)
+        .all();
+      return {
+        items: rows.slice(0, 20).map((row) => ({
+          ...row,
+          media: this.version(user, row.mediaVersionId),
+          review: takeReviewState(this.database, row.id, shot.version, project.version),
+        })),
+        nextCursor: rows.length > 20 ? rows[19].takeNo : null,
+      };
+    });
   }
   addTake(user: CurrentUser, shotId: string, mediaVersionId: string, expectedShotVersion: number) {
     return this.database.db.transaction(

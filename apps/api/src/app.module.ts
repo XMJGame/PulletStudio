@@ -42,6 +42,8 @@ import { ComfyProvider } from './generation/comfy-provider';
 import { GenerationService } from './generation/generation.service';
 import { GenerationController } from './generation/generation.controller';
 import { GenerationWorker } from './generation/generation-worker';
+import { TakeReviewController } from './assets/take-review.controller';
+import { TakeReviewService } from './assets/take-review.service';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -60,6 +62,7 @@ import { GenerationWorker } from './generation/generation-worker';
     MediaController,
     EntitiesController,
     GenerationController,
+    TakeReviewController,
   ],
   providers: [
     AppConfig,
@@ -88,6 +91,7 @@ import { GenerationWorker } from './generation/generation-worker';
     ComfyProvider,
     GenerationService,
     GenerationWorker,
+    TakeReviewService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

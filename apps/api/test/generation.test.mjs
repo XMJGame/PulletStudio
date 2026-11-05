@@ -554,6 +554,22 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         assert.deepEqual(completed.result.metadata, media.metadata);
         assert.ok(completed.result.metadata.width > 0);
         assert.ok(completed.result.metadata.durationMs > 0);
+        const reviewPath = `/takes/${completed.takeId}/reviews`;
+        const submittedReview = await owner(
+          'POST',
+          reviewPath,
+          {
+            action: 'submit',
+            reason: 'Review frozen generation output.',
+            expectedDecisionVersion: 0,
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(submittedReview.status, 201, JSON.stringify(submittedReview.data));
+        const review = (await owner('GET', reviewPath)).data;
+        assert.equal(review.context.generationJobId, completed.id);
+        assert.equal(review.context.promptId, prompt.id);
+        assert.equal(review.source.shotVersion, shot.version);
         const legacy = (await owner('GET', `/shots/${shot.id}/generation-jobs`)).data.find(
           (item) => item.workflowName === 'Mock image',
         );
