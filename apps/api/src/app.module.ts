@@ -44,6 +44,8 @@ import { GenerationController } from './generation/generation.controller';
 import { GenerationWorker } from './generation/generation-worker';
 import { TakeReviewController } from './assets/take-review.controller';
 import { TakeReviewService } from './assets/take-review.service';
+import { MediaPackageService } from './exports/media-package.service';
+import { MediaPackageController } from './exports/media-package.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -63,6 +65,7 @@ import { TakeReviewService } from './assets/take-review.service';
     EntitiesController,
     GenerationController,
     TakeReviewController,
+    MediaPackageController,
   ],
   providers: [
     AppConfig,
@@ -92,6 +95,7 @@ import { TakeReviewService } from './assets/take-review.service';
     GenerationService,
     GenerationWorker,
     TakeReviewService,
+    MediaPackageService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

@@ -689,6 +689,37 @@ export const storyboardExports = sqliteTable(
   ],
 );
 
+export const mediaPackageExports = sqliteTable(
+  'media_package_exports',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    snapshotHash: text('snapshot_hash').notNull(),
+    manifestJson: text('manifest_json').notNull(),
+    shotCount: integer('shot_count').notNull(),
+    mediaBytes: integer('media_bytes').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('media_package_request').on(t.projectId, t.createdBy, t.requestKey),
+    index('media_package_page').on(t.projectId, t.createdAt, t.id),
+    check(
+      'media_package_limits',
+      sql`${t.shotCount} BETWEEN 1 AND 100 AND ${t.mediaBytes}>0 AND ${t.mediaBytes}<=2147483648 AND length(CAST(${t.manifestJson} AS BLOB))<=4194304`,
+    ),
+  ],
+);
+
 export const storageConnections = sqliteTable('storage_connections', {
   id: text('id').primaryKey(),
   kind: text('kind').notNull(),

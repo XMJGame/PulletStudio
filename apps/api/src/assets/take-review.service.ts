@@ -230,6 +230,7 @@ export class TakeReviewService {
         .limit(21)
         .all();
       return {
+        id: latest?.id ?? null,
         version: latest?.version ?? 0,
         takeId: latest?.takeId ?? null,
         approvalId: latest?.approvalId ?? null,

@@ -570,6 +570,52 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         assert.equal(review.context.generationJobId, completed.id);
         assert.equal(review.context.promptId, prompt.id);
         assert.equal(review.source.shotVersion, shot.version);
+        assert.equal(
+          (
+            await owner(
+              'POST',
+              reviewPath,
+              {
+                action: 'approve',
+                reason: 'Accept returned output.',
+                expectedDecisionVersion: 1,
+              },
+              { 'Idempotency-Key': randomUUID() },
+            )
+          ).status,
+          201,
+        );
+        assert.equal(
+          (
+            await owner(
+              'POST',
+              `/shots/${shot.id}/take-selection`,
+              {
+                takeId: completed.takeId,
+                expectedSelectionVersion: 0,
+                reason: 'Deliver selected output.',
+              },
+              { 'Idempotency-Key': randomUUID() },
+            )
+          ).status,
+          201,
+        );
+        const packagePath = `/projects/${project.id}/media-packages`;
+        const scope = { type: 'shots', shotIds: [shot.id] };
+        const preflight = (await owner('POST', packagePath + '/preview', { scope })).data;
+        const exported = await owner(
+          'POST',
+          packagePath,
+          { scope, expectedSnapshotHash: preflight.snapshotHash },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(exported.status, 201, JSON.stringify(exported.data));
+        const delivered = (await owner('GET', `/media-packages/${exported.data.id}`)).data.manifest;
+        assert.deepEqual(delivered.shots[0].source.parameterValues, requested);
+        assert.equal(delivered.shots[0].source.prompt.id, prompt.id);
+        assert.equal(delivered.shots[0].source.workflow.id, id);
+        assert.equal(delivered.shots[0].source.workflow.graph, undefined);
+        assert.ok(!JSON.stringify(delivered).includes('fixture-private-token'));
         const legacy = (await owner('GET', `/shots/${shot.id}/generation-jobs`)).data.find(
           (item) => item.workflowName === 'Mock image',
         );

@@ -56,7 +56,15 @@ export class StoryboardExportsService {
       downloadPath: `/api/v1/storyboard-exports/${row.id}/file`,
     };
   }
-  private collect(user: CurrentUser, projectId: string, options: ExportOptions): ExportSnapshot {
+  cardsSnapshot(user: CurrentUser, projectId: string, scope: ExportOptions['scope']) {
+    return this.collect(user, projectId, { scope, format: 'json', promptMode: 'saved' }, false);
+  }
+  private collect(
+    user: CurrentUser,
+    projectId: string,
+    options: ExportOptions,
+    includePrompts = true,
+  ): ExportSnapshot {
     const project = this.authz.project(user, projectId);
     const units = this.database.db
       .select()
@@ -138,7 +146,7 @@ export class StoryboardExportsService {
       }
       let prompt: ExportPrompt | null = null;
       if (!card.available) warnings.push('未保存完整制作卡，仅导出已有镜头基本资料。');
-      if (options.promptMode === 'saved') {
+      if (includePrompts && options.promptMode === 'saved') {
         const latest = this.database.db
           .select({ id: promptArtifacts.id })
           .from(promptArtifacts)
@@ -169,7 +177,7 @@ export class StoryboardExportsService {
               `已保存提示词使用历史输入：${prompt.freshness.reasons.join('；')}。当前制作卡与提示词原卡请分别核对。`,
             );
         } else warnings.push('尚无已保存提示词；没有自动编译或创建Artifact。');
-      } else if (card.available) {
+      } else if (includePrompts && card.available) {
         const compiled = this.prompts.compile(user, shot.id, {
           mode: 'preview',
           expectedShotVersion: shot.version,

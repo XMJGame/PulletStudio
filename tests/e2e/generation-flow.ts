@@ -1,6 +1,7 @@
 import { expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { exerciseTakeReview } from './take-review-flow';
+import { exerciseMediaPackage } from './media-package-flow';
 import {
   startComfyMock,
   fixtureWorkflow,
@@ -154,6 +155,7 @@ export async function exerciseGeneration(page: Page) {
     await expect(media.getByRole('button', { name: /查看候选 Take 01 · image.png/ })).toBeVisible();
     await expect(media.getByRole('button', { name: /查看候选 Take 02 · clip.mp4/ })).toBeVisible();
     await exerciseTakeReview(page);
+    await exerciseMediaPackage(page);
     await page.keyboard.press('Escape');
   } finally {
     await remote.close();
