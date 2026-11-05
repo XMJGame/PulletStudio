@@ -813,6 +813,7 @@ export const mediaUploads = sqliteTable(
     expectedBytes: integer('expected_bytes').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     generationJobId: text('generation_job_id'),
+    animaticJobId: text('animatic_job_id'),
     requestHash: text('request_hash').notNull(),
     state: text('state', { enum: mediaUploadStates }).notNull(),
     leaseOwner: text('lease_owner'),
@@ -1105,6 +1106,71 @@ export const generationConnections = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (t) => [uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId)],
+);
+
+export const timelineRevisions = sqliteTable(
+  'timeline_revisions',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    snapshotHash: text('snapshot_hash').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    durationMs: integer('duration_ms').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('timeline_version').on(t.projectId, t.version),
+    uniqueIndex('timeline_request').on(t.projectId, t.createdBy, t.requestKey),
+    uniqueIndex('timeline_scope').on(t.id, t.projectId, t.workspaceId),
+    check(
+      'timeline_limits',
+      sql`${t.version}>0 AND ${t.durationMs} BETWEEN 40 AND 300000 AND length(CAST(${t.snapshotJson} AS BLOB))<=4194304`,
+    ),
+  ],
+);
+export const animaticJobs = sqliteTable(
+  'animatic_jobs',
+  {
+    id: text('id').primaryKey(),
+    timelineId: text('timeline_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    requestKey: text('request_key').notNull(),
+    state: text('state', {
+      enum: ['queued', 'rendering', 'archiving', 'completed', 'failed', 'canceled'],
+    }).notNull(),
+    leaseId: text('lease_id'),
+    leaseUntil: integer('lease_until'),
+    nextAt: integer('next_at').notNull(),
+    mediaVersionId: text('media_version_id').references(() => mediaVersions.id),
+    errorCode: text('error_code'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.timelineId, t.projectId, t.workspaceId],
+      foreignColumns: [timelineRevisions.id, timelineRevisions.projectId, timelineRevisions.workspaceId],
+    }),
+    uniqueIndex('animatic_request').on(t.projectId, t.createdBy, t.requestKey),
+    index('animatic_queue').on(t.state, t.nextAt, t.leaseUntil),
+    index('animatic_history').on(t.timelineId, t.createdAt, t.id),
+    check('animatic_completion', sql`${t.state}<>'completed' OR ${t.mediaVersionId} IS NOT NULL`),
+  ],
 );
 
 export const generationWorkflows = sqliteTable(

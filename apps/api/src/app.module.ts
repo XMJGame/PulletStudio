@@ -46,6 +46,10 @@ import { TakeReviewController } from './assets/take-review.controller';
 import { TakeReviewService } from './assets/take-review.service';
 import { MediaPackageService } from './exports/media-package.service';
 import { MediaPackageController } from './exports/media-package.controller';
+import { TimelineService } from './timeline/timeline.service';
+import { TimelineController } from './timeline/timeline.controller';
+import { AnimaticRenderer } from './timeline/animatic-renderer';
+import { AnimaticWorker } from './timeline/animatic-worker';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -66,6 +70,7 @@ import { MediaPackageController } from './exports/media-package.controller';
     GenerationController,
     TakeReviewController,
     MediaPackageController,
+    TimelineController,
   ],
   providers: [
     AppConfig,
@@ -96,6 +101,9 @@ import { MediaPackageController } from './exports/media-package.controller';
     GenerationWorker,
     TakeReviewService,
     MediaPackageService,
+    TimelineService,
+    AnimaticRenderer,
+    AnimaticWorker,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

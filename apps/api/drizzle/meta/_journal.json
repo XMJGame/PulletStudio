@@ -211,6 +211,20 @@
       "when": 1793862485768,
       "tag": "0029_media_package_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1793864238019,
+      "tag": "0030_natural_raider",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1793864285110,
+      "tag": "0031_animatic_guards",
+      "breakpoints": true
     }
   ]
 }

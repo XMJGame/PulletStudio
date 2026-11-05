@@ -7,6 +7,7 @@ import { StoryboardExportDialog } from './StoryboardExportDialog';
 import { MediaDialog } from './MediaDialog';
 import { EntityLibraryDialog } from './EntityLibraryDialog';
 import { MediaPackageDialog } from './MediaPackageDialog';
+import { AnimaticDialog } from './AnimaticDialog';
 const mergeRows = <T extends { id: string }>(current: T[], incoming: T[]) => [
   ...new Map([...current, ...incoming].map((item) => [item.id, item])).values(),
 ];
@@ -30,6 +31,7 @@ export function StructureWorkbench({
   const [showShotForm, setShowShotForm] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showPackage, setShowPackage] = useState(false);
+  const [showAnimatic, setShowAnimatic] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [showEntities, setShowEntities] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -140,6 +142,7 @@ export function StructureWorkbench({
           <button onClick={() => setShowEntities(true)}>资产库</button>
           <button onClick={() => setShowExport(true)}>导出分镜文档</button>
           <button onClick={() => setShowPackage(true)}>导出素材包</button>
+          <button onClick={() => setShowAnimatic(true)}>时间线与预演</button>
           <button
             disabled={busy}
             onClick={() =>
@@ -365,6 +368,16 @@ export function StructureWorkbench({
         />
       )}
       {showMedia && <MediaDialog projectId={projectId} onClose={() => setShowMedia(false)} />}
+      {showAnimatic && (
+        <AnimaticDialog
+          projectId={projectId}
+          units={units}
+          currentUnit={selectedUnit}
+          selectedShot={selectedShot}
+          canEdit={canEdit}
+          onClose={() => setShowAnimatic(false)}
+        />
+      )}
       {showPackage && (
         <MediaPackageDialog
           projectId={projectId}

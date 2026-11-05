@@ -38,6 +38,12 @@ export default defineConfig({
       env: testEnvironment,
     },
     {
+      command: 'node apps/api/dist/animatic-worker.js',
+      wait: { stdout: /Animatic worker ready/ },
+      reuseExistingServer: false,
+      env: testEnvironment,
+    },
+    {
       command: 'node tests/fixtures/text-mock.mjs',
       url: 'http://127.0.0.1:3118/health',
       reuseExistingServer: false,

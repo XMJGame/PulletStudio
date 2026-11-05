@@ -40,6 +40,8 @@ const extensions: Record<string, string> = {
   'audio/wav': 'wav',
   'audio/mpeg': 'mp3',
   'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/webm': 'webm',
 };
 type Row = typeof mediaPackageExports.$inferSelect;
 const metadata = {
@@ -79,7 +81,7 @@ export class MediaPackageService {
     if (!row) fail(404, 'NOT_FOUND', '素材包原件不存在或无权访问');
     assertSampleAccess(this.database, user, row);
   }
-  private collect(user: CurrentUser, projectId: string, options: PackageOptions) {
+  selectedSnapshot(user: CurrentUser, projectId: string, options: PackageOptions) {
     const cards = this.cards.cardsSnapshot(user, projectId, options.scope);
     if (cards.shots.length > packageLimits.shots)
       fail(413, 'PACKAGE_SHOT_LIMIT', '单次素材包最多100个镜头，请缩小范围');
@@ -212,7 +214,7 @@ export class MediaPackageService {
   }
   preview(user: CurrentUser, projectId: string, options: PackageOptions) {
     return this.database.db.transaction(() => {
-      const prepared = this.collect(user, projectId, options);
+      const prepared = this.selectedSnapshot(user, projectId, options);
       return {
         snapshotHash: prepared.snapshotHash,
         ready: prepared.ready,
@@ -267,7 +269,7 @@ export class MediaPackageService {
     const requestHash = checksum(JSON.stringify({ ...options, expectedSnapshotHash }));
     const existing = this.replay(user, projectId, key, requestHash);
     if (existing) return existing;
-    const prepared = this.database.db.transaction(() => this.collect(user, projectId, options));
+    const prepared = this.database.db.transaction(() => this.selectedSnapshot(user, projectId, options));
     if (!prepared.ready) fail(409, 'PACKAGE_NOT_READY', '所选范围有待处理镜头，请先完成审核及选片');
     if (prepared.snapshotHash !== expectedSnapshotHash)
       fail(409, 'PACKAGE_PREVIEW_CHANGED', '选片或制作内容已变化，请重新预检');
@@ -276,7 +278,7 @@ export class MediaPackageService {
       () => {
         const existing = this.replay(user, projectId, key, requestHash);
         if (existing) return existing;
-        const current = this.collect(user, projectId, options);
+        const current = this.selectedSnapshot(user, projectId, options);
         if (!current.ready || current.snapshotHash !== expectedSnapshotHash)
           fail(409, 'PACKAGE_PREVIEW_CHANGED', '检查原件期间选片或制作内容已变化，请重新预检');
         const project = this.authz.project(user, projectId),

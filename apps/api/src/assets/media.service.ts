@@ -114,6 +114,7 @@ export class MediaService {
     input: UploadInput,
     key: string,
     generationJobId?: string,
+    animaticJobId?: string,
   ) {
     const project = this.authz.project(user, projectId, 'edit');
     if (input.byteLength > this.config.mediaMaxBytes)
@@ -131,7 +132,11 @@ export class MediaService {
       )
       .get();
     if (existing) {
-      if (existing.requestHash !== requestHash || existing.generationJobId !== (generationJobId ?? null))
+      if (
+        existing.requestHash !== requestHash ||
+        existing.generationJobId !== (generationJobId ?? null) ||
+        existing.animaticJobId !== (animaticJobId ?? null)
+      )
         fail(409, 'IDEMPOTENCY_CONFLICT', '上传请求标识已用于另一文件或目标');
       return this.upload(user, existing.id);
     }
@@ -152,7 +157,11 @@ export class MediaService {
           )
           .get();
         if (replay) {
-          if (replay.requestHash !== requestHash || replay.generationJobId !== (generationJobId ?? null))
+          if (
+            replay.requestHash !== requestHash ||
+            replay.generationJobId !== (generationJobId ?? null) ||
+            replay.animaticJobId !== (animaticJobId ?? null)
+          )
             fail(409, 'IDEMPOTENCY_CONFLICT', '上传请求标识已用于其他文件');
           return this.uploadView(replay);
         }
@@ -187,6 +196,7 @@ export class MediaService {
             expectedBytes: input.byteLength,
             idempotencyKey: key,
             generationJobId,
+            animaticJobId,
             requestHash,
             state: 'created',
           })
@@ -371,7 +381,7 @@ export class MediaService {
             posterJson: prepared.details.poster
               ? JSON.stringify({ ...prepared.details.poster, key: `${prefix}/poster.jpg` })
               : null,
-            origin: row.generationJobId ? 'generation' : 'manual',
+            origin: row.generationJobId ? 'generation' : row.animaticJobId ? 'animatic' : 'manual',
             createdBy: row.createdBy,
             createdAt: now,
           })
@@ -419,11 +429,18 @@ export class MediaService {
     id: string,
     body: AsyncIterable<Uint8Array>,
     contentLength?: string,
-    generation?: { jobId: string; mediaType: 'image' | 'video'; signal: AbortSignal },
+    generation?: {
+      jobId?: string;
+      animaticJobId?: string;
+      mediaType: 'image' | 'video';
+      signal: AbortSignal;
+    },
   ) {
     const requested = this.uploadRow(user, id, true);
     if (requested.generationJobId !== (generation?.jobId ?? null))
       fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
+    if (requested.animaticJobId !== (generation?.animaticJobId ?? null))
+      fail(403, 'ANIMATIC_UPLOAD_RESERVED', '此上传由预演任务管理');
     await this.upload(user, id);
     const initial = this.uploadRow(user, id, true);
     if ((await this.storage.ready()) !== initial.storageId)
@@ -499,9 +516,11 @@ export class MediaService {
       clearInterval(heartbeat);
     }
   }
-  async reconcile(user: CurrentUser, id: string, generationJobId?: string) {
+  async reconcile(user: CurrentUser, id: string, generationJobId?: string, animaticJobId?: string) {
     if (this.uploadRow(user, id, true).generationJobId !== (generationJobId ?? null))
       fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
+    if (this.uploadRow(user, id, true).animaticJobId !== (animaticJobId ?? null))
+      fail(403, 'ANIMATIC_UPLOAD_RESERVED', '此上传由预演任务管理');
     await this.upload(user, id);
     const initial = this.uploadRow(user, id, true);
     if ((await this.storage.ready()) !== initial.storageId)
@@ -542,6 +561,7 @@ export class MediaService {
               eq(mediaUploads.projectId, projectId),
               eq(mediaUploads.createdBy, user.id),
               isNull(mediaUploads.generationJobId),
+              isNull(mediaUploads.animaticJobId),
             ),
           )
           .get()
@@ -555,6 +575,7 @@ export class MediaService {
           eq(mediaUploads.projectId, projectId),
           eq(mediaUploads.createdBy, user.id),
           isNull(mediaUploads.generationJobId),
+          isNull(mediaUploads.animaticJobId),
           boundary
             ? or(
                 lt(mediaUploads.createdAt, boundary.createdAt),

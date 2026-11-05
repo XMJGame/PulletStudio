@@ -570,43 +570,50 @@ export class ProductionService {
   }
   updateShot(user: CurrentUser, id: string, input: Partial<ShotInput> & { expectedVersion: number }) {
     const { expectedVersion, ...changes } = input;
-    return this.database.db.transaction((tx) => {
-      const shot = this.shot(user, id, 'edit');
-      const previousCard = cardRecord(this.database, id, shot.version);
-      const result = tx
-        .update(shots)
-        .set({ ...changes, version: expectedVersion + 1, updatedAt: new Date().toISOString() })
-        .where(
-          and(eq(shots.id, id), eq(shots.workspaceId, shot.workspaceId), eq(shots.version, expectedVersion)),
-        )
-        .returning()
-        .get();
-      if (!result)
-        fail(409, 'VERSION_CONFLICT', '镜头已被修改，请刷新后重试', {
-          latest: tx.select().from(shots).where(eq(shots.id, id)).get(),
-        });
-      this.audit(user.id, shot.workspaceId, 'shot.update', id);
-      if (previousCard) {
-        const previous = JSON.parse(previousCard.bodyJson);
-        const body = formalCardSchema.parse({
-          ...previous,
-          description: changes.description ?? previous.description,
-          cameraMovement: changes.camera ?? previous.cameraMovement,
-          dialogue: changes.dialogue ?? previous.dialogue,
-          durationSeconds: changes.durationHint ?? previous.durationSeconds,
-          technique: changes.technique ?? previous.technique,
-        });
-        appendCardEdition(
-          this.database,
-          user,
-          result!,
-          body,
-          previousCard.sourceProposalRevisionId,
-          '编辑正式镜头',
-        );
-      }
-      return this.shot(user, id);
-    });
+    return this.database.db.transaction(
+      (tx) => {
+        const shot = this.shot(user, id, 'edit');
+        const previousCard = cardRecord(this.database, id, shot.version);
+        const result = tx
+          .update(shots)
+          .set({ ...changes, version: expectedVersion + 1, updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(shots.id, id),
+              eq(shots.workspaceId, shot.workspaceId),
+              eq(shots.version, expectedVersion),
+            ),
+          )
+          .returning()
+          .get();
+        if (!result)
+          fail(409, 'VERSION_CONFLICT', '镜头已被修改，请刷新后重试', {
+            latest: tx.select().from(shots).where(eq(shots.id, id)).get(),
+          });
+        this.audit(user.id, shot.workspaceId, 'shot.update', id);
+        if (previousCard) {
+          const previous = JSON.parse(previousCard.bodyJson);
+          const body = formalCardSchema.parse({
+            ...previous,
+            description: changes.description ?? previous.description,
+            cameraMovement: changes.camera ?? previous.cameraMovement,
+            dialogue: changes.dialogue ?? previous.dialogue,
+            durationSeconds: changes.durationHint ?? previous.durationSeconds,
+            technique: changes.technique ?? previous.technique,
+          });
+          appendCardEdition(
+            this.database,
+            user,
+            result!,
+            body,
+            previousCard.sourceProposalRevisionId,
+            '编辑正式镜头',
+          );
+        }
+        return this.shot(user, id);
+      },
+      { behavior: 'immediate' },
+    );
   }
   card(user: CurrentUser, id: string, version?: number) {
     const shot = this.shot(user, id);

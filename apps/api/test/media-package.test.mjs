@@ -288,6 +288,20 @@ test('selected media packages freeze approvals, validate originals and stream re
       assert.equal((await viewer('GET', `/media-packages/${packageRow.id}/file`)).status, 403);
       assert.equal((await owner('GET', `/media-packages/${packageRow.id}/file`)).status, 200);
     });
+    await t.test('AAC audio originals retain a usable extension in packages', async () => {
+      const sound = await upload('sound.m4a');
+      const target = await fullShot();
+      await approve(target, sound.id);
+      const input = { scope: { type: 'shots', shotIds: [target.id] } };
+      const checked = (await preview(input)).data;
+      const result = await create(checked.snapshotHash, randomUUID(), input);
+      assert.equal(result.status, 201, JSON.stringify(result.data));
+      const delivered = await owner('GET', `/media-packages/${result.data.id}/file`);
+      const zip = readPackageZip(delivered.bytes),
+        manifest = JSON.parse(zip.get('manifest.json'));
+      assert.ok(manifest.files[0].path.endsWith('.m4a'));
+      assert.deepEqual(zip.get(manifest.files[0].path), fixtures['sound.m4a'].bytes);
+    });
     await t.test('audit failures roll back fixed manifests and history stays immutable', async () => {
       const input = { scope: { type: 'shots', shotIds: [secondShot.id] } };
       const checked = (await preview(input)).data;
