@@ -8,15 +8,16 @@ import { saveTimelineInput, timelineInput } from './timeline-contract';
 import { TimelineService } from './timeline.service';
 const uuid = z.uuid(),
   cursor = z.coerce.number().int().positive();
+const editorInput = z.object({ scope: packageOptions.shape.scope }).strict();
 @ApiCookieAuth()
 @ApiTags('时间线与预演')
 @Controller('api/v1')
 export class TimelineController {
   constructor(private readonly timelines: TimelineService) {}
   @Post('projects/:id/timeline-editor')
-  @ApiBody({ schema: jsonSchema(packageOptions) })
+  @ApiBody({ schema: jsonSchema(editorInput) })
   editor(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
-    return this.timelines.editor(req.user, parse(uuid, id), parse(packageOptions, body));
+    return this.timelines.editor(req.user, parse(uuid, id), parse(editorInput, body));
   }
   @Post('projects/:id/timelines/preview')
   @ApiBody({ schema: jsonSchema(timelineInput) })

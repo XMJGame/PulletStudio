@@ -1,5 +1,7 @@
 # Pullet Studio V1.0 架构规范
 
+> 产品边界见[ADR-009](ADR-009-production-and-postproduction-handoff.md)：统一生产核心支撑生产工作台和创作画布；保留媒体处理/轻量预演，交付固定原件、镜头清单、版本及来源。正式多轨剪辑、转场、关键帧、调色、合成、专业混音交外部工具，OTIO/FCPXML另做具体软件兼容验收。
+
 ## 1. 技术栈决定
 - React + TypeScript + Vite：SPA 创作界面。
 - Tailwind + shadcn/ui：组件库；TanStack Query 服务端状态；Zustand 仅做本地 UI 状态。

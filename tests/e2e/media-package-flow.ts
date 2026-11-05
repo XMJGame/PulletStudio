@@ -22,6 +22,10 @@ export async function exerciseMediaPackage(page: Page) {
   await page.getByRole('button', { name: '导出素材包', exact: true }).click();
   await dialog.getByRole('button', { name: '预检素材包', exact: true }).click();
   await expect(dialog.getByRole('heading', { name: '可创建素材包', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: '交付包内容', exact: true })).toContainText('ShotList.csv');
+  await expect(dialog.getByRole('region', { name: '交付包内容', exact: true })).toContainText(
+    'ProductionNotes.md',
+  );
   await dialog.getByLabel('确认范围、选片和原件交付').check();
   let lost = false;
   const pattern = '**/api/v1/projects/*/media-packages';
@@ -52,7 +56,16 @@ export async function exerciseMediaPackage(page: Page) {
   const bytes = await readFile((await download.path())!);
   const zip = readPackageZip(bytes),
     manifest = JSON.parse(zip.get('manifest.json'));
-  expect(zip.size).toBe(2);
+  expect(zip.size).toBe(4);
+  expect(manifest.schemaVersion).toBe('studio.media-package.v2');
+  expect(manifest.files[0].path).toBe('01_Video/SH002_Take02.mp4');
+  const list = zip.get('05_Documents/ShotList.csv').toString('utf8');
+  expect(list).toContain('01_Video/SH002_Take02.mp4');
+  expect(list).toContain('planned_duration_seconds');
+  expect(list).toContain('source_duration_ms');
+  expect(zip.get('05_Documents/ProductionNotes.md').toString('utf8')).toContain(
+    '不是完整项目备份或专业剪辑工程',
+  );
   expect(manifest.shots).toHaveLength(1);
   expect(manifest.shots[0].take.takeNo).toBe(2);
   expect(manifest.shots[0].source.parameterValues.seed).toBe(0);

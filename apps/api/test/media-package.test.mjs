@@ -22,7 +22,24 @@ test('selected media packages freeze approvals, validate originals and stream re
   const { LocalStorage } = await import('../dist/storage/local-storage.js');
   const { MediaService } = await import('../dist/assets/media.service.js');
   const { MediaPackageService } = await import('../dist/exports/media-package.service.js');
-  let app, base, workspace, project, shot, secondShot, take, media, ownerUser, viewerId, saved, originalZip;
+  let app, base, workspace, project, shot, secondShot, take, media, ownerUser, viewerId, saved, originalZip, handoffSaved, handoffBytes;
+  function csvRows(bytes) {
+    const text = bytes.toString('utf8').replace(/^\uFEFF/, '');
+    const rows = []; let row = [], cell = '', quoted = false;
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (char === '"') {
+        if (quoted && text[index + 1] === '"') { cell += '"'; index++; }
+        else quoted = !quoted;
+      } else if (char === ',' && !quoted) { row.push(cell); cell = ''; }
+      else if (char === '\r' && text[index + 1] === '\n' && !quoted) {
+        row.push(cell); rows.push(row); row = []; cell = ''; index++;
+      } else cell += char;
+    }
+    assert.equal(quoted, false);
+    assert.equal(cell, '');
+    return rows;
+  }
   function client() {
     let cookies = '',
       csrf = '';
@@ -270,7 +287,7 @@ test('selected media packages freeze approvals, validate originals and stream re
       const sound = await upload('sound.wav'),
         audioShot = await fullShot();
       await approve(audioShot, sound.id);
-      const input = { scope: { type: 'shots', shotIds: [audioShot.id] } };
+      const input = { scope: { type: 'shots', shotIds: [audioShot.id] }, layout: 'delivery' };
       const checked = (await preview(input)).data;
       const packageRow = (await create(checked.snapshotHash, randomUUID(), input)).data;
       assert.equal((await viewer('GET', `/media-packages/${packageRow.id}/file`)).status, 200);
@@ -317,6 +334,116 @@ test('selected media packages freeze approvals, validate originals and stream re
       assert.equal(db().prepare('SELECT COUNT(*) n FROM media_package_exports').get().n, count);
       assert.throws(() => db().exec("UPDATE media_package_exports SET manifest_json='{}'"), /immutable/);
       assert.throws(() => db().exec('DELETE FROM media_package_exports'), /immutable/);
+    });
+    await t.test('standard handoff freezes exact selected media, documents and CSV path mappings', async () => {
+      const picture = await upload('image.png'), sound = await upload('sound.m4a');
+      const targets = [];
+      const description = ' \u200b=1+1,\n"桥"与远山';
+      for (const source of [media, media, picture, sound]) {
+        let target = await fullShot();
+        const editor = (await owner('GET', `/shots/${target.id}/card/editor`)).data;
+        editor.body.description = description;
+        editor.body.durationSeconds = 7;
+        editor.body.dialogue = '你好，旅人。\nNext stop.';
+        target = (await owner('PATCH', `/shots/${target.id}/card`, { expectedVersion: target.version, body: editor.body })).data.shot;
+        await approve(target, source.id);
+        targets.push(target);
+      }
+      const input = { scope: { type: 'shots', shotIds: targets.map(target => target.id) }, layout: 'delivery' };
+      const checked = (await preview(input)).data;
+      assert.equal(checked.ready, true);
+      assert.equal(checked.layout, 'delivery');
+      assert.equal(checked.documents.length, 2);
+      assert.equal(checked.fileCount, 3);
+      assert.deepEqual(checked.directories, ['01_Video', '03_Images', '02_Audio']);
+      const key = randomUUID();
+      const result = await create(checked.snapshotHash, key, input);
+      assert.equal(result.status, 201, JSON.stringify(result.data));
+      handoffSaved = result.data;
+      assert.equal(handoffSaved.layout, 'delivery');
+      assert.equal((await create(checked.snapshotHash, key, input)).data.layout, 'delivery');
+      assert.equal((await create(checked.snapshotHash, key, { scope: input.scope })).data.code, 'IDEMPOTENCY_CONFLICT');
+      assert.equal((await create((await preview({ scope: input.scope })).data.snapshotHash, randomUUID(), input)).data.code, 'PACKAGE_PREVIEW_CHANGED');
+      assert.equal((await owner('GET', path())).data.items.find(item => item.id === handoffSaved.id).layout, 'delivery');
+      handoffBytes = (await viewer('GET', `/media-packages/${handoffSaved.id}/file`)).bytes;
+      const zip = readPackageZip(handoffBytes), manifest = JSON.parse(zip.get('manifest.json'));
+      assert.equal(zip.size, 6);
+      assert.equal(manifest.schemaVersion, 'studio.media-package.v2');
+      assert.equal(manifest.shots.length, 4);
+      assert.equal(manifest.files.length, 3);
+      for (const document of manifest.documents) {
+        const content = zip.get(document.path);
+        assert.equal(content.length, document.byteLength);
+        assert.equal(createHash('sha256').update(content).digest('hex'), document.sha256);
+        assert.equal(content.toString('utf8'), document.content);
+      }
+      const csv = zip.get('05_Documents/ShotList.csv');
+      assert.deepEqual([...csv.subarray(0, 3)], [239, 187, 191]);
+      const [headers, ...rows] = csvRows(csv);
+      assert.equal(rows.length, 4);
+      const objects = rows.map(row => {
+        assert.equal(row.length, headers.length);
+        return Object.fromEntries(headers.map((header, index) => [header, row[index]]));
+      });
+      assert.equal(objects[0].media_path, objects[1].media_path);
+      assert.equal(objects[0].description, "'" + description);
+      assert.equal(objects[0].dialogue, '你好，旅人。\nNext stop.');
+      assert.equal(objects[0].planned_duration_seconds, '7');
+      assert.equal(Number(objects[0].source_duration_ms), media.metadata.durationMs);
+      assert.equal(objects[2].source_duration_ms, '');
+      for (const [index, row] of objects.entries()) {
+        assert.equal(row.order, String(index + 1));
+        const frozen = manifest.shots[index];
+        assert.equal(row.approval_id, frozen.approval.id);
+        assert.equal(row.take_id, frozen.take.id);
+        const file = manifest.files.find(file => file.mediaVersionId === frozen.take.mediaVersionId);
+        assert.equal(row.media_path, file.path);
+        assert.equal(zip.get(file.path).length, file.byteLength);
+      }
+      for (const file of manifest.files) {
+        const expected = file.mime === 'video/mp4' ? 'clip.mp4' : file.mime === 'image/png' ? 'image.png' : 'sound.m4a';
+        assert.deepEqual(zip.get(file.path), fixtures[expected].bytes);
+      }
+      const notes = zip.get('05_Documents/ProductionNotes.md').toString('utf8');
+      assert.match(notes, /不等于最终剪辑时长/);
+      assert.match(notes, /字幕 SRT 和 PDF 尚未纳入/);
+      assert.ok(![...zip.keys()].some(path => path.startsWith('04_Subtitles/') || path.endsWith('.pdf')));
+      const editor = (await owner('GET', `/shots/${targets[0].id}/card/editor`)).data;
+      editor.body.description = 'Later production revision.';
+      await owner('PATCH', `/shots/${targets[0].id}/card`, { expectedVersion: targets[0].version, body: editor.body });
+      assert.deepEqual((await owner('GET', `/media-packages/${handoffSaved.id}/file`)).bytes, handoffBytes);
+      assert.equal((await create(checked.snapshotHash, key, input)).data.id, handoffSaved.id);
+      assert.deepEqual((await viewer('GET', `/media-packages/${saved.id}/file`)).bytes, originalZip);
+    });
+    await t.test('legacy unsafe codes and case-folded collisions cannot escape delivery folders', async () => {
+      const one = await upload('image.png'), two = await upload('image.png');
+      const targets = [await fullShot(), await fullShot()];
+      for (const [index, target] of targets.entries()) {
+        db().prepare('UPDATE shots SET code=? WHERE id=?').run(index ? '..\\Same' : '../Same', target.id);
+        await approve(target, index ? two.id : one.id);
+      }
+      const input = { scope: { type: 'shots', shotIds: targets.map(target => target.id) }, layout: 'delivery' };
+      const result = await create((await preview(input)).data.snapshotHash, randomUUID(), input);
+      assert.equal(result.status, 201, JSON.stringify(result.data));
+      const zip = readPackageZip((await owner('GET', `/media-packages/${result.data.id}/file`)).bytes);
+      const manifest = JSON.parse(zip.get('manifest.json'));
+      assert.equal(new Set(manifest.files.map(file => file.path.toLowerCase())).size, 2);
+      for (const file of manifest.files) {
+        assert.match(file.path, /^03_Images\/[a-zA-Z0-9_-]+\.png$/);
+        assert.deepEqual(zip.get(file.path), fixtures['image.png'].bytes);
+      }
+    });
+    await t.test('delivery document capacity rejects without saving a truncated handoff', async () => {
+      const { packageLimits } = await import('../dist/exports/media-package-contract.js');
+      const limit = packageLimits.documentBytes;
+      const count = db().prepare('SELECT COUNT(*) n FROM media_package_exports').get().n;
+      packageLimits.documentBytes = 1;
+      try {
+        const input = { scope: { type: 'shots', shotIds: [secondShot.id] }, layout: 'delivery' };
+        assert.equal((await preview(input)).data.code, 'PACKAGE_DOCUMENT_LIMIT');
+        assert.equal((await create('0'.repeat(64), randomUUID(), input)).data.code, 'PACKAGE_DOCUMENT_LIMIT');
+        assert.equal(db().prepare('SELECT COUNT(*) n FROM media_package_exports').get().n, count);
+      } finally { packageLimits.documentBytes = limit; }
     });
     await t.test(
       'canceled downloads close source streams and blocked downloads do not start archives',
@@ -405,6 +532,7 @@ test('selected media packages freeze approvals, validate originals and stream re
         await app.close();
         await start();
         assert.deepEqual((await owner('GET', `/media-packages/${saved.id}/file`)).bytes, originalZip);
+        assert.deepEqual((await owner('GET', `/media-packages/${handoffSaved.id}/file`)).bytes, handoffBytes);
       },
     );
     await t.test('package bounds reject oversized scope and media without truncation', async () => {

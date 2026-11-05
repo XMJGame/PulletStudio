@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api, ApiError, CursorPage, ProductionUnit, Shot } from '../api';
 import { Dialog } from './Dialog';
 type Preview = {
+  layout: string;
+  directories: string[];
+  documents: { path: string; byteLength: number }[];
   snapshotHash: string;
   ready: boolean;
   shotCount: number;
@@ -10,6 +13,7 @@ type Preview = {
   items: { id: string; code: string; ready: boolean; reason: string; takeNo: number | null }[];
 };
 type Package = {
+  layout: 'delivery' | 'media';
   id: string;
   createdAt: string;
   shotCount: number;
@@ -88,6 +92,7 @@ export function MediaPackageDialog({
   }
   function options() {
     return {
+      layout: 'delivery',
       scope:
         scope === 'unit'
           ? { type: 'unit', unitId, includeDescendants: descendants }
@@ -108,7 +113,7 @@ export function MediaPackageDialog({
   return (
     <Dialog
       title="导出已选素材包"
-      description="核对范围内的有效选片，下载包含原件、审核依据和来源清单的 ZIP。"
+      description="将批准选片原件、镜头清单和制作说明一起交给后期。"
       busy={busy}
       onClose={onClose}
     >
@@ -200,6 +205,21 @@ export function MediaPackageDialog({
                 {preview.shotCount} 个镜头 · {preview.fileCount} 个原件 ·{' '}
                 {Math.ceil(preview.mediaBytes / 1024).toLocaleString()} KiB
               </p>
+              <section aria-label="交付包内容">
+                <p>原件按视频、音频、图片分目录，同一原件只保存一份。</p>
+                {preview.directories.length > 0 && (
+                  <p className="field-hint">本次媒体目录：{preview.directories.join(' · ')}</p>
+                )}
+                <ul>
+                  {preview.documents.map((document) => (
+                    <li key={document.path}>{document.path.split('/').at(-1)}</li>
+                  ))}
+                  <li>manifest.json · 固定版本与审核依据</li>
+                </ul>
+                <p className="field-hint">
+                  清单分别记录计划时长和原件实测时长。当前包包含所选 Take；独立声音附件、字幕和 PDF 另行交接。
+                </p>
+              </section>
               {preview.items.map((item) => (
                 <article className="revision-item" key={item.id}>
                   <strong>
@@ -256,6 +276,7 @@ export function MediaPackageDialog({
           {history.items.map((item) => (
             <article className="revision-item" key={item.id}>
               <p>
+                {item.layout === 'delivery' ? '后期交付包' : '原件素材包'} ·{' '}
                 {new Date(item.createdAt).toLocaleString()} · {item.shotCount} 个镜头 ·{' '}
                 {Math.ceil(item.mediaBytes / 1024).toLocaleString()} KiB
               </p>

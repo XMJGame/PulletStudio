@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { ZipFile } from 'yazl';
@@ -21,6 +21,7 @@ import { assertSampleAccess } from '../assets/entity-references';
 import { TakeReviewService } from '../assets/take-review.service';
 import { PromptService } from '../prompt/prompt.service';
 import { StoryboardExportsService } from './storyboard-exports.service';
+import { deliveryDocuments, deliveryMediaPath } from './render-delivery';
 import {
   PackageFile,
   PackageManifest,
@@ -51,8 +52,9 @@ const metadata = {
   shotCount: mediaPackageExports.shotCount,
   mediaBytes: mediaPackageExports.mediaBytes,
   snapshotHash: mediaPackageExports.snapshotHash,
+  schemaVersion: sql<string>`json_extract(${mediaPackageExports.manifestJson}, '$.schemaVersion')`,
 };
-type Metadata = Pick<Row, keyof typeof metadata>;
+type Metadata = Pick<Row, Exclude<keyof typeof metadata, 'schemaVersion'>> & { schemaVersion?: string };
 @Injectable()
 export class MediaPackageService {
   constructor(
@@ -67,6 +69,7 @@ export class MediaPackageService {
     return {
       ...row,
       state: 'snapshot_ready' as const,
+      layout: row.schemaVersion === 'studio.media-package.v2' ? 'delivery' : 'media',
       fileName: `media-package-${row.id}.zip`,
       downloadPath: `/api/v1/media-packages/${row.id}/file`,
     };
@@ -86,7 +89,7 @@ export class MediaPackageService {
     if (cards.shots.length > packageLimits.shots)
       fail(413, 'PACKAGE_SHOT_LIMIT', '单次素材包最多100个镜头，请缩小范围');
     const snapshot: PackageSnapshot = {
-      schemaVersion: 'studio.media-package.v1',
+      schemaVersion: options.layout === 'delivery' ? 'studio.media-package.v2' : 'studio.media-package.v1',
       project: cards.project,
       scope: options.scope,
       units: cards.units,
@@ -132,6 +135,19 @@ export class MediaPackageService {
           takeNo: take.takeNo,
         });
         continue;
+      }
+      if (options.layout === 'delivery') {
+        const basePath =
+          files.get(media.id)?.path ?? deliveryMediaPath(media.mime, shot.code, take.takeNo, extension);
+        file.path = basePath;
+        let suffix = 1;
+        while (
+          [...files.values()].some(
+            (other) =>
+              other.mediaVersionId !== media.id && other.path.toLowerCase() === file.path.toLowerCase(),
+          )
+        )
+          file.path = basePath.slice(0, -(extension.length + 1)) + `_${++suffix}.${extension}`;
       }
       const approval = this.database.db
         .select({
@@ -198,6 +214,14 @@ export class MediaPackageService {
       });
     }
     snapshot.files = [...files.values()];
+    if (options.layout === 'delivery') {
+      snapshot.documents = deliveryDocuments(snapshot);
+      if (
+        snapshot.documents.reduce((total, document) => total + document.byteLength, 0) >
+        packageLimits.documentBytes
+      )
+        fail(413, 'PACKAGE_DOCUMENT_LIMIT', '交付文档超过2MiB，请缩小范围');
+    }
     const mediaBytes = snapshot.files.reduce((total, file) => total + file.byteLength, 0);
     if (mediaBytes > packageLimits.mediaBytes)
       fail(413, 'PACKAGE_SIZE_LIMIT', '原件合计超过2GiB，请缩小范围');
@@ -223,6 +247,13 @@ export class MediaPackageService {
         fileCount: prepared.snapshot.files.length,
         mediaBytes: prepared.mediaBytes,
         limits: packageLimits,
+        layout: options.layout === 'delivery' ? 'delivery' : 'media',
+        directories: [...new Set(prepared.snapshot.files.map((file) => file.path.split('/')[0]))],
+        documents:
+          prepared.snapshot.documents?.map((document) => ({
+            path: document.path,
+            byteLength: document.byteLength,
+          })) ?? [],
       };
     });
   }
@@ -243,7 +274,13 @@ export class MediaPackageService {
     if (row.requestHash !== requestHash) fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他素材包');
     for (const file of (JSON.parse(row.manifestJson) as PackageManifest).files)
       this.access(user, projectId, file);
-    return { ...this.view(row), replayed: true };
+    return {
+      ...this.view({
+        ...row,
+        schemaVersion: (JSON.parse(row.manifestJson) as PackageManifest).schemaVersion,
+      }),
+      replayed: true,
+    };
   }
   private async verifyFiles(user: CurrentUser, files: PackageFile[], signal?: AbortSignal) {
     for (const file of files) {
@@ -337,7 +374,7 @@ export class MediaPackageService {
   }
   read(user: CurrentUser, id: string) {
     const { row, manifest } = this.row(user, id);
-    return { ...this.view(row), manifest };
+    return { ...this.view({ ...row, schemaVersion: manifest.schemaVersion }), manifest };
   }
   list(user: CurrentUser, projectId: string, cursor?: string) {
     this.authz.project(user, projectId);
@@ -393,6 +430,12 @@ export class MediaPackageService {
     });
     const options = { compress: false, mtime: new Date(2000, 0, 1), mode: 0o100644, forceDosTimestamp: true };
     zip.addBuffer(Buffer.from(row.manifestJson), 'manifest.json', options);
+    for (const document of manifest.documents ?? []) {
+      const bytes = Buffer.from(document.content, 'utf8');
+      if (bytes.length !== document.byteLength || checksum(document.content) !== document.sha256)
+        fail(409, 'PACKAGE_DOCUMENT_INVALID', '固定交付文档与清单不一致');
+      zip.addBuffer(bytes, document.path, options);
+    }
     for (const file of manifest.files) {
       zip.addReadStreamLazy(file.path, { ...options, size: file.byteLength }, (callback) => {
         void this.media

@@ -2,6 +2,8 @@
 
 > 2026-11-05 决策说明：本文保留长期产品需求；主技术栈已由 ADR-001 确定为 NestJS/React/Drizzle/SQLite，下文 FastAPI/SQLAlchemy/Alembic 及重建 M0 的示例不再执行。团队级模块规格见 `architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md`，实际状态与顺序唯一来源为 `IMPLEMENTATION-STATUS.md`。
 
+> 2026-11-05 产品边界更新：[ADR-009](ADR-009-production-and-postproduction-handoff.md)。Pullet负责AI影视生产与素材交付，专业软件承担正式后期。生产工作台和创作画布为核心入口；镜头顺序/计划时长、媒体预览、轻量故事板连续播放、可选FFmpeg低清预演保留，不扩展为多轨剪辑器。标准原件/CSV/JSON先交付，声音与SRT基于确切来源逐步接入，OTIO/FCPXML后置并逐软件验证。不新增转场、关键帧、调色、特效合成或专业混音；旧文中相关长期建议不再驱动实施。
+
 > 版本：1.0 / 2026-11-04  
 > 状态：**实施基线（待 Codex 勘察仓库后按里程碑实现）**。本文不是“现已实现”的功能清单。  
 > 产品目标：个人可用、团队协作、可私有化、以后可对外分发；从短视频、广告、AI 漫剧、连续剧、旁白长视频到长篇电影共用一套业务核心。  
@@ -45,7 +47,7 @@
 
 - 不实现新的 GPU 推理内核、视频生成模型、GPU 集群调度器、ComfyUI Worker 安装器。
 - 不保证“一键生成合格 80 分钟电影”，也不保证人脸、服装、动作一致性。
-- 不实现完整 NLE（专业非线性视频编辑器）、复杂多轨调色、音频混音台；V1 提供简易预演和打包导出。
+- 不开发内置专业 NLE（非线性视频编辑器）、多轨剪辑、转场编辑、关键帧、调色、特效合成或混音台；V1 提供轻量故事板预演和标准化交付，不以“后续”名义继续开发剪辑器。
 - 不强制接入 ComfyUI、ArcReel、LibTV、即梦、官方账号或付费 API。
 - 不抓取第三方网页的非公开接口，也不绕过服务商鉴权和付费。
 - 不在 V1 使用 GPU 自动模型预缓存/清理业务；属于独立外部推理基础设施可扩展能力。
@@ -83,8 +85,8 @@
 - **源文本定位**：ScriptSpan 包含 `revision_id, start_offset, end_offset, text_hash`；算法拆分后能回指原文。跨版本重定位单独处理，不保证 offset 自动稳定。
 - **分镜草稿不是正式数据**：AI 产出 `AnalysisRun` + `Proposal`，只有用户审核后才转为正式 Scene/Shot/Asset。
 - **镜头意图与执行解耦**：镜头描述不含 Provider 特有字段；Prompt Compiler 根据 Profile 编译。模型参数配置独立存储。
-- **时间线与镜头解耦**：一次 TimelineClip 可引用同个 Shot 选中 Take，能重复或裁剪使用；镜头时长、源素材时长、时间线实际时长分开。
-- **音频分层**：VoiceOver / Dialogue / BGM / SFX / Ambience / GeneratedSourceAudio；保留或静音原声是轨道/片段属性，而非直接修改源视频。
+- **预演与镜头解耦**：保留已实现Timeline/Clip固定快照，供顺序与时长检查，不发展多轨编辑器；镜头计划时长、原件实测时长、预演实际时长分开。交付包保留原件，不代替后期剪辑工程。
+- **声音素材分层**：VoiceOver / Dialogue / BGM / SFX / Ambience / GeneratedSourceAudio表示素材用途，按来源/版本/权限管理，不等于内置混音轨道；预演keep/mute不修改源视频。字幕交付须有明确文字与时间码来源，不从对白伪造同步。
 - **参考资产版本固定**：已批准镜头引用具体 `AssetVersionId`，不能被新版封面图替换而悄悄漂移。
 
 ## 3. 模块化单体架构
@@ -375,7 +377,7 @@ class StorageBackend(Protocol):
 7. **分镜列表/故事板**：每镜完整制作卡；表格、卡片双视图；批量审核、时长估算、来源旁白映射。
 8. **生成面板**：模型 Provider 与 Profile 动态选择、参考资产、参数、预估费用（若供应商可提供）、任务队列、结果预览。
 9. **Take 审核**：多个候选对比、选择批准、评论与退回；视频可静音预览。
-10. **简单 Animatic**：静态图/视频+VO 时间轴、基础剪切/时长、原声策略、FFmpeg 低清预演导出；真正多轨编辑后续。
+10. **轻量故事板预演与交付**：按已选镜头顺序检查叙事节奏、缺片、计划时长及原件完整性，可选FFmpeg低清预演；保留已有简单片段能力，不再扩展专业轨道UI。重点交付原件、声音/字幕来源、CSV镜头清单、制作说明及manifest，专业后期在外部完成。
 11. **系统设置**：用户成员、Storage、Provider、Workflow Binding、备份与健康检查。
 
 **无限画布排后**，但画布 Node 引用 `shot_id/asset_version_id/job_id`，不复制业务实体。后续加入 `Canvas/CanvasNode/CanvasEdge`，数据与镜头、资产库保持单一真相源。
@@ -444,7 +446,7 @@ class StorageBackend(Protocol):
 
 ### M4：团队生产流程 + 预演与导出
 
-- Shot 分工、审核、评论、多 Take 选片、VO 配音素材与声音策略、简单 Timeline 和 FFmpeg 预演、素材包导出。
+- Shot 分工、审核、评论、多 Take 选片、声音素材与原声策略、轻量故事板/可选FFmpeg预演、标准媒体与镜头清单交付。声音/字幕附件按来源和权限渐进接入，不开发剪辑器。
 - **验收**：团队共同制作《盘古》 30–60 秒的完整预演样片，原声策略正确，选择不同 Take 不丢旧素材，镜头审核日志可查。Git commit。
 
 ### M5：系列化、第二 Provider、正式私有部署
@@ -454,7 +456,7 @@ class StorageBackend(Protocol):
 
 ### M6（V1.5/V2）：Agent、无限画布、长片生产增强
 
-- 多 Agent 分工、RAG/Story Bible、跨段一致性检查、Yjs 同文档编辑、React Flow 画布、复杂时间线、云版及 PostgreSQL 正式迁移。
+- 多 Agent 分工、RAG/Story Bible、跨段一致性检查、Yjs 同文档编辑、React Flow 画布、经逐软件验证的OTIO/FCPXML交接、云版及 PostgreSQL 正式迁移。复杂剪辑时间线不属于Pullet范围。
 - **验收**：模拟 80 分钟工程结构、数百镜头的性能和权限测试；不要求真的本地生成完整电影才判定架构可用。
 
 ## 16. 质量门禁与测试矩阵

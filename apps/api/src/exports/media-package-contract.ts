@@ -6,8 +6,11 @@ export const packageLimits = {
   shots: 100,
   mediaBytes: 2 * 1024 * 1024 * 1024,
   manifestBytes: 4 * 1024 * 1024,
+  documentBytes: 2 * 1024 * 1024,
 };
-export const packageOptions = z.object({ scope: exportOptions.shape.scope }).strict();
+export const packageOptions = z
+  .object({ scope: exportOptions.shape.scope, layout: z.literal('delivery').optional() })
+  .strict();
 export const createPackageInput = packageOptions.extend({
   expectedSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
@@ -22,7 +25,15 @@ export type PackageFile = {
   metadata: MediaDetails['metadata'];
 };
 export type PackageSnapshot = {
-  schemaVersion: 'studio.media-package.v1';
+  schemaVersion: 'studio.media-package.v1' | 'studio.media-package.v2';
+  documents?: {
+    path: string;
+    mime: 'text/csv' | 'text/markdown';
+    encoding: 'utf-8';
+    content: string;
+    byteLength: number;
+    sha256: string;
+  }[];
   project: ExportSnapshot['project'];
   scope: PackageOptions['scope'];
   units: ExportSnapshot['units'];

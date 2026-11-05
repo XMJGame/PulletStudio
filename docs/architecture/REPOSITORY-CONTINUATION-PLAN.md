@@ -1,5 +1,7 @@
 # Pullet Studio — 现有仓库审计与团队级 V1.0 续开发实施方案
 
+> 2026-11-05范围修订：[ADR-009](../ADR-009-production-and-postproduction-handoff.md)。生产工作台与创作画布为核心入口，专业后期交给外部软件。保留已交付顺序预演/媒体处理，不新增多轨剪辑、转场、关键帧、调色、合成或专业混音；声音与字幕作为素材来源/交付管理。原件、CSV/JSON/制作说明优先，SRT有可靠来源后接入，OTIO/FCPXML后置验证。
+
 > 文档版本：1.0 · 制定日期：2026-11-05  
 > 基准仓库：`https://github.com/XMJGame/PulletStudio` · `main` · 读取时 Git Tree SHA：`9c0ad77d5bc23ca2ee0e0f24737ebacac303dcec`  
 > 文档性质：**续开发实施基线 / 待 Codex 对本地最新代码复核**。不代表已修改仓库、已执行测试或已迁移数据。  
@@ -134,7 +136,7 @@
 4. **Storyboard**：列表 / 卡片 / 对比，镜头版本、生成策略、提示词、审核、责任人。
 5. **Creative Canvas**：React Flow 影视节点、引用/依赖连线、创意探索、可选择提交为正式制作数据。
 6. **Tasks & Review**：团队指派、队列、批量处理、审查和反馈。
-7. **Timeline & Delivery**：粗剪、声音、片段时长、素材包和导出。
+7. **Preview & Delivery**：镜头顺序/计划时长、可选低清故事板预演、固定原件、声音/字幕来源和交接，不做专业剪辑器。
 
 ### 4.3 角色设计
 
@@ -173,7 +175,7 @@
 | `reviews` / `comments` | target, reviewer, decision, immutable event | 审核与反馈历史 |
 | `assignments` / `production_batches` | project_id, target, assignee, priority, due_at, state, attempts | 批量生成/审核分工 |
 | `board_documents` / `board_revisions` | workspace, project, scope, version, layout_json | 只存画布布局和业务 ID 引用 |
-| `timeline_versions` / `timeline_clips` | revision, tracks, time, trim, audio strategy | 预演、编辑、导出 |
+| 已有 `timeline_revisions` JSON / Clip | 固定选片顺序、整数ms、简单入点/时长、keep/mute | 轻量故事板预演，保留历史，不扩展多轨编辑 |
 | `export_jobs` | manifest, version, output_asset_id, checksum | 断点恢复与可移植包 |
 
 绝大部分实体须有稳定 UUID、workspace/project scope、created/updated metadata、权限和版本。高频列表添加组合索引；历史采用 append-only，不直接覆盖已审批信息。
@@ -349,9 +351,9 @@
 
 ### Phase F — VO、时间线、预演、导出交付
 
-任务：NarrationSegments、TTS/导入声音、原生模型音轨策略、基础多轨 Timeline、片段入出点、字幕、FFmpeg Animatic、清单导出。
+任务：声音素材来源/生成/导入、原生模型原声策略、保留既有顺序Timeline/Clip和可选FFmpeg预演、原件/CSV/JSON/说明交付包；SRT附件有明确时间码后接入。不新增基础多轨或字幕剪辑器。
 
-**验收**：完成一段 30–60 秒包含旁白、环境音、多个镜头的预演；支持静态图与视频混剪、音轨静音/保留、SRT/素材包导出，导出任务失败可重试。
+**验收**：交付ZIP独立解包，逐镜头核对所选Take/批准版本、文件路径/字节及计划与实测时长。已有图片/视频预演和原声保留/静音回归；SRT及独立声音附件随对应模块验收，失败可恢复。专业剪辑软件工程交换兼容性另验。
 
 ### Phase G — 无限画布 + Skills/Recipes MVP
 

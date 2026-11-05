@@ -1,5 +1,7 @@
 # Pullet Studio V1.0 — 团队级影视生产平台：模块实施蓝图与参考源码地图
 
+> 2026-11-05工作规格修订：[ADR-009](../ADR-009-production-and-postproduction-handoff.md)确定生产工作台＋创作画布、轻量预演与专业后期交接边界。保留既有版本、预览及FFmpeg，不开发内置专业剪辑器；声音素材/SRT交付按实际来源另包，OTIO/FCPXML待逐软件验证。以下相关段落已同步收紧，不改变原技术栈或重建既有表。
+
 > **规格版本**：1.1（2026-11-05）  
 > **目标读者**：桌面 Codex、未来团队开发者、架构评审  
 > **基准仓库**：[XMJGame/PulletStudio](https://github.com/XMJGame/PulletStudio) `main`；读取时树 SHA `9c0ad77d5bc23ca2ee0e0f24737ebacac303dcec`。  
@@ -95,7 +97,7 @@ Workspace
      │    ├─ Take → TakeReview → SelectedTake
      │    └─ Assignment / Comment / StatusHistory
      ├─ Board → BoardRevision → Nodes / Edges (引用业务 ID)
-     └─ Timeline → TimelineRevision → Track / Clip → ExportJob
+     └─ StoryboardPreview → 已有TimelineRevision / 顺序Clip → 可选Animatic / Delivery
 ```
 
 **最关键的拆分**：
@@ -343,20 +345,20 @@ any valid state → retry_waiting / failed (受错误类型和重试预算限制
 
 音频分离建模：`VoiceOver`、`Dialogue`、`Ambience`、`SFX`、`BGM`、`GeneratedSourceAudio`。镜头属性有 `sourceAudioPolicy = keep | mute | inspect | replace`；导出时控制音轨而非破坏源视频。素材原始音轨元信息需 FFprobe 检测，是否携音轨不能用假定。
 
-### 9.2 Timeline 数据
+### 9.2 轻量预演数据
 
-- 使用 `TimelineRevision` + `Track` + `Clip`：Clip 引用冻结的 Take/MediaObjectVersion，入点/出点/时间定位以整数毫秒或有理数帧表示，禁止依赖浮点秒累计拼接。
-- 每条 Track 类型清楚，音量、淡入淡出、字幕来源另存。首次只实现顺序拼接、基础声轨、简单字幕和低分辨率预演，不做媲美 Premiere 的复杂调色/特效。
+- 复用已实现 `TimelineRevision` + 顺序 `Clip`，引用冻结的Take/媒体版本；整数毫秒及帧对齐规则保留，用于故事板预演，不新增多轨编辑模型。
+- 镜头顺序、计划时长、素材实测时长及原声keep/mute分别表达。停止音量轨道、淡入淡出、转场、关键帧、调色、特效合成与专业混音扩展；声音/字幕素材来源和交付另按业务需要设计。
 - 通过 FFprobe 验证视频分辨率、FPS、时长、音轨；FFmpeg 子进程限制并发、超时、目录与参数，不能拼接用户原始 shell 字符串。
 - ExportJob 成功条件为输出文件存在、哈希/媒体校验通过、资产归档完成并可播放；单纯 FFmpeg 进程 0 退出不算全部成功。
 
 ### 9.3 Export 与可移植性
 
-第一轮支持：分镜 Markdown/JSON/CSV、镜头清单、字幕 SRT、MP4 预演、带 `manifest.json` 的 Project Package ZIP。导出 manifest 包括 `schemaVersion`、项目对象/版本、媒体相对路径+SHA256、引用关系。导入只能创建新项目/映射 ID，不能覆盖现有 ID 或未经确认导入系统级秘密。
+优先标准原件、分镜Markdown/JSON/CSV、镜头清单与制作说明、带manifest的交付ZIP；MP4预演可选。声音附件与SRT需明确角色/版本/时间码/权限后接入，不编造字幕或空文件。manifest记录schemaVersion、项目/资产/Take/审核版本、相对路径和文件校验。交付ZIP与完整项目重导入分别设计，后者只能创建新项目/映射ID。OTIO/FCPXML后置并按软件和版本验证。
 
 ### 9.4 验收
 
-使用 30–60 秒样片，验证旁白/对白/静帧/视频混剪、生成原声音轨策略、字幕同步、失败续传；导出后另开干净实例重建项目清单并校验媒体哈希。
+用样例选片验证顺序/计划与实测时长区分、媒体预览及可选低清预演。交付包独立解压，核对每个镜头/Take对应路径、字节、版本与审核证据；音频/SRT在相应附件模块完成后另验，完整项目重导入保留独立门禁，不把专业剪辑工程兼容性冒充已通过。
 
 ## 10. 模块 G：无限画布 + Skills/Recipes/Agent
 
@@ -427,7 +429,7 @@ Agent 只能**提出操作计划与调用现有 API**，不得直接写 DB；输
 | 无限画布 | 节点图、Inspector、Prompt Dock | 连线、探索、归档 | 引用版本、不重复业务数据 |
 | 任务中心 | 我的任务、项目任务、批次 | 认领、提交、重试 | 权限、过期、筛选 |
 | Take 审核 | 候选视频和生成历史 | 对比、标注、批准/拒绝 | 时间码评论、批准版本冻结 |
-| 交付时间线 | Track/Clip/字幕/原声音轨 | 预演和打包 | FFmpeg 验证、导出可追踪 |
+| 预演与交付 | 选片顺序/计划时长/媒体/声音与字幕来源 | 轻量预演、标准原件/CSV/JSON交接 | FFmpeg验证、固定版本，不扩展剪辑器 |
 | 设置 | 成员/模型/存储/预算 | 修改配置 | 凭据掩码、连通测试 |
 
 ## 12. 代码布局建议（与现有仓库最小冲突）
@@ -478,7 +480,7 @@ PulletStudio/
 | C 资产 | C1 安全 Local Storage；C2 原始媒体导入/预览；C3 语义资产与版本；C4 绑定 Shot | B 可部分并行 | 角色三视图/场景/道具/声音可复用，源文件哈希不变 | 直接写 NAS 绝对路径到镜头 |
 | D 生成 | D1 Provider 契约/能力；D2 数据库队列/Worker；D3 ComfyUI Mock；D4 真实图/视频联调；D5 Take 归档 | C | 实际生成结果成为可审核的 MediaVersion/Take | 超时盲目二次付费 |
 | E 团队 | E1 分工/任务；E2 Take 审批/评论；E3 Batch Dry Run/限流；E4 通知/进度 | D | 3 人 2 项目、20 镜头，跨租户/409/失权安全 | WebSocket 实时同改先行 |
-| F 后期 | F1 音轨与 VO；F2 Timeline/Clip；F3 低清 Animatic；F4 ZIP/SRT/MP4 | D/E | 30–60s 样片，重新导入/验哈希 | 专业 NLE 全功能 |
+| F 交接 | 声音素材/字幕来源；既有顺序预演；原件/CSV/JSON/说明ZIP；SRT按来源增量 | D/E | 独立解包核对镜头/Take/媒体/审核版本；可选样片，项目重导入另验 | 多轨剪辑、转场、关键帧、调色、特效、专业混音 |
 | G 画布/AI | G1 React Flow + BoardRevision；G2 资产/镜头节点；G3 类型边；G4 Skills/Recipe；G5 受控 Agent | C/D/E | 画布改 Shot 与列表一致；批量执行调用现有任务 API | Fork 其它影视平台/未授权插件执行 |
 | H 发布 | H1 Compose+安全反代；H2 备份/恢复; H3 S3/迁移；H4 SDK/示例插件/文档 | A–G 可穿插 | 干净机器可部署、打包导入、示例 Provider 能跑 | 在未测试下声称生产可用 |
 
