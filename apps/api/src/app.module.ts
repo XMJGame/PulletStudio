@@ -29,6 +29,8 @@ import { CardAuthoringController } from './production/card-authoring.controller'
 import { CardAuthoringService } from './production/card-authoring.service';
 import { PromptController } from './prompt/prompt.controller';
 import { PromptService } from './prompt/prompt.service';
+import { StoryboardExportsService } from './exports/storyboard-exports.service';
+import { StoryboardExportsController } from './exports/storyboard-exports.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -43,6 +45,7 @@ import { PromptService } from './prompt/prompt.service';
     ProposalReviewController,
     CardAuthoringController,
     PromptController,
+    StoryboardExportsController,
   ],
   providers: [
     AppConfig,
@@ -62,6 +65,7 @@ import { PromptService } from './prompt/prompt.service';
     ProposalReviewService,
     CardAuthoringService,
     PromptService,
+    StoryboardExportsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

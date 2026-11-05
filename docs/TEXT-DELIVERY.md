@@ -1,6 +1,6 @@
 # 完整制作卡与离线提示词
 
-2026-11-05；已交付 Phase B1/B2 的基础链路。使用现有 API/Web，无 API Key、文本 Worker 或媒体模型也可运行。MD/JSON/CSV 分镜导出为下一工作包。
+2026-11-05；已交付 Phase B1/B2 的基础链路。使用现有 API/Web，无 API Key、文本 Worker 或媒体模型也可运行。后续 Phase B3 已增加 [MD/JSON/CSV 分镜导出](STORYBOARD-EXPORT.md)。
 
 ## 使用
 

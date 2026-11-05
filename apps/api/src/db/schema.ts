@@ -656,3 +656,35 @@ export const promptArtifacts = sqliteTable(
     index('prompt_artifact_page').on(t.shotId, t.id),
   ],
 );
+
+export const storyboardExports = sqliteTable(
+  'storyboard_exports',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    format: text('format', { enum: ['json', 'md', 'csv'] }).notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    snapshotHash: text('snapshot_hash').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    content: blob('content', { mode: 'buffer' }).notNull(),
+    sha256: text('sha256').notNull(),
+    byteLength: integer('byte_length').notNull(),
+    shotCount: integer('shot_count').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('storyboard_export_idempotency').on(t.projectId, t.createdBy, t.idempotencyKey),
+    index('storyboard_export_page').on(t.projectId, t.createdAt, t.id),
+    check('storyboard_export_size', sql`${t.byteLength} > 0 AND ${t.byteLength} <= 8388608`),
+    check('storyboard_export_shot_count', sql`${t.shotCount} > 0 AND ${t.shotCount} <= 200`),
+  ],
+);

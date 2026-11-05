@@ -3,6 +3,7 @@ import { api, ApiError, CursorPage, ProductionUnit, Shot } from '../api';
 import { techniqueLabels, unitLabels } from '../project-settings';
 import { ShotEditor } from './ShotEditor';
 import { UnitDialog } from './UnitDialog';
+import { StoryboardExportDialog } from './StoryboardExportDialog';
 const mergeRows = <T extends { id: string }>(current: T[], incoming: T[]) => [
   ...new Map([...current, ...incoming].map((item) => [item.id, item])).values(),
 ];
@@ -24,6 +25,7 @@ export function StructureWorkbench({
   const [selectedShot, setSelectedShot] = useState<Shot>();
   const [form, setForm] = useState<'create' | ProductionUnit>();
   const [showShotForm, setShowShotForm] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -128,6 +130,7 @@ export function StructureWorkbench({
           <h2>制作结构</h2>
         </div>
         <div className="heading-actions">
+          <button onClick={() => setShowExport(true)}>导出分镜文档</button>
           <button
             disabled={busy}
             onClick={() =>
@@ -340,6 +343,16 @@ export function StructureWorkbench({
             setForm(undefined);
             setMessage(form === 'create' ? '制作单元已创建' : '制作单元已保存');
           }}
+        />
+      )}
+      {showExport && (
+        <StoryboardExportDialog
+          projectId={projectId}
+          units={units}
+          currentUnit={selectedUnit}
+          selectedShot={selectedShot}
+          onClose={() => setShowExport(false)}
+          onUnauthorized={onUnauthorized}
         />
       )}
     </section>

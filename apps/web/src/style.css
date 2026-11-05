@@ -425,6 +425,23 @@
 .prompt-result textarea {
   line-height: 1.7;
 }
+.export-preview-item,
+.export-history-item {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.export-download,
+.export-download small,
+.export-history-item small {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.export-download a,
+.export-history-item a {
+  color: var(--accent);
+}
 .proposal-shot dl {
   display: grid;
   grid-template-columns: 90px minmax(0, 1fr);
