@@ -17,6 +17,7 @@ import { ProductionService } from '../production/production.service';
 import { LocalStorage, objectPrefix, StorageFailure } from '../storage/local-storage';
 import { MediaDetails, MediaProbe } from './media-probe';
 import { UploadInput } from './media-contract';
+import { assertSampleAccess } from './entity-references';
 type Upload = typeof mediaUploads.$inferSelect;
 type Prepared = { original: { bytes: number; sha256: string }; details: MediaDetails };
 export function safeMediaError(error: unknown) {
@@ -662,6 +663,7 @@ export class MediaService {
     const row = this.database.db.select().from(mediaVersions).where(eq(mediaVersions.id, id)).get();
     if (!row) fail(404, 'NOT_FOUND', '媒体版本不存在或无权访问');
     this.authz.project(user, row.projectId);
+    assertSampleAccess(this.database, user, row);
     if ((await this.storage.ready()) !== row.storageId)
       throw new StorageFailure('STORAGE_CONNECTION_UNAVAILABLE', '此媒体的原存储根尚未恢复');
     const file =
@@ -700,6 +702,7 @@ export class MediaService {
     );
     try {
       this.authz.project(user, row.projectId);
+      assertSampleAccess(this.database, user, row);
       return {
         stream,
         mime: file.mime,

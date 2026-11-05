@@ -57,6 +57,8 @@ export function renderStoryboard(document: ExportDocument, format: 'json' | 'md'
         block(JSON.stringify(shot.card?.body ?? shot.basic, null, 2)),
         '### 原文引用',
         block(JSON.stringify(shot.card?.sources ?? [], null, 2)),
+        '### 固定资产引用',
+        block(JSON.stringify(shot.card?.assetReferences ?? [], null, 2)),
       );
       if (shot.prompt)
         parts.push(
@@ -123,6 +125,8 @@ export function renderStoryboard(document: ExportDocument, format: 'json' | 'md'
     'sources_json',
     'prompt_json',
     'project_json',
+    'asset_references_json',
+    'asset_warnings_json',
   ];
   const rows = document.shots.map((shot) => {
     const card = shot.card?.body;
@@ -167,6 +171,8 @@ export function renderStoryboard(document: ExportDocument, format: 'json' | 'md'
       shot.card?.sources ?? [],
       shot.prompt ?? null,
       document.project,
+      shot.card?.assetReferences ?? [],
+      shot.card?.assetWarnings ?? [],
     ];
   });
   return Buffer.from(

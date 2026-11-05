@@ -54,6 +54,10 @@ export class CardAuthoringService {
         if (shot.version !== expectedVersion)
           fail(409, 'VERSION_CONFLICT', '镜头已被修改，本地制作卡输入已保留');
         const previous = cardRecord(this.database, id, shot.version);
+        if (body.assetBindings === undefined && previous) {
+          const retained = JSON.parse(previous.bodyJson).assetBindings;
+          if (retained) body = { ...body, assetBindings: retained };
+        }
         const sources: string[] = previous ? JSON.parse(previous.bodyJson).sourceSpanIds : [];
         if (JSON.stringify(body.sourceSpanIds) !== JSON.stringify(sources))
           fail(400, 'CARD_SOURCE_IMMUTABLE', '请保留服务端提供的原文引用；跨版本来源编辑尚未开放');

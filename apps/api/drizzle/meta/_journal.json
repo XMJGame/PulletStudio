@@ -141,6 +141,20 @@
       "when": 1793851621169,
       "tag": "0019_media_history_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1793853889768,
+      "tag": "0020_next_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793853889769,
+      "tag": "0021_entity_history_guards",
+      "breakpoints": true
     }
   ]
 }

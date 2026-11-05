@@ -5,8 +5,8 @@
 ## 已核实现状
 
 - 当前工程是 React/TypeScript/Vite + NestJS 11 + Drizzle + better-sqlite3，已有业务代码，继续保留。现有 CSS、对话框和权限组件复用，不为引入 UI 库改写。
-- 初次审计为 13 张业务表/6 次迁移；当前 33 张业务表/20 次迁移，新增 Local 存储登记、媒体/版本、持久化上传及 draft Take。原来源、文本连接/模型、分析任务/草案、审核、完整卡历史、PromptProfile/Artifact 和固定分镜导出保留。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，原28张表记录数量不变，未用真实数据造样例。
-- 最新 `npm test` 118/118（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖文本 Worker/Mock、人工采纳、完整卡、离线提示词、文本导出、实际媒体导入/播放/下载/版本/候选、网络/存储/登记故障及手机/双窗口。真实模型联调未完成。
+- 初次审计为 13 张业务表/6 次迁移；当前 37 张业务表/22 次迁移，最新增加语义实体/修订、媒体位置及固定卡引用。已有 Local、媒体/上传/draft Take、来源、文本连接/模型、分析草案/审核、完整卡历史、PromptProfile/Artifact 和固定分镜导出保留。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，原33张表记录数量不变，未用真实数据造样例。
+- 最新 `npm test` 130/130（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖文本 Worker/Mock、人工采纳、完整卡/提示词/文本导出、媒体/候选、四类资产/固定引用/声音样本权限、网络/存储/登记故障、完整复制恢复及手机/双窗口。真实模型联调未完成。
 - 审计起点本地/远端同为 9c0ad77，工作树干净；初始提交 [GitHub checks](https://github.com/XMJGame/PulletStudio/actions/runs/41956556209) 已通过，2026-11-05 通过 GitHub API 核实。当前包的测试为本机结果，不冒称新提交已跑远端 CI。Local 媒体已实现；Compose/Mounted/S3 未实现。旧 compose.dev.yml 已明确标为历史 Postgres/Redis 示例，实际开发不依赖它。
 
 ## 团队 V1 当前工作包与依赖
@@ -16,9 +16,9 @@
 | Phase | 对应旧任务 | 实际进度 / 下一门禁 |
 |---|---|---|
 | A 基线 | P0/工程 | 已复核 Git、70 项基线和原 Edge 流程、备份及独立副本恢复；旧 Compose 仅标历史，不启动或删配置；npm 依赖未变，未重装运行中的 node_modules，初始远端 CI 的 npm ci 已通过 |
-| B1 完整卡 / B2 提示词基础 | P2-C 第一包 | 已交付正式/手动完整卡、Profile 追加修订、中立离线编译、预览/保存/复制/历史/变化提示。具体合同见 modules/TEXT-DELIVERY-IMPLEMENTATION.md；真实实体引用/模型方言尚待资产/媒体能力 |
+| B1 完整卡 / B2 提示词基础 | P2-C 第一包 | 已交付正式/手动完整卡、Profile 追加修订、中立离线编译、预览/保存/复制/历史/变化提示；C3/C4已补实体/媒体固定引用。具体合同见 modules/TEXT-DELIVERY-IMPLEMENTATION.md；实际模型方言与生成准入后续 |
 | B3 文本导出 | P2-C | 已交付有界 MD/JSON/CSV 固定快照、预览冲突保护/幂等、原文/过期提示词、CSV防护、鉴权下载/历史/哈希和审计；单次200镜头/快照4MiB/文件8MiB，长片异步导出后续 |
-| C 存储与资产 | P3-A 部分完成 | C1/C2 已交付安全 Local、手工流式导入/探测/封面、固定媒体版本、授权 Range、恢复与 draft Take；下一优先 C3：人物/场景/道具/声音角色、语义修订与固定引用，接入卡/Prompt；Mounted/S3/多后端路由后续 |
+| C 存储与资产 | P3-A 基础范围完成 | C1/C2 Local/手工媒体/draft Take、C3/C4 四类草稿实体/修订/固定媒体/卡引用与Prompt快照已交付；下一补资产修订审批/生成准入。跨项目共享、LookVariant/结构化连续性、Mounted/S3/多后端路由后续 |
 | D 媒体生成/Take | P3-B | 依赖 C；手工 draft Take 已有，复用归档/固定版本；独立媒体 Provider/能力/任务，ComfyUI Mock 后真实图/视频；未知提交需调和 |
 | E 团队批次/审批 | P4 | 依赖 D；指派不授予 RBAC，Take 版本审批、评论、通知、dry run；3 账号/2 项目/20 镜头验收 |
 | F 声音/时间线/交付 | P5 | 依赖媒体/Take；整数 ms 时间、源音轨策略、低清预演、项目包；30–60s 授权样片验收 |
@@ -37,9 +37,9 @@ Story Bible/层级分析仍为旧 P2-B2 的后续增量，不阻塞手工文本�
 | §2.2、4.2 制作层级 | 基础范围完成 | 复用 episodes 实现 episode/act/chapter/sequence/scene/section 嵌套结构及项目直属镜头；旧 ID/编号保留，父链/排序/分页/冲突已实现；单元删除、拖拽与跨单元镜头移动未实现 |
 | §2.3、7 剧本 | 部分完成 | 导入、不可变版本、恢复、409、窗口草稿、原文锁定/段落定位已完成；采纳后持久化 ScriptSpan→版本化镜头卡关联。DOCX/PDF/多文档、跨版本来源重定位及正式修订审批未完成 |
 | §7 文本分析/AI 分镜 | 部分完成 | 通用文本 Provider、范围分析、持久化 AnalysisRun/Proposal、来源校验、人工编辑/拒绝/重开和原子采纳已实现并经 Mock 验收；真实模型、Story Bible、层级分析和候选增删/重排未完成 |
-| §7.4 镜头制作卡 | 部分完成 | 完整正式/手动卡编辑、统一追加历史、固定来源和原声处理计划已实现；缺正式资产绑定、实际声音执行和独立 ProductionPlan。时长为计划，非配音测量 |
-| §8 提示词 | 基础范围完成 | 项目级不可变 Profile 修订、中立离线 Compiler、完整可复制正/负词、Artifact 冻结输入/历史/变化提示；实际模型方言、Director/Style 独立版本及实体/媒体绑定待对应模块 |
-| §4.2、9 资产/存储 | 部分完成 | Local、稳定根标记、原件/媒体版本、封面/元数据、鉴权读取、手工 draft Take 与完整副本校验已交付；人物/场景/道具/声音角色及其语义版本/引用、Mounted/S3/路由 Facade 待开发 |
+| §7.4 镜头制作卡 | 部分完成 | 完整卡/历史、固定来源/资产修订/用途、原声处理计划已实现；缺批准资产准入、结构化连续性、实际声音执行和独立 ProductionPlan。时长为计划，非配音测量 |
+| §8 提示词 | 基础范围完成 | 不可变Profile、中立Compiler、完整正负词、Artifact版本/变化提示、固定实体/媒体快照和inputBindings已交付；实际模型方言、批准/能力门禁及Director/Style独立版本后续，productionReady仍false |
+| §4.2、9 资产/存储 | 部分完成 | Local/媒体历史/授权Range/draft Take/完整副本校验；四类草稿实体/修订/固定参考/卡引用及声音文件权限已交付；审批、跨项目共享、造型/连续性、Mounted/S3/路由 Facade 待开发 |
 | §6、10 生成 | 文本任务部分完成 | 文本连接/模型分离、凭据保护、队列/租约/Worker/恢复已实现；手工归档/Take 可用；媒体 Provider 能力发现、ComfyUI 生成未实现，不以手工导入冒充生成成功 |
 | §11 审核 | 部分完成 | Proposal 草案修订、拒绝/重开、独立审核权限、明确采纳及固定采纳快照已完成；Take 正式审批状态机、评论、任务分工与通知未完成 |
 | §2.3、12 预演/音频 | 未完成 | 无 VO 对齐、多层声音策略、Timeline/Clip、FFmpeg 预演 |
@@ -60,7 +60,7 @@ Story Bible/层级分析仍为旧 P2-B2 的后续增量，不阻塞手工文本�
 | P2-A | TextProvider/连接凭据与受信端点；持久化 text 队列、Worker、AnalysisRun/Proposal | Mock 验证结构化输出、429/超时/租约恢复；未经用户选择不发送原文；不确定提交不盲目重试 | 已完成基础范围，真实模型待联调 |
 | P2-B | 分层分析、Story Bible/结构/镜头候选、来源定位、人工编辑/拒绝/采纳；完整手动镜头卡 | 原文和正式镜头不被自动覆盖；必要上下文分批；对白与广告通用测试；人工批准后原子生成实体 | 人工门禁/完整卡已交付；分层/Bible 待开发 |
 | P2-C | 完整手动卡编辑、PromptProfile/Compiler/Artifact，MD/JSON/CSV 导出 | 无在线模型也可编辑/编译/导出；完整可复制、版本追溯；CSV 注入防护；来源和警告可见 | 基础范围已完成，真实模型方言/资产引用随对应模块扩展 |
-| P3-A | StorageFacade + Local/Mounted、Asset/Version、手工上传、鉴权/Range、FFprobe/缩略图、Take | 能把手工生成结果关联镜头；路径/symlink/越权/半文件/磁盘失败测试；原片不变 | Local/媒体版本/手工导入/draft Take 已完成；下一项语义实体/修订与卡/Prompt固定引用；Mounted/多后端路由后续 |
+| P3-A | StorageFacade + Local/Mounted、Asset/Version、手工上传、鉴权/Range、FFprobe/缩略图、Take | 能把手工生成结果关联镜头；路径/symlink/越权/半文件/磁盘失败测试；原片不变 | Local/手工媒体/draft Take/四类语义草稿及卡/Prompt固定引用基础已完成；审批/生成准入紧随，跨项目共享、Mounted/路由后续 |
 | P3-B | Generation Provider、ComfyUI 标准绑定、持久化任务/结果归档 | Mock 后真实图像/视频各一次；提交不确定→人工调和；所有结果归档后才完成；外部文件不删 | 待开发 |
 | P4 | Take/镜头审核、批准保护、版本评论、分工、通知；基础素材包导出 | 多人选片不丢旧版本；无批准不得覆盖；拒绝/返工可追溯；包可校验 | 待开发 |
 | P5 | VO/对白/原声策略、Timeline/Clip、低清 Animatic、预演导出 | 声音策略不改源片；时长来自实际 VO/节奏；通用对白/广告样片及用户正式剧本样片验收 | 待开发 |
@@ -224,3 +224,22 @@ P0、P1-A 已完成并测试，完整 V1 未完成。
 下一工作包 **C3：语义资产与固定版本引用**。先在 `docs/modules/` 写合同，明确 assets 语义服务/独立追加表、项目实体/修订/固定媒体引用 API、素材库编辑器、完整卡实体引用及 PromptCompiler 输入快照所需修改。先交付人物/场景/道具/声音角色通用字段、不可变修订与同项目/工作区授权；复用媒体历史，不复制文件。提示词必须引用明确实体修订与媒体版本，变更只提示过期，不改旧卡/Artifact；兼容现有无实体卡和AI来源。验收通用对白/广告、跨项目越权/CAS/旧引用/备份及UI后，再进入D媒体Provider/ComfyUI；不把人物库做成特定故事模板。
 
 当前包仍为本地开发结果，未推送，不将初始提交CI成功沿用到本包。实际使用、API、故障恢复和完整备份见 [LOCAL-MEDIA.md](LOCAL-MEDIA.md)。
+
+## 2026-11-05 Phase C3/C4 验收
+
+- 按 `modules/SEMANTIC-ASSETS-IMPLEMENTATION.md` 编码前合同施工。新增 entities服务/控制器/分类型校验/固定引用解析、资产库/镜头引用界面及ADR-007；复用Local媒体、统一卡历史、RBAC/CSRF/审计、Dialog与离线Compiler。无新npm依赖、外部影视项目代码复制或框架更换。
+- 交付人物/场景/道具/声音角色草稿、通用名称/描述、分类型属性和不可变修订；最多10个媒体语义位置固定具体版本。人物正/侧/背/面部、场景全景/平面、道具细节、声音样本相互独立，不以拼图替代源文件，也不绑定某故事/模型。
+- 创建与修订有持久化UUID幂等键/请求哈希，版本CAS与审计/引用在同一事务。修订以整体正文+媒体追加，不提供改写旧media-bindings入口；列表/修订/影响分页，历史和最新可辨。失败输入保留，明确载入新基线，不自动覆盖。
+- 镜头最多20个固定实体修订+用途，同一实体只选一个修订；追加正式卡/Shot版本及shot_asset_bindings，旧卡/旧引用不变。旧完整卡API漏传新字段保留绑定、明确[]才清空；旧基本编辑继续同步卡历史。无完整卡先拒绝绑定，不虚构卡或来源。
+- `neutral-text-2` 冻结实体修订、完整设定、固定媒体元数据/证据及inputBindings；正向词含人类可读资产设定/用途，保留原正负规则。新实体/媒体修订只标stale，不更新卡或旧Artifact，重新编译仍用固定版本。草稿、缺主锚/全景/媒体或声音授权未知有警告；仍productionReady=false，不冒称已批准或可直接执行。
+- 分镜JSON/MD/CSV均增加固定资产资料；MD“固定资产引用”、CSV尾部追加asset_references_json/asset_warnings_json，不只导出ID。预览/警告与版本冲突继续有效；历史已保存文件字节不改，不把文本导出当媒体项目包。
+- 声音文件权限独立：被voice_sample引用的确切媒体版本（包括历史引用）仅上传者、项目管理/Reviewer或工作区管理者可读且仍需项目read。普通成员可看文字/样本元数据，不能下载样本；Range和下载同一入口，异步读前后均核对。新增修订移除样本不能解除历史保护。仅本地管理，不自动上传音频/声纹，未核验法律许可或配置外部声音服务。
+- 0020仅新增asset_entities、asset_entity_revisions、entity_media_bindings、shot_asset_bindings及范围FK/索引；0021追加不可变/实体版本/媒体类型/卡范围触发器，不重建旧表。迁移前备份 `data/backups/studio-2026-11-05T04-43-45-478Z-6fa160be.sqlite`；实库37业务表/22迁移，原33表记录数量全部一致，新语义实体未填正式样例。
+- 迁移后备份 `data/backups/studio-2026-11-05T04-57-00-611Z-1a37fd51.sqlite` 及同名 `-restore-check.sqlite` 独立恢复副本通过 integrity=ok / foreign_key_check=[]；media:verify 正式库valid=true/files=0/pending=0。隔离测试另实际复制带实体/固定引用/Artifact/原件/封面/根标记的数据，比较恢复的具体快照与名称并检查全部文件，不把空实库当有媒体灾备验收。
+- 验证：`npm test` **130/130**（含容器），原118项保留；typecheck/build/format:check通过。新增12项含容器，覆盖四类字段/真媒体角色、权限/CSRF/跨项目/工作区/声音样本（上传者/Reviewer/普通编辑者区别）、CAS/幂等/审计失败回滚、历史不可变、旧卡接口/基本编辑保留、固定Prompt/媒体stale、导出三格式、20条分页、影响引用、重启/恢复及撤权/回收站。
+- Edge全流程 **1/1**：UI创建四类资产、选择真实参考版本/缩略图、4个镜头引用、编译/保存词、创建失响应同键恢复、双窗口冲突保留输入、历史只读与明确载入、资产v2不改旧词/旧引用、手动改绑v2后重新打开仍保留。390px按钮可见、无横向溢出、Esc恢复焦点，未出现页面异常；桌面/手机截图已查看：entity-library-desktop.png、entity-bindings-mobile.png、entity-history-mobile.png（test-results忽略目录）。
+- 边界：C3/C4为草稿与固定引用基础，不是完整Asset Bible。正式批准/撤销、LookVariant/结构化连续性、人物→Voice修订关联、细粒度声音权限名单、跨项目授权共享/复制、自动多视图/生成均未实现；资产身份与权限不因此自动成为“生产就绪”。SQLite/媒体备份范围仍按LOCAL-MEDIA执行，不删历史或原件。
+
+**下一阶段**：先补最小资产修订审批/撤销事件及生成准入（复用独立review权限，批准确切修订，后续改稿不继承批准；未知声音授权不进入生成），再进入D的媒体Provider/能力/版本化工作流Binding/持久化生成任务。复用文本任务租约/不确定提交经验和媒体归档，先Mock完整图/视频流程，后用户配置真实ComfyUI地址与API-format工作流联调；不改动现有ComfyUI安装，不自动扫描输出目录或默认开放草稿自动生成。完整Take审批/团队任务/批次仍按E增量实施。
+
+本轮为本地实现与测试，未推送/未运行新远端CI。当前使用、API、权限、版本行为及迁移边界见 [SEMANTIC-ASSETS.md](SEMANTIC-ASSETS.md)。

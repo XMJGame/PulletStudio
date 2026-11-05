@@ -131,6 +131,10 @@ export class StoryboardExportsService {
       }
       const card = this.production.card(user, shot.id);
       const warnings: string[] = [];
+      if (card.available) {
+        warnings.push(...card.assetWarnings);
+        if (card.assetReferences.length) warnings.push('固定资产引用包含草稿修订，尚未正式批准。');
+      }
       let prompt: ExportPrompt | null = null;
       if (!card.available) warnings.push('未保存完整制作卡，仅导出已有镜头基本资料。');
       if (options.promptMode === 'saved') {

@@ -465,6 +465,33 @@
 .media-preview a {
   color: var(--accent);
 }
+.entity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.entity-reference {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.entity-reference img {
+  width: 80px;
+  height: 64px;
+  object-fit: contain;
+}
+.entity-list button {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .media-library {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

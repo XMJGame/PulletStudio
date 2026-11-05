@@ -80,6 +80,7 @@ export function FullCardEditorDialog({
                 assets: split('assets'),
                 riskNotes: split('riskNotes'),
                 sourceSpanIds: context.body.sourceSpanIds,
+                assetBindings: context.body.assetBindings,
               },
             })
               .then(onSaved)
@@ -158,6 +159,10 @@ export function FullCardEditorDialog({
                 </select>
               </label>
               <p className="field-hint">这是制作计划，保存不会修改媒体或音轨。</p>
+              <p className="field-hint">
+                已有 {context.body.assetBindings?.length ?? 0}{' '}
+                个固定资产引用；此处保留，调整请使用镜头“资产引用”。下方资产名称仅作文字备忘。
+              </p>
               <label>
                 制作卡资产名称（每行一项）
                 <textarea

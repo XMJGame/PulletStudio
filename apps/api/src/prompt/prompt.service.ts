@@ -10,6 +10,7 @@ import { ProductionService } from '../production/production.service';
 import { formalCardSchema } from '../production/formal-card';
 import { compilePrompt, compilerVersion } from './compiler';
 import { CompileInput, PromptConfig, promptConfigSchema } from './prompt-contract';
+import { resolveAssetReferences, entityFreshness } from '../assets/entity-references';
 
 @Injectable()
 export class PromptService {
@@ -127,7 +128,10 @@ export class PromptService {
           ? promptConfigSchema.parse(JSON.parse(profile.configJson))
           : promptConfigSchema.parse({});
         const body = formalCardSchema.parse(card.body);
-        const rendered = compilePrompt(body, project, config);
+        const references = resolveAssetReferences(this.database, project.id, body.assetBindings);
+        const referenceWarnings = entityFreshness(this.database, references);
+        const rendered = compilePrompt(body, project, config, references);
+        rendered.warnings.push(...referenceWarnings);
         const script = this.database.db.select().from(scripts).where(eq(scripts.projectId, project.id)).get();
         if (card.sources.some((source) => source.revisionVersion !== script?.version))
           rendered.warnings.push('引用原文已有新版本；本次仍使用卡中固定的旧来源。');
@@ -151,11 +155,11 @@ export class PromptService {
             ? this.profileView(profile)
             : { id: null, version: 'builtin-neutral-1', name: '中立手工交付', config },
           compilerVersion,
-          entityRevisions: [],
+          entityRevisions: references,
           modelProfile: null,
         };
         if (input.mode === 'preview') {
-          const reasons: string[] = [];
+          const reasons: string[] = [...referenceWarnings];
           if (card.sources.some((source) => source.revisionVersion !== script?.version))
             reasons.push('引用原文已有新版本');
           if (profile && this.head(profile.profileId).id !== profile.id) reasons.push('Profile 已有新修订');
@@ -197,6 +201,7 @@ export class PromptService {
       if (this.head(profile.profileId).id !== profile.id) reasons.push('Profile 已有新修订');
     }
     const snapshot = JSON.parse(row.snapshotJson);
+    reasons.push(...entityFreshness(this.database, snapshot.entityRevisions ?? []));
     const script = this.database.db.select().from(scripts).where(eq(scripts.projectId, project.id)).get();
     if (
       snapshot.card.sources.some(

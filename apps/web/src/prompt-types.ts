@@ -1,7 +1,9 @@
 import { DraftShot } from './analysis-types';
 import { Project, Shot } from './api';
+import { EntityReference, EntityRevision } from './entity-types';
 export type CardBody = Omit<DraftShot, 'sources'> & {
   sourceAudioPolicy: 'keep' | 'mute' | 'inspect' | 'replace';
+  assetBindings?: EntityReference[];
 };
 export type CardEditor = {
   shot: Shot & { projectId: string };
@@ -9,7 +11,7 @@ export type CardEditor = {
   body: CardBody;
   canEdit: boolean;
   canManage: boolean;
-  card: { available: boolean };
+  card: { available: boolean; assetReferences?: EntityRevision[]; assetWarnings?: string[] };
 };
 export type PromptConfig = {
   prefix: string;

@@ -35,6 +35,8 @@ import { LocalStorage } from './storage/local-storage';
 import { MediaProbe } from './assets/media-probe';
 import { MediaService } from './assets/media.service';
 import { MediaController } from './assets/media.controller';
+import { EntitiesService } from './assets/entities.service';
+import { EntitiesController } from './assets/entities.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -51,6 +53,7 @@ import { MediaController } from './assets/media.controller';
     PromptController,
     StoryboardExportsController,
     MediaController,
+    EntitiesController,
   ],
   providers: [
     AppConfig,
@@ -74,6 +77,7 @@ import { MediaController } from './assets/media.controller';
     LocalStorage,
     MediaProbe,
     MediaService,
+    EntitiesService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

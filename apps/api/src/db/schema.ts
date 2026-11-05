@@ -831,3 +831,113 @@ export const takes = sqliteTable(
     check('take_positive', sql`${t.takeNo}>0`),
   ],
 );
+
+export const assetEntities = sqliteTable(
+  'asset_entities',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    kind: text('kind', { enum: ['character', 'environment', 'prop', 'voice'] }).notNull(),
+    version: integer('version').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    creationKey: text('creation_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('entity_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('entity_create_key').on(t.projectId, t.createdBy, t.creationKey),
+    index('entity_page').on(t.projectId, t.kind, t.createdAt, t.id),
+    check('entity_version_positive', sql`${t.version}>0`),
+  ],
+);
+export const assetEntityRevisions = sqliteTable(
+  'asset_entity_revisions',
+  {
+    id: text('id').primaryKey(),
+    entityId: text('entity_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    attributesJson: text('attributes_json').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.entityId, t.projectId, t.workspaceId],
+      foreignColumns: [assetEntities.id, assetEntities.projectId, assetEntities.workspaceId],
+    }),
+    uniqueIndex('entity_revision_number').on(t.entityId, t.version),
+    uniqueIndex('entity_revision_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('entity_revision_key').on(t.entityId, t.idempotencyKey),
+    check('entity_revision_positive', sql`${t.version}>0`),
+  ],
+);
+export const entityMediaBindings = sqliteTable(
+  'entity_media_bindings',
+  {
+    revisionId: text('revision_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    mediaVersionId: text('media_version_id').notNull(),
+    role: text('role').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.revisionId, t.role, t.mediaVersionId] }),
+    foreignKey({
+      columns: [t.revisionId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        assetEntityRevisions.id,
+        assetEntityRevisions.projectId,
+        assetEntityRevisions.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.mediaVersionId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    index('entity_media_lookup').on(t.mediaVersionId, t.role),
+  ],
+);
+export const shotAssetBindings = sqliteTable(
+  'shot_asset_bindings',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    cardVersion: integer('card_version').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    revisionId: text('revision_id').notNull(),
+    purpose: text('purpose').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.revisionId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        assetEntityRevisions.id,
+        assetEntityRevisions.projectId,
+        assetEntityRevisions.workspaceId,
+      ],
+    }),
+    uniqueIndex('shot_asset_revision').on(t.shotId, t.cardVersion, t.revisionId),
+    index('shot_asset_impact').on(t.revisionId, t.id),
+  ],
+);

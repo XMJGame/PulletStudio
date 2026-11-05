@@ -3,7 +3,10 @@ import { api } from '../api';
 import { AnalysisSource, DraftShot } from '../analysis-types';
 import { Dialog } from './Dialog';
 import { ShotDraftDetails } from './ShotDraftDetails';
+import { EntityRevision, entityLabels } from '../entity-types';
 type Card = {
+  assetReferences?: EntityRevision[];
+  assetWarnings?: string[];
   available: boolean;
   version: number;
   body?: Omit<DraftShot, 'sources'> & { sourceAudioPolicy?: string };
@@ -66,6 +69,22 @@ export function ShotCardDialog({ shotId, onClose }: { shotId: string; onClose: (
                 </p>
               )}
               <ShotDraftDetails shot={card.body} sources={card.sources || []} />
+              {!!card.assetReferences?.length && (
+                <section aria-label="制作卡固定资产">
+                  <h3>固定资产引用</h3>
+                  {card.assetReferences.map((ref) => (
+                    <p key={ref.id}>
+                      {entityLabels[ref.kind]} · {ref.name} · v{ref.version} · {ref.purpose || '未补充用途'}
+                      （草稿）
+                    </p>
+                  ))}
+                  {card.assetWarnings?.map((warning) => (
+                    <p key={warning} className="notice">
+                      {warning}
+                    </p>
+                  ))}
+                </section>
+              )}
               <p className="field-hint">
                 原声处理计划：
                 {

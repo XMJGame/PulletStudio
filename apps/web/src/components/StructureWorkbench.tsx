@@ -5,6 +5,7 @@ import { ShotEditor } from './ShotEditor';
 import { UnitDialog } from './UnitDialog';
 import { StoryboardExportDialog } from './StoryboardExportDialog';
 import { MediaDialog } from './MediaDialog';
+import { EntityLibraryDialog } from './EntityLibraryDialog';
 const mergeRows = <T extends { id: string }>(current: T[], incoming: T[]) => [
   ...new Map([...current, ...incoming].map((item) => [item.id, item])).values(),
 ];
@@ -28,6 +29,7 @@ export function StructureWorkbench({
   const [showShotForm, setShowShotForm] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
+  const [showEntities, setShowEntities] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -133,6 +135,7 @@ export function StructureWorkbench({
         </div>
         <div className="heading-actions">
           <button onClick={() => setShowMedia(true)}>项目素材</button>
+          <button onClick={() => setShowEntities(true)}>资产库</button>
           <button onClick={() => setShowExport(true)}>导出分镜文档</button>
           <button
             disabled={busy}
@@ -359,6 +362,7 @@ export function StructureWorkbench({
         />
       )}
       {showMedia && <MediaDialog projectId={projectId} onClose={() => setShowMedia(false)} />}
+      {showEntities && <EntityLibraryDialog projectId={projectId} onClose={() => setShowEntities(false)} />}
     </section>
   );
 }

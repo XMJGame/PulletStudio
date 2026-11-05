@@ -11,10 +11,12 @@ import {
   shotCardEditions,
   shotScriptSpans,
   users,
+  shotAssetBindings,
 } from '../db/schema';
 import { CurrentUser, fail } from '../common/http';
 import { ManualShot } from '../analysis/analysis-contract';
 import { FormalCard } from './formal-card';
+import { resolveAssetReferences, entityFreshness } from '../assets/entity-references';
 
 export function cardRecord(database: DatabaseService, shotId: string, version: number) {
   return (
@@ -55,7 +57,8 @@ export function appendCardEdition(
   sourceProposalRevisionId: string | null,
   summary: string,
 ) {
-  return database.db
+  const references = resolveAssetReferences(database, shot.projectId, body.assetBindings);
+  const edition = database.db
     .insert(shotCardEditions)
     .values({
       id: randomUUID(),
@@ -71,6 +74,20 @@ export function appendCardEdition(
     })
     .returning()
     .get()!;
+  for (const reference of references)
+    database.db
+      .insert(shotAssetBindings)
+      .values({
+        id: randomUUID(),
+        shotId: shot.id,
+        cardVersion: shot.version,
+        projectId: shot.projectId,
+        workspaceId: shot.workspaceId,
+        revisionId: reference.id,
+        purpose: reference.purpose,
+      })
+      .run();
+  return edition;
 }
 export function cardSources(database: DatabaseService, cardRevisionId: string) {
   return database.db
@@ -140,12 +157,15 @@ export function readShotCard(database: DatabaseService, shotId: string, version:
     .get()!;
   const snapshot = origin ? JSON.parse(origin.run.connectionSnapshotJson) : null;
   const body = JSON.parse(row.bodyJson);
+  const assetReferences = resolveAssetReferences(database, row.projectId, body.assetBindings);
   return {
     available: true as const,
     id: row.id,
     shotId,
     version,
     body: { ...body, sourceAudioPolicy: body.sourceAudioPolicy ?? 'inspect' },
+    assetReferences,
+    assetWarnings: entityFreshness(database, assetReferences),
     sources: editionSources(database, body),
     summary: row.summary,
     createdAt: row.createdAt,
