@@ -1,8 +1,10 @@
 import { defineConfig } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-const databasePath = `./data/e2e/${randomUUID()}.sqlite`;
+const isolatedId = randomUUID();
+const databasePath = `./data/e2e/${isolatedId}.sqlite`;
 const testEnvironment = {
   DATABASE_PATH: databasePath,
+  MEDIA_ROOT: `./data/e2e/${isolatedId}-media`,
   SETUP_TOKEN: 'playwright-local-test-setup-token-2026',
   PORT: '3109',
   APP_ORIGINS: 'http://127.0.0.1:5189',

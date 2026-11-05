@@ -31,6 +31,10 @@ import { PromptController } from './prompt/prompt.controller';
 import { PromptService } from './prompt/prompt.service';
 import { StoryboardExportsService } from './exports/storyboard-exports.service';
 import { StoryboardExportsController } from './exports/storyboard-exports.controller';
+import { LocalStorage } from './storage/local-storage';
+import { MediaProbe } from './assets/media-probe';
+import { MediaService } from './assets/media.service';
+import { MediaController } from './assets/media.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -46,6 +50,7 @@ import { StoryboardExportsController } from './exports/storyboard-exports.contro
     CardAuthoringController,
     PromptController,
     StoryboardExportsController,
+    MediaController,
   ],
   providers: [
     AppConfig,
@@ -66,6 +71,9 @@ import { StoryboardExportsController } from './exports/storyboard-exports.contro
     CardAuthoringService,
     PromptService,
     StoryboardExportsService,
+    LocalStorage,
+    MediaProbe,
+    MediaService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

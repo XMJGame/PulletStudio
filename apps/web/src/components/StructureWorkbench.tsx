@@ -4,6 +4,7 @@ import { techniqueLabels, unitLabels } from '../project-settings';
 import { ShotEditor } from './ShotEditor';
 import { UnitDialog } from './UnitDialog';
 import { StoryboardExportDialog } from './StoryboardExportDialog';
+import { MediaDialog } from './MediaDialog';
 const mergeRows = <T extends { id: string }>(current: T[], incoming: T[]) => [
   ...new Map([...current, ...incoming].map((item) => [item.id, item])).values(),
 ];
@@ -26,6 +27,7 @@ export function StructureWorkbench({
   const [form, setForm] = useState<'create' | ProductionUnit>();
   const [showShotForm, setShowShotForm] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -130,6 +132,7 @@ export function StructureWorkbench({
           <h2>制作结构</h2>
         </div>
         <div className="heading-actions">
+          <button onClick={() => setShowMedia(true)}>项目素材</button>
           <button onClick={() => setShowExport(true)}>导出分镜文档</button>
           <button
             disabled={busy}
@@ -355,6 +358,7 @@ export function StructureWorkbench({
           onUnauthorized={onUnauthorized}
         />
       )}
+      {showMedia && <MediaDialog projectId={projectId} onClose={() => setShowMedia(false)} />}
     </section>
   );
 }

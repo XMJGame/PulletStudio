@@ -52,9 +52,15 @@ export async function exerciseStoryboardExports(page: Page, otherPage: Page) {
     const path = `test-results/storyboard-export.${format}`;
     await value.saveAs(path);
     const buffer = await readFile(path);
-    await expect(page.getByLabel('已生成分镜导出')).toContainText(
-      createHash('sha256').update(buffer).digest('hex'),
-    );
+    const fileUrl = await page
+      .getByRole('link', { name: `下载 ${format.toUpperCase()} 分镜文件`, exact: true })
+      .getAttribute('href');
+    const metadata = await page.request.get(fileUrl!.replace(/\/file$/, ''));
+    expect(metadata.ok()).toBe(true);
+    const checksum = createHash('sha256').update(buffer).digest('hex');
+    expect((await metadata.json()).sha256).toBe(checksum);
+    await expect(dialog).not.toContainText('SHA256');
+    await expect(dialog).not.toContainText(checksum);
     return buffer;
   }
   const json = await download('json');

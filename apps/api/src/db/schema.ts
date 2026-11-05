@@ -688,3 +688,146 @@ export const storyboardExports = sqliteTable(
     check('storyboard_export_shot_count', sql`${t.shotCount} > 0 AND ${t.shotCount} <= 200`),
   ],
 );
+
+export const storageConnections = sqliteTable('storage_connections', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+export const mediaAssets = sqliteTable(
+  'media_assets',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    name: text('name').notNull(),
+    version: integer('version').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('media_asset_scope').on(t.id, t.projectId, t.workspaceId),
+    index('media_asset_page').on(t.projectId, t.createdAt, t.id),
+    check('media_asset_version_positive', sql`${t.version} > 0`),
+  ],
+);
+export const mediaVersions = sqliteTable(
+  'media_versions',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    objectKey: text('object_key').notNull().unique(),
+    fileName: text('file_name').notNull(),
+    mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),
+    mime: text('mime').notNull(),
+    byteLength: integer('byte_length').notNull(),
+    sha256: text('sha256').notNull(),
+    metadataJson: text('metadata_json').notNull(),
+    posterJson: text('poster_json'),
+    origin: text('origin').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.assetId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaAssets.id, mediaAssets.projectId, mediaAssets.workspaceId],
+    }),
+    uniqueIndex('media_version_number').on(t.assetId, t.version),
+    uniqueIndex('media_version_scope').on(t.id, t.projectId, t.workspaceId),
+    check('media_version_size', sql`${t.byteLength}>0`),
+  ],
+);
+export const mediaUploadStates = [
+  'created',
+  'uploading',
+  'complete',
+  'failed',
+  'needs_reconciliation',
+] as const;
+export const mediaUploads = sqliteTable(
+  'media_uploads',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    assetId: text('asset_id').notNull(),
+    mediaVersionId: text('media_version_id').notNull().unique(),
+    expectedAssetVersion: integer('expected_asset_version').notNull(),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    fileName: text('file_name').notNull(),
+    declaredMime: text('declared_mime').notNull(),
+    expectedBytes: integer('expected_bytes').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    state: text('state', { enum: mediaUploadStates }).notNull(),
+    leaseOwner: text('lease_owner'),
+    leaseUntil: integer('lease_until'),
+    receivedBytes: integer('received_bytes').notNull().default(0),
+    preparedJson: text('prepared_json'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('media_upload_idempotency').on(t.projectId, t.createdBy, t.idempotencyKey),
+    index('media_upload_page').on(t.projectId, t.createdAt, t.id),
+    index('media_upload_lease').on(t.state, t.leaseUntil),
+  ],
+);
+export const takes = sqliteTable(
+  'takes',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    mediaVersionId: text('media_version_id').notNull(),
+    takeNo: integer('take_no').notNull(),
+    state: text('state', { enum: ['draft'] })
+      .notNull()
+      .default('draft'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.mediaVersionId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    uniqueIndex('take_number').on(t.shotId, t.takeNo),
+    uniqueIndex('take_media_once').on(t.shotId, t.mediaVersionId),
+    check('take_positive', sql`${t.takeNo}>0`),
+  ],
+);

@@ -5,9 +5,9 @@
 ## 已核实现状
 
 - 当前工程是 React/TypeScript/Vite + NestJS 11 + Drizzle + better-sqlite3，已有业务代码，继续保留。现有 CSS、对话框和权限组件复用，不为引入 UI 库改写。
-- 初次审计为 13 张业务表/6 次迁移；当前 28 张业务表/18 次迁移，包含来源、文本连接/模型、分析任务/草案、审核、完整卡历史与人工修订、PromptProfile/Artifact 和固定分镜导出。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，未用真实数据造样例。
-- 最新 `npm test` 96/96（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖文本 Worker/Mock、人工采纳、完整卡、离线提示词、MD/JSON/CSV 导出及真实下载/网络故障/手机/双窗口。真实模型联调未完成。
-- 审计起点本地/远端同为 9c0ad77，工作树干净；初始提交 [GitHub checks](https://github.com/XMJGame/PulletStudio/actions/runs/41956556209) 已通过，2026-11-05 通过 GitHub API 核实。当前包的测试为本机结果，不冒称新提交已跑远端 CI。Compose/媒体存储仍未实现；旧 compose.dev.yml 已明确标为历史 Postgres/Redis 示例，实际开发不依赖它。
+- 初次审计为 13 张业务表/6 次迁移；当前 33 张业务表/20 次迁移，新增 Local 存储登记、媒体/版本、持久化上传及 draft Take。原来源、文本连接/模型、分析任务/草案、审核、完整卡历史、PromptProfile/Artifact 和固定分镜导出保留。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，原28张表记录数量不变，未用真实数据造样例。
+- 最新 `npm test` 118/118（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖文本 Worker/Mock、人工采纳、完整卡、离线提示词、文本导出、实际媒体导入/播放/下载/版本/候选、网络/存储/登记故障及手机/双窗口。真实模型联调未完成。
+- 审计起点本地/远端同为 9c0ad77，工作树干净；初始提交 [GitHub checks](https://github.com/XMJGame/PulletStudio/actions/runs/41956556209) 已通过，2026-11-05 通过 GitHub API 核实。当前包的测试为本机结果，不冒称新提交已跑远端 CI。Local 媒体已实现；Compose/Mounted/S3 未实现。旧 compose.dev.yml 已明确标为历史 Postgres/Redis 示例，实际开发不依赖它。
 
 ## 团队 V1 当前工作包与依赖
 
@@ -18,8 +18,8 @@
 | A 基线 | P0/工程 | 已复核 Git、70 项基线和原 Edge 流程、备份及独立副本恢复；旧 Compose 仅标历史，不启动或删配置；npm 依赖未变，未重装运行中的 node_modules，初始远端 CI 的 npm ci 已通过 |
 | B1 完整卡 / B2 提示词基础 | P2-C 第一包 | 已交付正式/手动完整卡、Profile 追加修订、中立离线编译、预览/保存/复制/历史/变化提示。具体合同见 modules/TEXT-DELIVERY-IMPLEMENTATION.md；真实实体引用/模型方言尚待资产/媒体能力 |
 | B3 文本导出 | P2-C | 已交付有界 MD/JSON/CSV 固定快照、预览冲突保护/幂等、原文/过期提示词、CSV防护、鉴权下载/历史/哈希和审计；单次200镜头/快照4MiB/文件8MiB，长片异步导出后续 |
-| C 存储与资产 | P3-A 下一包 | 下一优先：安全 Local Storage、手工媒体导入/元数据/授权 Range，再建语义实体/媒体版本及镜头绑定；先手工素材，不等待特定模型 |
-| D 媒体生成/Take | P3-B | 依赖 C 的归档；独立媒体 Provider/能力/任务，ComfyUI Mock 后真实图/视频；未知提交需调和 |
+| C 存储与资产 | P3-A 部分完成 | C1/C2 已交付安全 Local、手工流式导入/探测/封面、固定媒体版本、授权 Range、恢复与 draft Take；下一优先 C3：人物/场景/道具/声音角色、语义修订与固定引用，接入卡/Prompt；Mounted/S3/多后端路由后续 |
+| D 媒体生成/Take | P3-B | 依赖 C；手工 draft Take 已有，复用归档/固定版本；独立媒体 Provider/能力/任务，ComfyUI Mock 后真实图/视频；未知提交需调和 |
 | E 团队批次/审批 | P4 | 依赖 D；指派不授予 RBAC，Take 版本审批、评论、通知、dry run；3 账号/2 项目/20 镜头验收 |
 | F 声音/时间线/交付 | P5 | 依赖媒体/Take；整数 ms 时间、源音轨策略、低清预演、项目包；30–60s 授权样片验收 |
 | G 画布/Skills | P7 的画布部分 | 依赖共享资产/任务；Board 仅布局/引用，执行 DAG 校验，受控 API，不复制业务实体 |
@@ -39,13 +39,13 @@ Story Bible/层级分析仍为旧 P2-B2 的后续增量，不阻塞手工文本�
 | §7 文本分析/AI 分镜 | 部分完成 | 通用文本 Provider、范围分析、持久化 AnalysisRun/Proposal、来源校验、人工编辑/拒绝/重开和原子采纳已实现并经 Mock 验收；真实模型、Story Bible、层级分析和候选增删/重排未完成 |
 | §7.4 镜头制作卡 | 部分完成 | 完整正式/手动卡编辑、统一追加历史、固定来源和原声处理计划已实现；缺正式资产绑定、实际声音执行和独立 ProductionPlan。时长为计划，非配音测量 |
 | §8 提示词 | 基础范围完成 | 项目级不可变 Profile 修订、中立离线 Compiler、完整可复制正/负词、Artifact 冻结输入/历史/变化提示；实际模型方言、Director/Style 独立版本及实体/媒体绑定待对应模块 |
-| §4.2、9 资产/存储 | 未完成 | 无人物/场景/道具/声音角色、AssetVersion、Local/Mounted/S3 实现；根目录、版本、鉴权读取需独立建设 |
-| §6、10 生成 | 文本任务部分完成 | 文本连接/模型分离、凭据保护、队列/租约/Worker/恢复已实现；媒体 Provider 能力发现、ComfyUI、归档/Take 仍未实现，不以文本 Completed 冒充媒体归档完成 |
+| §4.2、9 资产/存储 | 部分完成 | Local、稳定根标记、原件/媒体版本、封面/元数据、鉴权读取、手工 draft Take 与完整副本校验已交付；人物/场景/道具/声音角色及其语义版本/引用、Mounted/S3/路由 Facade 待开发 |
+| §6、10 生成 | 文本任务部分完成 | 文本连接/模型分离、凭据保护、队列/租约/Worker/恢复已实现；手工归档/Take 可用；媒体 Provider 能力发现、ComfyUI 生成未实现，不以手工导入冒充生成成功 |
 | §11 审核 | 部分完成 | Proposal 草案修订、拒绝/重开、独立审核权限、明确采纳及固定采纳快照已完成；Take 正式审批状态机、评论、任务分工与通知未完成 |
 | §2.3、12 预演/音频 | 未完成 | 无 VO 对齐、多层声音策略、Timeline/Clip、FFmpeg 预演 |
 | §9、15 导出/可移植 | 文本基础范围完成 | 有界分镜 MD/JSON/CSV、固定输入/字节/哈希、鉴权历史下载已交付；素材包、预演、项目导入导出未完成。文本文件和 SQLite 备份均不等于完整可迁移项目 |
-| §13、14 安全/部署 | 部分完成 | 本机认证/RBAC/来源/限流/scrypt/备份、文本凭据加密、端点批准/DNS 固定/SSRF 测试已实现；缺密钥轮换、上传/配额、TLS/LAN/NAS/S3 和灾备；Argon2id 差异见 ADR-001 |
-| §16 性能/故障验收 | 部分完成 | SQLite/权限/备份回归及文本任务 429/5xx/断线/超时/租约/失权/进程恢复/并发启动已测；媒体故障、真实供应商、80 分钟与大规模 p95 未测 |
+| §13、14 安全/部署 | 部分完成 | 本机认证/RBAC/来源/限流/scrypt/备份、文本凭据加密、端点批准/DNS 固定/SSRF、流式上传限制/文件路径隔离及媒体备份校验已实现；缺密钥轮换、全局配额/GC、TLS/LAN/NAS/S3 和真实灾备演练；Argon2id 差异见 ADR-001 |
+| §16 性能/故障验收 | 部分完成 | SQLite/权限/备份回归及文本任务故障已测；媒体磁盘/SQL故障、断线/租约/撤权、哈希/链接隔离、并发版本、重启登记及DB+媒体复制恢复已测；真实供应商、多GB/80分钟与大规模 p95 未测 |
 | §12、15/M6 画布/Agent/协同 | 未完成，后置 | 不抢占当前生产闭环，不复制业务数据 |
 
 ## 开发顺序与阶段门禁
@@ -60,7 +60,7 @@ Story Bible/层级分析仍为旧 P2-B2 的后续增量，不阻塞手工文本�
 | P2-A | TextProvider/连接凭据与受信端点；持久化 text 队列、Worker、AnalysisRun/Proposal | Mock 验证结构化输出、429/超时/租约恢复；未经用户选择不发送原文；不确定提交不盲目重试 | 已完成基础范围，真实模型待联调 |
 | P2-B | 分层分析、Story Bible/结构/镜头候选、来源定位、人工编辑/拒绝/采纳；完整手动镜头卡 | 原文和正式镜头不被自动覆盖；必要上下文分批；对白与广告通用测试；人工批准后原子生成实体 | 人工门禁/完整卡已交付；分层/Bible 待开发 |
 | P2-C | 完整手动卡编辑、PromptProfile/Compiler/Artifact，MD/JSON/CSV 导出 | 无在线模型也可编辑/编译/导出；完整可复制、版本追溯；CSV 注入防护；来源和警告可见 | 基础范围已完成，真实模型方言/资产引用随对应模块扩展 |
-| P3-A | StorageFacade + Local/Mounted、Asset/Version、手工上传、鉴权/Range、FFprobe/缩略图、Take | 能把手工生成结果关联镜头；路径/symlink/越权/半文件/磁盘失败测试；原片不变 | 下一项，先 Local/手工媒体垂直链路 |
+| P3-A | StorageFacade + Local/Mounted、Asset/Version、手工上传、鉴权/Range、FFprobe/缩略图、Take | 能把手工生成结果关联镜头；路径/symlink/越权/半文件/磁盘失败测试；原片不变 | Local/媒体版本/手工导入/draft Take 已完成；下一项语义实体/修订与卡/Prompt固定引用；Mounted/多后端路由后续 |
 | P3-B | Generation Provider、ComfyUI 标准绑定、持久化任务/结果归档 | Mock 后真实图像/视频各一次；提交不确定→人工调和；所有结果归档后才完成；外部文件不删 | 待开发 |
 | P4 | Take/镜头审核、批准保护、版本评论、分工、通知；基础素材包导出 | 多人选片不丢旧版本；无批准不得覆盖；拒绝/返工可追溯；包可校验 | 待开发 |
 | P5 | VO/对白/原声策略、Timeline/Clip、低清 Animatic、预演导出 | 声音策略不改源片；时长来自实际 VO/节奏；通用对白/广告样片及用户正式剧本样片验收 | 待开发 |
@@ -204,3 +204,22 @@ P0、P1-A 已完成并测试，完整 V1 未完成。
 - 限制：这是小型同步文本导出，每份最多200镜头、项目层级最多2000单元、快照4MiB、文件8MiB；大范围分批或后续异步/流式包，不能声称80分钟整片全量性能。导出文本BLOB暂存SQLite以固定字节，未来可经hash验证迁至Storage但须保留导出ID。尚无物理清理/保留期/配额UI；项目回收站保留记录。不是媒体ZIP、可重导入项目包或真实模型/Take验收。
 
 下一工作包：Phase C / P3-A，先实现受限目录的 Local Storage、流式手工媒体导入、原件哈希/探测、授权预览与恢复，再增量建设语义实体、固定版本引用和 Take。实施前新建模块合同，复用现有权限与源文件不可变原则，不先搭未消费的媒体空表。分镜导出使用/API/回退见 [STORYBOARD-EXPORT.md](STORYBOARD-EXPORT.md)。
+
+## 2026-11-05 Phase C1/C2 验收
+
+- 按 `modules/LOCAL-MEDIA-IMPLEMENTATION.md` 施工；新增 storage Local adapter、assets 上传/探测/授权分发/Take、MediaDialog、共享 StorageProvider 端口、media:verify 工具。复用身份/RBAC/CSRF、制作结构、Shot、版本锁及审计，未改框架/安装 npm 依赖或复制外部项目源码。
+- 项目/镜头入口支持文件选择、真实流式导入、检测/独立封面、图片预览、音视频播放、原件下载、追加版本/历史、明确添加 draft Take。原件保留大小/SHA256，媒体版本和旧候选不可变；Take 编号后台分配，不自动批准/选中/改卡。无模型连接也能完成。
+- 支持并实际测试 PNG/JPEG/WebP、MP4（含声音）/MOV/WebM、WAV/MP3/OGG/M4A/Opus。检测文件签名、扩展名/MIME、实际流；元数据来自真实 FFprobe。默认512MiB/10分钟，最多2个并发；工具/流/像素/时长有界。当前测试为小型合成文件，不宣称多GB/整片/恶意媒体沙箱验收。
+- 上传意图/幂等/租约/心跳持久化，每次尝试独立 staging；目录发布后 SQL 事务登记。网络失响应先读状态复用结果，半文件不作为成功；发布后 SQL 失败保留原件/准备证据，重启后重新校验登记。故障注入覆盖磁盘 ENOSPC、SQL 审计写失败、过期租约、流中撤权、并发版本CAS。
+- 授权读取支持单段 Range（完整/部分/后缀/416）、封面、下载安全类型/文件名/no-store，读前校验文件。路径/UUID键限制、逐段普通目录、拒绝 symlink/junction/硬链接/特殊文件；撤权、跨项目和回收站拒绝。根标记固定存储身份，空根不能接管旧版本；后台校验不在日常界面显示。
+- 0018仅新增 storage_connections、media_assets、media_versions、media_uploads、takes 和索引；0019追加不可变/状态保护触发器，没有重建旧表。迁移前在线备份 `data/backups/studio-2026-11-05T04-05-05-530Z-110f8c3f.sqlite`；实库已升级33业务表/20迁移，原28表记录数量全部一致，新媒体版本0，未给真实项目写入样例。
+- 迁移后在线备份 `data/backups/studio-2026-11-05T04-33-58-359Z-50d29477.sqlite`，独立恢复副本同名 `-restore-check.sqlite`，integrity=ok、foreign_key_check=[]。正式库 `media:verify` valid=true/files=0/pending=0；有媒体恢复另由隔离测试实际复制DB/根标记/原件/封面并比较清单，不能把零文件正式库检查冒充媒体恢复。
+- 验证：`npm test` **118/118**（含容器），原96项保留；typecheck/build/format:check通过。Edge完整流程 **1/1**，实际上传、PNG原件字节下载、图片封面、带声MP4和WAV播放、新版本不改旧Take、浏览器失响应恢复、坏文件保留选择、刷新仍有4媒体/3候选、Esc恢复焦点。SHA256由API和下载字节比对，常规页面明确不展示。
+- 桌面及390px截图已查看：`test-results/media-library-desktop.png`、`media-video-mobile.png`；按钮可见、无横向溢出。修正新素材预览还显示旧素材版本按钮的问题；素材和上传列表按创建时间+ID倒序分页，跨20条实际导入验证无重复/遗漏及非法游标拒绝。
+- 工具：本机 FFmpeg/FFprobe 9.0.2 essentials、发行包校验与许可证记录见 LOCAL-MEDIA；保存在忽略目录，无二进制提交/系统PATH修改。CI增加系统ffmpeg安装，本包尚未推送或跑远端CI。没有触碰外部ComfyUI、提供方密钥或正式媒体。
+- 真实限制：只有Local适配器，完整多后端Facade/Mounted/S3待做；没有语义资产、生成任务、正式审批/选片、物理删除/GC、配额、分片续传、全视频逐帧验证或自动一致备份。并发素材版本的落败上传保留为 needs_reconciliation，当前不能改挂/删除归档，须保留现场；校验工具如实报告未解决任务。备份必须协调停写并复制完整媒体根，SQLite在线备份本身不包含媒体。
+- 用户界面约定已写入 AGENTS：原文、媒体和分镜导出所有常规页面移除SHA256长串，后台数据库/API/导出结构/备份清单继续保留并使用校验，不削弱文件验证。
+
+下一工作包 **C3：语义资产与固定版本引用**。先在 `docs/modules/` 写合同，明确 assets 语义服务/独立追加表、项目实体/修订/固定媒体引用 API、素材库编辑器、完整卡实体引用及 PromptCompiler 输入快照所需修改。先交付人物/场景/道具/声音角色通用字段、不可变修订与同项目/工作区授权；复用媒体历史，不复制文件。提示词必须引用明确实体修订与媒体版本，变更只提示过期，不改旧卡/Artifact；兼容现有无实体卡和AI来源。验收通用对白/广告、跨项目越权/CAS/旧引用/备份及UI后，再进入D媒体Provider/ComfyUI；不把人物库做成特定故事模板。
+
+当前包仍为本地开发结果，未推送，不将初始提交CI成功沿用到本包。实际使用、API、故障恢复和完整备份见 [LOCAL-MEDIA.md](LOCAL-MEDIA.md)。

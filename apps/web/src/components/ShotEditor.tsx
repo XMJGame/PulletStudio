@@ -4,6 +4,7 @@ import { ShotCardDialog } from './ShotCardDialog';
 import { techniqueLabels } from '../project-settings';
 import { FullCardEditorDialog } from './FullCardEditorDialog';
 import { PromptDialog } from './PromptDialog';
+import { MediaDialog } from './MediaDialog';
 export function ShotEditor({
   shot,
   disabled,
@@ -18,6 +19,7 @@ export function ShotEditor({
   const [showCard, setShowCard] = useState(false);
   const [editCard, setEditCard] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
   return (
     <section className="editor panel">
       <div className="section-heading">
@@ -31,6 +33,7 @@ export function ShotEditor({
           编辑完整制作卡
         </button>
         <button onClick={() => setShowPrompt(true)}>镜头提示词</button>
+        <button onClick={() => setShowMedia(true)}>镜头素材</button>
       </div>
       <form
         onSubmit={(e) => {
@@ -125,6 +128,7 @@ export function ShotEditor({
         />
       )}
       {showPrompt && <PromptDialog shotId={shot.id} onClose={() => setShowPrompt(false)} />}
+      {showMedia && <MediaDialog shotId={shot.id} onClose={() => setShowMedia(false)} />}
     </section>
   );
 }

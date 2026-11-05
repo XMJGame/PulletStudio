@@ -80,7 +80,6 @@ export function ScriptSourceDialog({
             <p>
               {kinds[revision.source.kind]} · UTF-8 · {revision.source.byteLength.toLocaleString()} 字节
             </p>
-            <small>原文件 SHA256：{revision.source.sha256}</small>
             <a className="source-download" href={`/api/v1${path}/source`} download>
               下载导入原文
             </a>

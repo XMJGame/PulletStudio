@@ -9,6 +9,7 @@
     "dev:api": "npm run start:dev --workspace @pullet-studio/api",
     "dev:web": "npm run dev --workspace @pullet-studio/web",
     "worker:text": "node apps/api/dist/text-worker.js",
+    "media:verify": "node tools/verify-media.mjs",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:generate": "npm run db:generate --workspace @pullet-studio/api",

@@ -109,3 +109,19 @@ export async function api<T>(
   return data as T;
 }
 import type { VisualStyle } from './visual-style';
+export async function uploadMediaContent<T>(id: string, file: File, signal: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/v1/media-uploads/${id}/content`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Studio-Request': '1',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: file,
+    signal,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(response.status, data.code, data.message || '上传未完成');
+  return data as T;
+}

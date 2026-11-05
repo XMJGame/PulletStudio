@@ -1,0 +1,39 @@
+export type MediaVersion = {
+  id: string;
+  assetId: string;
+  projectId: string;
+  version: number;
+  fileName: string;
+  mediaType: 'image' | 'video' | 'audio';
+  mime: string;
+  byteLength: number;
+  sha256: string;
+  origin: string;
+  metadata: {
+    width: number | null;
+    height: number | null;
+    durationMs: number | null;
+    videoCodec: string | null;
+    hasAudio: boolean;
+    audioCodecs: string[];
+    sampleRate: number | null;
+    channels: number | null;
+  };
+  contentUrl: string;
+  downloadUrl: string;
+  posterUrl: string | null;
+};
+export type MediaAsset = { id: string; name: string; version: number; latest: MediaVersion };
+export type MediaUpload = {
+  id: string;
+  fileName: string;
+  expectedBytes: number;
+  receivedBytes: number;
+  state: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+  mediaVersion: MediaVersion | null;
+  assetId: string;
+  expectedAssetVersion: number;
+};
+export type Take = { id: string; takeNo: number; state: 'draft'; media: MediaVersion };

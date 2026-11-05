@@ -5,6 +5,7 @@ import { exerciseTextAnalysis } from './text-analysis-flow';
 import { exerciseProposalReview } from './proposal-review-flow';
 import { exerciseTextDelivery } from './text-delivery-flow';
 import { exerciseStoryboardExports } from './storyboard-export-flow';
+import { exerciseMedia } from './media-flow';
 
 test('initialize, create a storyboard, keep conflicting edits, and sign back in', async ({
   page,
@@ -317,6 +318,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await exerciseProposalReview(page, otherPage);
   await exerciseTextDelivery(page, otherPage);
   await exerciseStoryboardExports(page, otherPage);
+  await exerciseMedia(page);
   expect(errors).toEqual([]);
   await second.close();
 });

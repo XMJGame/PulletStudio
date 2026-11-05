@@ -127,6 +127,20 @@
       "when": 1793850162547,
       "tag": "0017_storyboard_export_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793851621168,
+      "tag": "0018_secret_mad_thinker",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793851621169,
+      "tag": "0019_media_history_guards",
+      "breakpoints": true
     }
   ]
 }

@@ -288,7 +288,6 @@ export function StoryboardExportDialog({
             <a href={file.downloadPath} download>
               下载 {file.format.toUpperCase()} 分镜文件
             </a>
-            <small>SHA256：{file.sha256}</small>
             <small>
               {file.byteLength.toLocaleString()} 字节 · {file.shotCount} 个镜头
             </small>
@@ -302,7 +301,6 @@ export function StoryboardExportDialog({
               下载 {item.format.toUpperCase()} · {item.shotCount} 镜头 ·{' '}
               {new Date(item.createdAt).toLocaleString()}
             </a>
-            <small>SHA256：{item.sha256}</small>
           </article>
         ))}
         {history.nextCursor && (
