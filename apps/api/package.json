@@ -1,0 +1,40 @@
+{
+  "name": "@pullet-studio/api",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start:dev": "node ../../tools/api-dev.mjs",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:backup": "tsx src/db/backup.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.0",
+    "drizzle-orm": "^0.45.4",
+    "better-sqlite3": "12.11.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.0",
+    "helmet": "^8.1.0",
+    "zod": "^4.6.7",
+    "@nestjs/swagger": "^11.0.0",
+    "@nestjs/throttler": "^6.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.0",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.20.0"
+  },
+  "engines": {"node": ">=22"}
+}

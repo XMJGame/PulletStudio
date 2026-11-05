@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `next_project_number` integer DEFAULT 1 NOT NULL;

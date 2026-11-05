@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793785575045,
+      "tag": "0000_pale_catseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793788451928,
+      "tag": "0001_odd_skullbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793788493860,
+      "tag": "0002_flashy_pet_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793788494849,
+      "tag": "0003_immutable-script-revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793789670950,
+      "tag": "0004_jazzy_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793790432681,
+      "tag": "0005_minor_masked_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793792673406,
+      "tag": "0006_smooth_sentinels",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793792739622,
+      "tag": "0007_immutable_script_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793794447454,
+      "tag": "0008_sparkling_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793794657684,
+      "tag": "0009_unit_hierarchy_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793796244087,
+      "tag": "0010_smart_hammerhead",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793796782951,
+      "tag": "0011_analysis_evidence_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793801910677,
+      "tag": "0012_light_selene",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793802292021,
+      "tag": "0013_review_history_guards",
+      "breakpoints": true
+    }
+  ]
+}

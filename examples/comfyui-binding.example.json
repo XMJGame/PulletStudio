@@ -1,0 +1,12 @@
+{
+  "warning": "Illustrative node IDs only; NOT a deployable ComfyUI workflow",
+  "providerType": "comfyui",
+  "modelProfileId": "sample-wan22-i2v",
+  "workflowVersion": 1,
+  "bindings": {
+    "prompt": {"nodeId": "6", "inputName": "text"},
+    "first_frame": {"nodeId": "12", "inputName": "image", "prepare": "upload_image"},
+    "seed": {"nodeId": "21", "inputName": "seed"}
+  },
+  "outputs": [{"nodeId": "45", "kind": "video"}]
+}

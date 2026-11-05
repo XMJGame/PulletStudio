@@ -1,0 +1,27 @@
+{
+  "name": "pullet-studio",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "setup": "node tools/setup.mjs",
+    "dev:api": "npm run start:dev --workspace @pullet-studio/api",
+    "dev:web": "npm run dev --workspace @pullet-studio/web",
+    "worker:text": "node apps/api/dist/text-worker.js",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace @pullet-studio/api",
+    "db:migrate": "npm run db:migrate --workspace @pullet-studio/api",
+    "db:backup": "npm run db:backup --workspace @pullet-studio/api",
+    "test": "npm run build --workspace @pullet-studio/api && npm run test --workspace @pullet-studio/api",
+    "test:e2e": "npm run build && playwright test",
+    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts",
+    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts"
+  },
+  "devDependencies": { "@playwright/test": "^1.64.1", "prettier": "3.9.10" },
+  "overrides": {
+    "@nestjs/platform-express": { "multer": "2.5.0" },
+    "@esbuild-kit/core-utils": { "esbuild": "^0.25.12" }
+  }
+}
