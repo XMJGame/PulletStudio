@@ -207,6 +207,7 @@ P0、P1-A 已完成并测试，完整 V1 未完成。
 
 ## 2026-11-05 Phase C1/C2 验收
 
+- 实现与验收提交：`678a7ae5ad87224d1027e06f92e28a28be476a38`（Add local media ingestion immutable versions and draft takes），本地提交，未推送。
 - 按 `modules/LOCAL-MEDIA-IMPLEMENTATION.md` 施工；新增 storage Local adapter、assets 上传/探测/授权分发/Take、MediaDialog、共享 StorageProvider 端口、media:verify 工具。复用身份/RBAC/CSRF、制作结构、Shot、版本锁及审计，未改框架/安装 npm 依赖或复制外部项目源码。
 - 项目/镜头入口支持文件选择、真实流式导入、检测/独立封面、图片预览、音视频播放、原件下载、追加版本/历史、明确添加 draft Take。原件保留大小/SHA256，媒体版本和旧候选不可变；Take 编号后台分配，不自动批准/选中/改卡。无模型连接也能完成。
 - 支持并实际测试 PNG/JPEG/WebP、MP4（含声音）/MOV/WebM、WAV/MP3/OGG/M4A/Opus。检测文件签名、扩展名/MIME、实际流；元数据来自真实 FFprobe。默认512MiB/10分钟，最多2个并发；工具/流/像素/时长有界。当前测试为小型合成文件，不宣称多GB/整片/恶意媒体沙箱验收。
