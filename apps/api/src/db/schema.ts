@@ -568,3 +568,91 @@ export const proposalAdoptions = sqliteTable(
     }),
   ],
 );
+
+// Human-authored continuations share Shot.version with the original immutable AI cards.
+export const shotCardEditions = sqliteTable(
+  'shot_card_editions',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    bodyJson: text('body_json').notNull(),
+    sourceProposalRevisionId: text('source_proposal_revision_id'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    summary: text('summary').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.sourceProposalRevisionId, t.projectId, t.workspaceId],
+      foreignColumns: [proposalRevisions.id, proposalRevisions.projectId, proposalRevisions.workspaceId],
+    }),
+    uniqueIndex('shot_card_edition_version').on(t.shotId, t.version),
+    check('shot_card_edition_positive', sql`${t.version} > 0`),
+  ],
+);
+export const promptProfiles = sqliteTable(
+  'prompt_profiles',
+  {
+    id: text('id').primaryKey(),
+    profileId: text('profile_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    name: text('name').notNull(),
+    configJson: text('config_json').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('prompt_profile_version').on(t.profileId, t.version),
+    uniqueIndex('prompt_profile_scope').on(t.id, t.projectId, t.workspaceId),
+    index('prompt_profile_project').on(t.projectId, t.profileId, t.version),
+    check('prompt_profile_positive', sql`${t.version} > 0`),
+  ],
+);
+export const promptArtifacts = sqliteTable(
+  'prompt_artifacts',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    cardId: text('card_id').notNull(),
+    cardVersion: integer('card_version').notNull(),
+    projectVersion: integer('project_version').notNull(),
+    profileRevisionId: text('profile_revision_id'),
+    compilerVersion: text('compiler_version').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    renderedJson: text('rendered_json').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.profileRevisionId, t.projectId, t.workspaceId],
+      foreignColumns: [promptProfiles.id, promptProfiles.projectId, promptProfiles.workspaceId],
+    }),
+    index('prompt_artifact_page').on(t.shotId, t.id),
+  ],
+);

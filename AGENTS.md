@@ -3,6 +3,7 @@
 ## 产品与实施基线
 
 - 完整产品与长期架构基线见 `docs/MASTER-PLAN.md`；当前工程差异、任务依赖、实际进度和遗留问题统一维护在 `docs/IMPLEMENTATION-STATUS.md`。每阶段开始写实施合同，完成后记录必要测试及真实限制。
+- 团队 V1 技术规格为 `docs/architecture/REPOSITORY-CONTINUATION-PLAN.md` 和 `TEAM-V1-TECHNICAL-BLUEPRINT.md`；模块开工前在 `docs/modules/` 写复用路径、DB/API/UI、权限、故障和验收合同。用户明确要求、有效 ADR 与实际兼容性优先于建议性命名/布局；外部项目只作定向学习，复制前核验具体许可。
 - 保留符合需求的既有成果。主技术栈继续 NestJS/TypeScript/Drizzle/React/Vite，文档中的 Python/FastAPI 示例不构成更换框架授权。
 - 优先剧本导入→AI 分镜草案→人工确认→完整提示词→生成/手工导入→审核→预演/导出；不能让软件长期停留在项目管理。Provider、Storage、多人工作区保持独立边界。
 - 不硬编码作品、题材、硬件 IP、NAS 路径、特定模型。真实服务由用户选定，未实现或未实测能力不能显示成功。

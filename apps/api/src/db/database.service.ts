@@ -16,7 +16,18 @@ export class DatabaseService implements OnModuleDestroy {
     this.sqlite = new Database(config.databasePath);
     try {
       this.sqlite.pragma('busy_timeout = 5000');
-      this.sqlite.pragma('journal_mode = WAL');
+      // Two fresh API/Worker processes can race to change DELETE -> WAL. SQLite
+      // may return BUSY immediately for that lock upgrade despite busy_timeout.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          this.sqlite.pragma('journal_mode = WAL');
+          break;
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'SQLITE_BUSY' || Date.now() >= deadline) throw error;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        }
+      }
       this.sqlite.pragma('synchronous = FULL');
       this.sqlite.pragma('foreign_keys = ON');
       this.db = drizzle(this.sqlite, { schema });

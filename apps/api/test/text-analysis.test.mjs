@@ -126,10 +126,12 @@ test('text connection, persistent analysis queue, leases and safe recovery', asy
       const sqlite = app.get(DatabaseService).sqlite; assert.equal(sqlite.pragma('integrity_check', { simple: true }), 'ok'); assert.deepEqual(sqlite.pragma('foreign_key_check'), []);
     });
     await t.test('two independent processes can migrate and start against the same empty database', async () => {
-      const env = { ...process.env, DATABASE_PATH: join(directory, 'simultaneous.sqlite') };
-      const launch = () => promisify(execFile)(process.execPath, [join(repositoryRoot, 'apps/api/dist/text-worker.js'), '--once'], { cwd: repositoryRoot, env, timeout: 15000 });
-      const results = await Promise.all([launch(), launch()]);
-      assert.ok(results.every(result => result.stdout.includes('worker ready')));
+      for (let round=0; round<3; round++) {
+        const env = { ...process.env, DATABASE_PATH: join(directory, `simultaneous-${round}.sqlite`) };
+        const launch = () => promisify(execFile)(process.execPath, [join(repositoryRoot, 'apps/api/dist/text-worker.js'), '--once'], { cwd: repositoryRoot, env, timeout: 15000 });
+        const results = await Promise.all([launch(), launch()]);
+        assert.ok(results.every(result => result.stdout.includes('worker ready')));
+      }
     });
     await t.test('trashing a project stops a queued analysis before sending any source text', async () => {
       const job = await submit(); const hits = mock.requests.length;

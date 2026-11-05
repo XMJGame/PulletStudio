@@ -1,5 +1,7 @@
 # Pullet Studio — V1.0 通用 AI 影视创作平台完整实施方案
 
+> 2026-11-05 决策说明：本文保留长期产品需求；主技术栈已由 ADR-001 确定为 NestJS/React/Drizzle/SQLite，下文 FastAPI/SQLAlchemy/Alembic 及重建 M0 的示例不再执行。团队级模块规格见 `architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md`，实际状态与顺序唯一来源为 `IMPLEMENTATION-STATUS.md`。
+
 > 版本：1.0 / 2026-11-04  
 > 状态：**实施基线（待 Codex 勘察仓库后按里程碑实现）**。本文不是“现已实现”的功能清单。  
 > 产品目标：个人可用、团队协作、可私有化、以后可对外分发；从短视频、广告、AI 漫剧、连续剧、旁白长视频到长篇电影共用一套业务核心。  

@@ -84,6 +84,11 @@ test('proposal revisions, review gate and atomic shot adoption', async t => {
       const result = await editor.request('PATCH', `/shots/${adopted.id}`, { description: 'x'.repeat(3000), camera: 'Human camera move', durationHint: 9, expectedVersion: 1 }); assert.equal(result.status, 200);
       const card = (await viewer.request('GET', `/shots/${adopted.id}/card`)).data; assert.equal(card.version, 2); assert.equal(card.body.description.length, 3000); assert.equal(card.body.cameraMovement, 'Human camera move'); assert.equal(card.body.durationSeconds, 9); assert.equal(card.origin.proposalId, proposal.id);
       const old = (await viewer.request('GET', `/shots/${adopted.id}/card/versions/1`)).data; assert.equal(old.body.description, 'Human-reviewed platform shot');
+      const editorCard = (await editor.request('GET', `/shots/${adopted.id}/card/editor`)).data;
+      const full = await editor.request('PATCH', `/shots/${adopted.id}/card`, { expectedVersion: 2, body: {...editorCard.body, composition:'Human revised full composition', sourceAudioPolicy:'keep'} });
+      assert.equal(full.status, 200); assert.equal(full.data.card.version, 3);
+      assert.deepEqual(full.data.card.sources, card.sources); assert.deepEqual(full.data.card.origin, card.origin);
+      assert.equal((await viewer.request('GET', `/shots/${adopted.id}/card/versions/2`)).data.body.description.length, 3000);
       const db = app.get(DatabaseService).sqlite;
       for (const table of ['proposal_revisions', 'shot_card_revisions', 'script_spans', 'shot_script_spans', 'proposal_adoptions']) assert.throws(() => db.prepare(`DELETE FROM ${table}`).run(), /immutable/);
     });
@@ -103,7 +108,7 @@ test('proposal revisions, review gate and atomic shot adoption', async t => {
       assert.ok(accepted.every(item => item.status === 201)); assert.equal(db.prepare('SELECT COUNT(*) count FROM shots').get().count, before + 2); assert.deepEqual(accepted[0].data.adoptedShots.map(shot => shot.code), ['SH001', 'SH002']);
     });
     await t.test('restart preserves reviews and cards; removed members and trashed projects cannot inspect or act', async () => {
-      await app.close(); await start(); assert.equal((await read()).status, 'accepted'); assert.equal((await viewer.request('GET', `/shots/${adopted.id}/card`)).data.version, 2);
+      await app.close(); await start(); assert.equal((await read()).status, 'accepted'); assert.equal((await viewer.request('GET', `/shots/${adopted.id}/card`)).data.version, 3);
       await owner.request('DELETE', `/projects/${project.id}/members/${reviewerId}`, { expectedRole: 'REVIEWER' }); assert.equal((await reviewer.request('GET', p(''))).status, 404);
       await owner.request('POST', `/projects/${project.id}/trash`, { expectedVersion: 2 });
       assert.equal((await owner.request('GET', p(''))).status, 404); assert.equal((await owner.request('GET', `/shots/${adopted.id}/card`)).status, 404);

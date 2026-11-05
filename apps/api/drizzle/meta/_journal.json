@@ -99,6 +99,20 @@
       "when": 1793802292021,
       "tag": "0013_review_history_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793848194296,
+      "tag": "0014_next_giant_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793848194297,
+      "tag": "0015_text_delivery_guards",
+      "breakpoints": true
     }
   ]
 }

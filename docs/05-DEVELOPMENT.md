@@ -4,7 +4,7 @@
 
 最新产品基线为 `MASTER-PLAN.md`；后续计划和每轮状态统一维护在 `IMPLEMENTATION-STATUS.md`，本文件保留已有验收与恢复说明。已增量实现剧本导入、原始证据保存、锁定与段落定位，使用说明见 `SCRIPT-IMPORT.md`；当前不再以媒体上传作为剧本导入之前的第一优先级。
 
-P2-A 已增加文本连接、凭据保护、独立 Worker 和来源可追溯的分镜草案。最新 62 项接口测试与 Edge 全流程通过；真实模型未联调，草案尚不能采纳为正式镜头。启动/状态/密钥与迁移恢复见 `TEXT-ANALYSIS.md`，本文件下方旧记录保留历史。
+下方测试数字和阶段描述为历史记录。当前已实现能力与最新测试证据只见 `IMPLEMENTATION-STATUS.md`；文本分析使用见 `TEXT-ANALYSIS.md`，已交付人工采纳见 `PROPOSAL-REVIEW.md`。
 
 ## 界面修正
 

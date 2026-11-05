@@ -1,13 +1,31 @@
 # Pullet Studio 实施状态与后续计划
 
-更新：2026-11-04。需求基线：[MASTER-PLAN](MASTER-PLAN.md)。本文件记录实际交付及证据；MASTER 中的示例、技术建议和目标不代表当前能力。用户本轮要求优先于文档内的 FastAPI / 重做 M0 建议。
+更新：2026-11-05。产品基线：[MASTER-PLAN](MASTER-PLAN.md)，团队模块规格：[技术蓝图](architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md) / [续开发方案](architecture/REPOSITORY-CONTINUATION-PLAN.md)。本文件是唯一实时计划与证据记录；用户明确要求、有效 ADR 和现有兼容性优先于文档中的建议性命名/布局与旧 FastAPI/M0 示例。
 
 ## 已核实现状
 
 - 当前工程是 React/TypeScript/Vite + NestJS 11 + Drizzle + better-sqlite3，已有业务代码，继续保留。现有 CSS、对话框和权限组件复用，不为引入 UI 库改写。
-- 初次审计为 13 张业务表/6 次迁移；P2-B1 后为 24 张业务表/14 次迁移，已增加来源、文本连接/模型、分析任务/草案、人工审核、完整卡历史及来源关联。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，未用真实数据造样例。
-- 最新 `npm test` 70/70（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖独立 Worker 与模型 Mock、队列恢复、人工审核/原子采纳、制作卡历史及手机/双窗口界面。真实模型联调未完成。
-- 2026-11-05 按用户要求初始化 Git，并配置远端 `https://github.com/XMJGame/PulletStudio.git`；CI 配置已添加，远端执行结果以 GitHub Actions 为准。独立文本 Worker 已实现并在本机启动；Compose/媒体存储尚未实现。packages/contracts 的旧媒体 Provider/Storage 仍只是草案；实际 TextProvider 端口在 API providers 模块独立实现。
+- 初次审计为 13 张业务表/6 次迁移；当前 27 张业务表/16 次迁移，包含来源、文本连接/模型、分析任务/草案、审核、完整卡历史与人工修订、PromptProfile/Artifact。WAL、外键、busy_timeout、在线备份及 API/Worker 并发迁移启动已测试；实库 integrity=ok、foreign_key_check=[]，未用真实数据造样例。
+- 最新 `npm test` 82/82（含容器）；Edge 全流程 1/1、类型/格式/构建通过，涵盖文本 Worker/Mock、人工采纳、完整手动卡、离线提示词与历史/分页、手机/双窗口。真实模型联调未完成。
+- 审计起点本地/远端同为 9c0ad77，工作树干净；初始提交 [GitHub checks](https://github.com/XMJGame/PulletStudio/actions/runs/41956556209) 已通过，2026-11-05 通过 GitHub API 核实。当前包的测试为本机结果，不冒称新提交已跑远端 CI。Compose/媒体存储仍未实现；旧 compose.dev.yml 已明确标为历史 Postgres/Redis 示例，实际开发不依赖它。
+
+## 团队 V1 当前工作包与依赖
+
+差异审计见 [TEAM-V1-GAP-AUDIT](architecture/TEAM-V1-GAP-AUDIT.md)；逐模块覆盖实现、模型、API、参考方向与门禁。两份用户原件已完整读取并原样归档，SHA256 与下载原件分别一致。保留全部业务/SQL/测试；整理文档优先级，不做全站 UI/模块拆分重写。新增 ADR-005，明确统一生产内核、扩展边界与人工卡兼容附表。
+
+| Phase | 对应旧任务 | 实际进度 / 下一门禁 |
+|---|---|---|
+| A 基线 | P0/工程 | 已复核 Git、70 项基线和原 Edge 流程、备份及独立副本恢复；旧 Compose 仅标历史，不启动或删配置；npm 依赖未变，未重装运行中的 node_modules，初始远端 CI 的 npm ci 已通过 |
+| B1 完整卡 / B2 提示词基础 | P2-C 第一包 | 已交付正式/手动完整卡、Profile 追加修订、中立离线编译、预览/保存/复制/历史/变化提示。具体合同见 modules/TEXT-DELIVERY-IMPLEMENTATION.md；真实实体引用/模型方言尚待资产/媒体能力 |
+| B3 文本导出 | P2-C 下一包 | 下一优先：MD/JSON/CSV 按项目/单元/镜头范围输出固定卡/Prompt 快照，CSV 公式防护、大小/分页、来源/过期警告及导出审计；无模型验收 |
+| C 存储与资产 | P3-A | B 基础后实现 Local staging/hash/授权 Range→语义实体/媒体版本→绑定镜头；先手工素材，不等待特定模型 |
+| D 媒体生成/Take | P3-B | 依赖 C 的归档；独立媒体 Provider/能力/任务，ComfyUI Mock 后真实图/视频；未知提交需调和 |
+| E 团队批次/审批 | P4 | 依赖 D；指派不授予 RBAC，Take 版本审批、评论、通知、dry run；3 账号/2 项目/20 镜头验收 |
+| F 声音/时间线/交付 | P5 | 依赖媒体/Take；整数 ms 时间、源音轨策略、低清预演、项目包；30–60s 授权样片验收 |
+| G 画布/Skills | P7 的画布部分 | 依赖共享资产/任务；Board 仅布局/引用，执行 DAG 校验，受控 API，不复制业务实体 |
+| H 部署/开放 | P6/后续扩展 | CI/备份持续做，正式 Compose/TLS/S3/SDK/许可证/规模测试逐项验收，不宣称已可生产部署 |
+
+Story Bible/层级分析仍为旧 P2-B2 的后续增量，不阻塞手工文本交付。UI 配色/尺寸按用户意见为参考，优先清晰、可操作与小屏/键盘；AppShell/主题拆分随功能推进，暂不引入新 UI 库。参考项目本包只采纳设计思路，独立编写，无外部源码复制或新第三方依赖；进入相关模块才核验具体版本 LICENSE，不把文档提供的许可断言当已验证事实。
 
 ## 与 MASTER-PLAN 对照
 
@@ -19,8 +37,8 @@
 | §2.2、4.2 制作层级 | 基础范围完成 | 复用 episodes 实现 episode/act/chapter/sequence/scene/section 嵌套结构及项目直属镜头；旧 ID/编号保留，父链/排序/分页/冲突已实现；单元删除、拖拽与跨单元镜头移动未实现 |
 | §2.3、7 剧本 | 部分完成 | 导入、不可变版本、恢复、409、窗口草稿、原文锁定/段落定位已完成；采纳后持久化 ScriptSpan→版本化镜头卡关联。DOCX/PDF/多文档、跨版本来源重定位及正式修订审批未完成 |
 | §7 文本分析/AI 分镜 | 部分完成 | 通用文本 Provider、范围分析、持久化 AnalysisRun/Proposal、来源校验、人工编辑/拒绝/重开和原子采纳已实现并经 Mock 验收；真实模型、Story Bible、层级分析和候选增删/重排未完成 |
-| §7.4 镜头制作卡 | 部分完成 | 已有完整候选字段、采纳后的不可变卡历史/原文引用，基本镜头编辑续写卡版本。缺完整正式/手动卡编辑器、正式资产版本、可执行声音策略和 ProductionPlan；时长为人工确认的计划，非实际配音测量 |
-| §8 提示词 | 未完成 | 缺版本化 PromptProfile/Compiler/Artifact 及一镜完整可复制输出 |
+| §7.4 镜头制作卡 | 部分完成 | 完整正式/手动卡编辑、统一追加历史、固定来源和原声处理计划已实现；缺正式资产绑定、实际声音执行和独立 ProductionPlan。时长为计划，非配音测量 |
+| §8 提示词 | 基础范围完成 | 项目级不可变 Profile 修订、中立离线 Compiler、完整可复制正/负词、Artifact 冻结输入/历史/变化提示；实际模型方言、Director/Style 独立版本及实体/媒体绑定待对应模块 |
 | §4.2、9 资产/存储 | 未完成 | 无人物/场景/道具/声音角色、AssetVersion、Local/Mounted/S3 实现；根目录、版本、鉴权读取需独立建设 |
 | §6、10 生成 | 文本任务部分完成 | 文本连接/模型分离、凭据保护、队列/租约/Worker/恢复已实现；媒体 Provider 能力发现、ComfyUI、归档/Take 仍未实现，不以文本 Completed 冒充媒体归档完成 |
 | §11 审核 | 部分完成 | Proposal 草案修订、拒绝/重开、独立审核权限、明确采纳及固定采纳快照已完成；Take 正式审批状态机、评论、任务分工与通知未完成 |
@@ -32,7 +50,7 @@
 
 ## 开发顺序与阶段门禁
 
-阶段名称以本文件 P0–P7 为准，MASTER 的 M0–M6 是需求分组，旧 ROADMAP 的同名阶段不再作为排期来源。
+团队后续顺序以上方 Phase A–H 为准；下表 P0–P7 保留既有任务编号供追溯，MASTER 的 M0–M6 是需求分组，旧 ROADMAP 不再作为排期来源。
 
 | 顺序 | 任务与依赖 | 完成门禁 | 状态 |
 |---|---|---|---|
@@ -41,7 +59,7 @@
 | P1-B | 项目四轴和模板、导演设定；ProductionUnit 最小增量桥接 | 空白/对白/广告等入口可用；旧 Episode/Shot ID 不变；层级无循环，支持后续草案采纳 | 已完成基础范围 |
 | P2-A | TextProvider/连接凭据与受信端点；持久化 text 队列、Worker、AnalysisRun/Proposal | Mock 验证结构化输出、429/超时/租约恢复；未经用户选择不发送原文；不确定提交不盲目重试 | 已完成基础范围，真实模型待联调 |
 | P2-B | 分层分析、Story Bible/结构/镜头候选、来源定位、人工编辑/拒绝/采纳；完整手动镜头卡 | 原文和正式镜头不被自动覆盖；必要上下文分批；对白与广告通用测试；人工批准后原子生成实体 | B1 人工门禁已完成；B2 分层/Bible、完整手动卡编辑待开发 |
-| P2-C | 完整手动卡编辑、PromptProfile/Compiler/Artifact，MD/JSON/CSV 导出 | 无在线模型也可编辑/编译/导出；完整可复制、版本追溯；CSV 注入防护；来源和警告可见 | 下一项，利用 B1 正式卡先打通文本交付 |
+| P2-C | 完整手动卡编辑、PromptProfile/Compiler/Artifact，MD/JSON/CSV 导出 | 无在线模型也可编辑/编译/导出；完整可复制、版本追溯；CSV 注入防护；来源和警告可见 | 卡编辑/离线编译已完成基础范围，B3 导出下一项 |
 | P3-A | StorageFacade + Local/Mounted、Asset/Version、手工上传、鉴权/Range、FFprobe/缩略图、Take | 能把手工生成结果关联镜头；路径/symlink/越权/半文件/磁盘失败测试；原片不变 | 待开发 |
 | P3-B | Generation Provider、ComfyUI 标准绑定、持久化任务/结果归档 | Mock 后真实图像/视频各一次；提交不确定→人工调和；所有结果归档后才完成；外部文件不删 | 待开发 |
 | P4 | Take/镜头审核、批准保护、版本评论、分工、通知；基础素材包导出 | 多人选片不丢旧版本；无批准不得覆盖；拒绝/返工可追溯；包可校验 | 待开发 |
@@ -155,3 +173,17 @@ P0、P1-A 已完成并测试，完整 V1 未完成。
 - 限制：候选数量/顺序固定、整份采纳且不可撤销；不提供候选增删/重排或部分采纳。正式卡全字段/手动创建编辑尚未开放，现有基本镜头编辑会续写已有卡；旧手动镜头没有卡时如实显示。尚无 Story Bible、层级分析、Take 审核、声音实测、提示词或媒体导出，不能将 B1 宣称为完整 P2-B/V1。
 
 下一项先执行 P2-C：补全正式/手动卡编辑，并基于已保存卡版本实现离线可用的 PromptProfile/Compiler/Artifact 与 Markdown/JSON/CSV 导出，让已采纳内容可以实际交付给外部制作工具。Story Bible 与层级分析保留为 P2-B2，不作为文本导出的前置阻塞；随后继续 P3-A 手工素材归档、P3-B ComfyUI/生成对接。真实模型仍待用户配置后联调，Mock 测试不替代真实验收。操作、API、回退与边界见 [PROPOSAL-REVIEW.md](PROPOSAL-REVIEW.md)。
+
+## 2026-11-05 Phase A / B1 / B2 验收
+
+- A：实际基线 9c0ad77；70/70 Node、Edge 1/1、类型/格式/构建重新通过。下载原件已原样归档；MASTER 增加现行 ADR 优先说明，历史开发文档不再冒称旧数字为最新。无废弃启动 ZIP；Compose 无 npm/CI 引用，按蓝图保留并明确历史状态，未创建第二套数据库配置。
+- B1：新增 CardAuthoring 服务/接口和完整编辑弹窗；手动无原文/无 AI 的旧镜头可补齐卡片，既有 AI 卡续写到人工附表，单一 Shot.version 和统一历史读取。允许编辑全部创作字段与原声处理计划；现有来源固定且无法伪造，后续来源编辑/跨版本重定位另做。旧基本编辑仍可续写完整历史，原 Proposal/审核和历史卡内容不变。
+- B2：新增 prompt 模块，项目管理者创建/追加 Profile（前后缀、正/负规则及禁止项表达方式）；确定性 Compiler 完全离线，无模板执行/网络调用。默认中立模式、完整正负词、音频计划、警告及手工复制；预览不写库，保存需编辑权和卡/项目版本条件。Artifact 固定卡 ID/版本、来源文本/哈希、项目设定、Profile、编译器和操作者。卡/项目/Profile/原文变化只标 stale，不改旧产物；历史按时间分页。
+- 保留技术栈及全部旧 SQL。0014 只建 shot_card_editions、prompt_profiles、prompt_artifacts 和索引；0015 加不可变、跨表卡版本唯一、来源/Artifact scope 触发器。没有重建、回填或重编号旧表。兼容取舍和后续合并成本见 ADR-005。
+- 实库在线备份 `data/backups/studio-2026-11-05T03-07-14-233Z-8eb4ecc4.sqlite`，独立恢复副本 `data/backups/audit-restored-2026-11-05.sqlite` 验证 integrity=ok / 外键无误。升级后 27 表/16 迁移，24 张原业务表数量全部一致，3 张新表均空，未插入测试样例。隔离测试另验证含完整新卡/Artifact 的在线备份恢复。
+- 测试：82/82 Node（含容器）、Edge 全流程 1/1、类型/构建/格式通过。新增完整卡全字段/CAS/中途失败回滚、角色/跨租户/撤权/回收站、旧 AI 卡来源保留、手动卡续写；离线确定性、预览零写、风格/禁止项/声音、Profile CAS、Artifact 不可变/变化提示/32条分页及重启恢复。对白、120秒旁白计划、30秒广告采用通用授权测试文本，不以此冒称真实成片。
+- 浏览器已实际跑 UI：手动完整卡双窗口冲突不丢输入、显式载入新基线、390px 按钮在屏幕内、Profile 创建、完整文本与剪贴板一致、保存历史及旧提示词变化警告。截图已查看：test-results/full-card-editor-mobile.png、prompt-preview-mobile.png、prompt-history-desktop.png（测试产物忽略，不上传真实内容）。
+- 故障修正：一次回归发现空库双进程 DELETE→WAL 切换偶发 SQLITE_BUSY，busy_timeout 对该升级竞争可立即失败。现仅在启动 WAL 配置阶段有界等待最多5秒，其他错误立即抛出；并发空库子进程测试扩为3轮，随后全套通过。没有把 Provider 不确定提交改为自动重试。
+- 限制：B2 是中立手工文本输出，不等于媒体模型适配；ModelProfile/媒体版本/实体引用为空且 productionReady=false。Director/Style 目前冻结现有项目设定，未提供独立版本库；音轨策略仅计划，不改文件。真实模型、ComfyUI、团队多用户制作/长片吞吐、B3 导出和完整 V1 尚未验收。
+
+下一包：Phase B3 离线分镜 MD/JSON/CSV，先写独立模块合同，明确选择范围、固定快照、大小限制、CSV 防公式、来源/警告和导出审计；复用本包完整卡与 Artifact，不重做分析/人工门禁。运行方式与当前接口见 [TEXT-DELIVERY.md](TEXT-DELIVERY.md)。

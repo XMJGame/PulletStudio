@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, lt, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../db/database.service';
 import {
@@ -8,18 +8,69 @@ import {
   scriptRevisions,
   scriptSpans,
   shotCardRevisions,
+  shotCardEditions,
   shotScriptSpans,
   users,
 } from '../db/schema';
 import { CurrentUser, fail } from '../common/http';
 import { ManualShot } from '../analysis/analysis-contract';
+import { FormalCard } from './formal-card';
 
 export function cardRecord(database: DatabaseService, shotId: string, version: number) {
+  return (
+    database.db
+      .select()
+      .from(shotCardEditions)
+      .where(and(eq(shotCardEditions.shotId, shotId), eq(shotCardEditions.version, version)))
+      .get() ??
+    database.db
+      .select()
+      .from(shotCardRevisions)
+      .where(and(eq(shotCardRevisions.shotId, shotId), eq(shotCardRevisions.version, version)))
+      .get()
+  );
+}
+export function editionSources(database: DatabaseService, body: { sourceSpanIds: string[] }) {
+  if (!body.sourceSpanIds.length) return [];
+  const rows = database.db
+    .select({ span: scriptSpans, text: scriptRevisions.content, revisionVersion: scriptRevisions.version })
+    .from(scriptSpans)
+    .innerJoin(scriptRevisions, eq(scriptRevisions.id, scriptSpans.revisionId))
+    .where(inArray(scriptSpans.id, body.sourceSpanIds))
+    .all();
+  return body.sourceSpanIds.map((id) => {
+    const row = rows.find((row) => row.span.id === id)!;
+    return {
+      ...row.span,
+      text: row.text.slice(row.span.startOffset, row.span.endOffset),
+      revisionVersion: row.revisionVersion,
+    };
+  });
+}
+export function appendCardEdition(
+  database: DatabaseService,
+  user: CurrentUser,
+  shot: { id: string; projectId: string; workspaceId: string; version: number },
+  body: FormalCard,
+  sourceProposalRevisionId: string | null,
+  summary: string,
+) {
   return database.db
-    .select()
-    .from(shotCardRevisions)
-    .where(and(eq(shotCardRevisions.shotId, shotId), eq(shotCardRevisions.version, version)))
-    .get();
+    .insert(shotCardEditions)
+    .values({
+      id: randomUUID(),
+      shotId: shot.id,
+      projectId: shot.projectId,
+      workspaceId: shot.workspaceId,
+      version: shot.version,
+      bodyJson: JSON.stringify(body),
+      sourceProposalRevisionId,
+      summary,
+      createdBy: user.id,
+      createdAt: new Date().toISOString(),
+    })
+    .returning()
+    .get()!;
 }
 export function cardSources(database: DatabaseService, cardRevisionId: string) {
   return database.db
@@ -71,44 +122,49 @@ export function readShotCard(database: DatabaseService, shotId: string, version:
   const row = cardRecord(database, shotId, version);
   if (!row) {
     if (required) fail(404, 'NOT_FOUND', '完整制作卡版本不存在');
-    return { available: false, shotId, version };
+    return { available: false as const, shotId, version };
   }
-  const origin = database.db
-    .select({ revision: proposalRevisions, proposal: analysisProposals, run: analysisRuns })
-    .from(proposalRevisions)
-    .innerJoin(analysisProposals, eq(analysisProposals.id, proposalRevisions.proposalId))
-    .innerJoin(analysisRuns, eq(analysisRuns.id, analysisProposals.runId))
-    .where(eq(proposalRevisions.id, row.sourceProposalRevisionId))
-    .get()!;
+  const origin = row.sourceProposalRevisionId
+    ? database.db
+        .select({ revision: proposalRevisions, proposal: analysisProposals, run: analysisRuns })
+        .from(proposalRevisions)
+        .innerJoin(analysisProposals, eq(analysisProposals.id, proposalRevisions.proposalId))
+        .innerJoin(analysisRuns, eq(analysisRuns.id, analysisProposals.runId))
+        .where(eq(proposalRevisions.id, row.sourceProposalRevisionId))
+        .get()
+    : undefined;
   const actor = database.db
     .select({ name: users.name })
     .from(users)
     .where(eq(users.id, row.createdBy))
     .get()!;
-  const snapshot = JSON.parse(origin.run.connectionSnapshotJson);
+  const snapshot = origin ? JSON.parse(origin.run.connectionSnapshotJson) : null;
+  const body = JSON.parse(row.bodyJson);
   return {
-    available: true,
+    available: true as const,
     id: row.id,
     shotId,
     version,
-    body: JSON.parse(row.bodyJson),
-    sources: cardSources(database, row.id),
+    body: { ...body, sourceAudioPolicy: body.sourceAudioPolicy ?? 'inspect' },
+    sources: editionSources(database, body),
     summary: row.summary,
     createdAt: row.createdAt,
     authorName: actor.name,
-    origin: {
-      proposalId: origin.proposal.id,
-      proposalVersion: origin.revision.version,
-      runId: origin.run.id,
-      model: snapshot.model,
-      profileName: snapshot.name,
-      adoptedBy: origin.revision.createdBy,
-      adoptedAt: origin.revision.createdAt,
-    },
+    origin: origin
+      ? {
+          proposalId: origin.proposal.id,
+          proposalVersion: origin.revision.version,
+          runId: origin.run.id,
+          model: snapshot.model,
+          profileName: snapshot.name,
+          adoptedBy: origin.revision.createdBy,
+          adoptedAt: origin.revision.createdAt,
+        }
+      : null,
   };
 }
 export function shotCardHistory(database: DatabaseService, shotId: string, before?: number) {
-  const rows = database.db
+  const oldRows = database.db
     .select({
       version: shotCardRevisions.version,
       summary: shotCardRevisions.summary,
@@ -126,5 +182,24 @@ export function shotCardHistory(database: DatabaseService, shotId: string, befor
     .orderBy(desc(shotCardRevisions.version))
     .limit(31)
     .all();
+  const editions = database.db
+    .select({
+      version: shotCardEditions.version,
+      summary: shotCardEditions.summary,
+      createdAt: shotCardEditions.createdAt,
+      authorName: users.name,
+    })
+    .from(shotCardEditions)
+    .innerJoin(users, eq(users.id, shotCardEditions.createdBy))
+    .where(
+      and(
+        eq(shotCardEditions.shotId, shotId),
+        before === undefined ? undefined : lt(shotCardEditions.version, before),
+      ),
+    )
+    .orderBy(desc(shotCardEditions.version))
+    .limit(31)
+    .all();
+  const rows = [...oldRows, ...editions].sort((a, b) => b.version - a.version).slice(0, 31);
   return { items: rows.slice(0, 30), nextCursor: rows.length > 30 ? rows[29].version : null };
 }

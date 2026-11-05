@@ -23,8 +23,8 @@ import { CurrentUser, fail } from '../common/http';
 import { digest, secret } from '../auth/password';
 import { AuthorizationService } from './authorization.service';
 import { validateParent } from './unit-hierarchy';
-import { appendShotCard, cardRecord, readShotCard, shotCardHistory } from './shot-cards';
-import { manualShotSchema } from '../analysis/analysis-contract';
+import { appendCardEdition, cardRecord, readShotCard, shotCardHistory } from './shot-cards';
+import { formalCardSchema } from './formal-card';
 
 type ProjectInput = {
   title: string;
@@ -588,7 +588,7 @@ export class ProductionService {
       this.audit(user.id, shot.workspaceId, 'shot.update', id);
       if (previousCard) {
         const previous = JSON.parse(previousCard.bodyJson);
-        const body = manualShotSchema.parse({
+        const body = formalCardSchema.parse({
           ...previous,
           description: changes.description ?? previous.description,
           cameraMovement: changes.camera ?? previous.cameraMovement,
@@ -596,7 +596,7 @@ export class ProductionService {
           durationSeconds: changes.durationHint ?? previous.durationSeconds,
           technique: changes.technique ?? previous.technique,
         });
-        appendShotCard(
+        appendCardEdition(
           this.database,
           user,
           result!,

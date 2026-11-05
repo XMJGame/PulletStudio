@@ -1,3 +1,6 @@
+# Historical PostgreSQL/Redis infrastructure example, NOT the current development stack.
+# Pullet Studio currently uses SQLite and a local Node Worker. No database switch exists.
+# Do not run this file to start Studio; use the repository README commands.
 services:
   postgres:
     image: postgres:17-alpine

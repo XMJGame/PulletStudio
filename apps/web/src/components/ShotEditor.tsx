@@ -2,6 +2,8 @@ import { Shot } from '../api';
 import { useState } from 'react';
 import { ShotCardDialog } from './ShotCardDialog';
 import { techniqueLabels } from '../project-settings';
+import { FullCardEditorDialog } from './FullCardEditorDialog';
+import { PromptDialog } from './PromptDialog';
 export function ShotEditor({
   shot,
   disabled,
@@ -14,6 +16,8 @@ export function ShotEditor({
   reload: () => void;
 }) {
   const [showCard, setShowCard] = useState(false);
+  const [editCard, setEditCard] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
   return (
     <section className="editor panel">
       <div className="section-heading">
@@ -23,6 +27,10 @@ export function ShotEditor({
         </div>
         <span className="badge">版本 {shot.version}</span>
         <button onClick={() => setShowCard(true)}>查看完整制作卡</button>
+        <button disabled={disabled} onClick={() => setEditCard(true)}>
+          编辑完整制作卡
+        </button>
+        <button onClick={() => setShowPrompt(true)}>镜头提示词</button>
       </div>
       <form
         onSubmit={(e) => {
@@ -106,6 +114,17 @@ export function ShotEditor({
         </div>
       </form>
       {showCard && <ShotCardDialog shotId={shot.id} onClose={() => setShowCard(false)} />}
+      {editCard && (
+        <FullCardEditorDialog
+          shotId={shot.id}
+          onClose={() => setEditCard(false)}
+          onSaved={() => {
+            setEditCard(false);
+            reload();
+          }}
+        />
+      )}
+      {showPrompt && <PromptDialog shotId={shot.id} onClose={() => setShowPrompt(false)} />}
     </section>
   );
 }

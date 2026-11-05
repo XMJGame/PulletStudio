@@ -3,6 +3,7 @@ import { exerciseScriptImport } from './script-import-flow';
 import { exerciseProductionStructure } from './production-structure-flow';
 import { exerciseTextAnalysis } from './text-analysis-flow';
 import { exerciseProposalReview } from './proposal-review-flow';
+import { exerciseTextDelivery } from './text-delivery-flow';
 
 test('initialize, create a storyboard, keep conflicting edits, and sign back in', async ({
   page,
@@ -313,6 +314,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await exerciseProductionStructure(page, otherPage);
   await exerciseTextAnalysis(page);
   await exerciseProposalReview(page, otherPage);
+  await exerciseTextDelivery(page, otherPage);
   expect(errors).toEqual([]);
   await second.close();
 });

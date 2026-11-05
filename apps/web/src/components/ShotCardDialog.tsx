@@ -6,7 +6,7 @@ import { ShotDraftDetails } from './ShotDraftDetails';
 type Card = {
   available: boolean;
   version: number;
-  body?: Omit<DraftShot, 'sources'>;
+  body?: Omit<DraftShot, 'sources'> & { sourceAudioPolicy?: string };
   sources?: (AnalysisSource & { revisionVersion: number })[];
   summary?: string;
   authorName?: string;
@@ -66,6 +66,18 @@ export function ShotCardDialog({ shotId, onClose }: { shotId: string; onClose: (
                 </p>
               )}
               <ShotDraftDetails shot={card.body} sources={card.sources || []} />
+              <p className="field-hint">
+                原声处理计划：
+                {
+                  (
+                    { keep: '保留', mute: '静音', inspect: '先检查再决定', replace: '替换' } as Record<
+                      string,
+                      string
+                    >
+                  )[card.body.sourceAudioPolicy || 'inspect']
+                }
+                （尚未应用到媒体）
+              </p>
               <h3>制作卡版本</h3>
               {history.items.map((item) => (
                 <button

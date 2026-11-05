@@ -25,6 +25,10 @@ import { AnalysisService } from './analysis/analysis.service';
 import { TextAnalysisWorker } from './analysis/text-analysis-worker';
 import { ProposalReviewService } from './analysis/proposal-review.service';
 import { ProposalReviewController } from './analysis/proposal-review.controller';
+import { CardAuthoringController } from './production/card-authoring.controller';
+import { CardAuthoringService } from './production/card-authoring.service';
+import { PromptController } from './prompt/prompt.controller';
+import { PromptService } from './prompt/prompt.service';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -37,6 +41,8 @@ import { ProposalReviewController } from './analysis/proposal-review.controller'
     TextController,
     AnalysisController,
     ProposalReviewController,
+    CardAuthoringController,
+    PromptController,
   ],
   providers: [
     AppConfig,
@@ -54,6 +60,8 @@ import { ProposalReviewController } from './analysis/proposal-review.controller'
     AnalysisService,
     TextAnalysisWorker,
     ProposalReviewService,
+    CardAuthoringService,
+    PromptService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

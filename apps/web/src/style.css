@@ -412,6 +412,19 @@
 .editor .section-heading {
   flex-wrap: wrap;
 }
+.prompt-profile-form {
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.prompt-result {
+  margin: 20px 0;
+  overflow-wrap: anywhere;
+}
+.prompt-result textarea {
+  line-height: 1.7;
+}
 .proposal-shot dl {
   display: grid;
   grid-template-columns: 90px minmax(0, 1fr);
