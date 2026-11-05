@@ -1,0 +1,362 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { createMediaFixtures } from '../../../tests/fixtures/media-fixtures.mjs';
+import { startComfyMock, fixtureWorkflow } from '../../../tests/fixtures/comfy-mock.mjs';
+const execute = promisify(execFile);
+
+test('ComfyUI jobs freeze inputs, recover safely and archive actual image and video drafts', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'pullet-generation-'));
+  assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
+  process.env.DATABASE_PATH = join(directory, 'studio.sqlite');
+  process.env.MEDIA_ROOT = join(directory, 'media');
+  process.env.SETUP_TOKEN = 'isolated-generation-fixture-token-2026';
+  process.env.COOKIE_SECURE = 'false';
+  process.env.PROVIDER_MASTER_KEY = '5'.repeat(64);
+  const { createApplication } = await import('../dist/application.js');
+  const { DatabaseService } = await import('../dist/db/database.service.js');
+  const { AppConfig } = await import('../dist/config.js');
+  const { GenerationWorker } = await import('../dist/generation/generation-worker.js');
+  let app,
+    remote,
+    base,
+    project,
+    workspace,
+    shot,
+    prompt,
+    connectionId,
+    imageWorkflow,
+    videoWorkflow,
+    viewerId;
+  const client = () => {
+    let cookies = '',
+      csrf = '';
+    return async (method, path, body, headers = {}) => {
+      const binary = Buffer.isBuffer(body);
+      const res = await fetch(base + '/api/v1' + path, {
+        method,
+        headers: {
+          'Content-Type': binary ? 'application/octet-stream' : 'application/json',
+          'X-Studio-Request': '1',
+          'X-CSRF-Token': csrf,
+          Cookie: cookies,
+          ...headers,
+        },
+        body: body === undefined ? undefined : binary ? body : JSON.stringify(body),
+      });
+      const incoming = res.headers.getSetCookie();
+      if (incoming.length) cookies = incoming.map((value) => value.split(';')[0]).join('; ');
+      if (res.ok && method === 'GET' && path.includes('/content'))
+        return { status: res.status, data: Buffer.from(await res.arrayBuffer()) };
+      const data = await res.json();
+      if (data.csrfToken) csrf = data.csrfToken;
+      return { status: res.status, data };
+    };
+  };
+  const owner = client(),
+    viewer = client();
+  const start = async () => {
+    app = await createApplication();
+    await app.listen(0, '127.0.0.1');
+    base = await app.getUrl();
+  };
+  const queue = (workflowId, key = randomUUID(), actor = owner) =>
+    actor(
+      'POST',
+      `/shots/${shot.id}/generation-jobs`,
+      { workflowId, promptId: prompt.id, confirmed: true },
+      { 'Idempotency-Key': key },
+    );
+  const read = async (id) => (await owner('GET', `/generation-jobs/${id}`)).data;
+  const tick = () => app.get(GenerationWorker).tick();
+  const control = (id, action, body = {}) => owner('POST', `/generation-jobs/${id}/${action}`, body);
+  const db = () => app.get(DatabaseService).sqlite;
+  try {
+    const fixtures = await createMediaFixtures(join(directory, 'fixtures'), new AppConfig().ffmpegPath);
+    remote = await startComfyMock({
+      'image.png': fixtures['image.png'].bytes,
+      'clip.mp4': fixtures['clip.mp4'].bytes,
+    });
+    await start();
+    const setup = (
+      await owner('POST', '/setup/initialize', {
+        setupToken: process.env.SETUP_TOKEN,
+        email: 'owner@generation.test',
+        password: 'Studio8!',
+        name: 'Owner',
+        workspaceName: 'Team',
+      })
+    ).data;
+    workspace = setup.workspace;
+    project = (await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Street scene' })).data;
+    const invite = (
+      await owner('POST', `/workspaces/${workspace.id}/invitations`, { email: 'viewer@generation.test' })
+    ).data;
+    viewerId = (
+      await viewer('POST', '/invitations/accept', {
+        token: invite.token,
+        name: 'Viewer',
+        password: 'Studio8!',
+      })
+    ).data.user.id;
+    await owner('POST', `/projects/${project.id}/members`, { userId: viewerId, role: 'VIEWER' });
+    shot = (
+      await owner('POST', `/projects/${project.id}/shots`, {
+        description: 'A bicycle passes a storefront.',
+        durationHint: 3,
+      })
+    ).data;
+    const editor = (await owner('GET', `/shots/${shot.id}/card/editor`)).data;
+    shot = (
+      await owner('PATCH', `/shots/${shot.id}/card`, { expectedVersion: shot.version, body: editor.body })
+    ).data.shot;
+    prompt = (
+      await owner('POST', `/shots/${shot.id}/prompts/compile`, {
+        mode: 'commit',
+        expectedShotVersion: shot.version,
+        expectedProjectVersion: project.version,
+        profileRevisionId: null,
+      })
+    ).data;
+    await t.test('instance-approved endpoint and remote input/output node validation', async () => {
+      const path = `/projects/${project.id}/generation-connections`;
+      const input = {
+        name: 'Local ComfyUI mock',
+        baseUrl: remote.baseUrl,
+        trustedPrivate: true,
+        token: 'fixture-private-token',
+      };
+      assert.equal((await viewer('POST', path, input)).status, 403);
+      assert.equal((await owner('POST', path, { ...input, trustedPrivate: false })).status, 400);
+      const created = await owner('POST', path, input);
+      assert.equal(created.status, 201, JSON.stringify(created.data));
+      connectionId = created.data.id;
+      assert.equal((await owner('POST', `/generation-connections/${connectionId}/test`, {})).status, 201);
+      assert.ok(
+        !JSON.stringify((await owner('GET', `/projects/${project.id}/generation-config`)).data).includes(
+          input.token,
+        ),
+      );
+      assert.ok(
+        !db()
+          .prepare('SELECT encrypted_secret FROM generation_connections')
+          .get()
+          .encrypted_secret.includes(input.token),
+      );
+      const workflowPath = `/projects/${project.id}/generation-workflows`,
+        image = fixtureWorkflow(connectionId);
+      assert.equal(
+        (await owner('POST', workflowPath, { ...image, positive: { node: '9', input: 'text' } })).status,
+        400,
+      );
+      const wrong = structuredClone(image);
+      wrong.graph['3'].class_type = 'UnknownNode';
+      assert.equal((await owner('POST', workflowPath, wrong)).data.code, 'WORKFLOW_NODE_UNAVAILABLE');
+      const result = await owner('POST', workflowPath, image);
+      assert.equal(result.status, 201, JSON.stringify(result.data));
+      imageWorkflow = result.data.id;
+      videoWorkflow = (await owner('POST', workflowPath, fixtureWorkflow(connectionId, true))).data.id;
+      assert.equal(
+        (await viewer('GET', `/projects/${project.id}/generation-config`)).data.connections.length,
+        0,
+      );
+    });
+    await t.test(
+      'one idempotent submission survives worker and API restart and archives PNG as a draft',
+      async () => {
+        assert.equal((await queue(imageWorkflow, randomUUID(), viewer)).status, 403);
+        const key = randomUUID();
+        const [first, second] = await Promise.all([queue(imageWorkflow, key), queue(imageWorkflow, key)]);
+        assert.equal(first.status, 201, JSON.stringify(first.data));
+        assert.equal(second.data.id, first.data.id);
+        const id = first.data.id;
+        assert.equal((await queue(videoWorkflow, key)).data.code, 'IDEMPOTENCY_CONFLICT');
+        assert.equal((await queue(videoWorkflow)).data.code, 'GENERATION_ACTIVE');
+        const workerFile = fileURLToPath(new URL('../dist/generation-worker.js', import.meta.url));
+        await execute(process.execPath, [workerFile, '--once'], { timeout: 25000, windowsHide: true });
+        assert.equal((await read(id)).state, 'submitted');
+        assert.equal(remote.mock.submissions.length, 1);
+        assert.equal(remote.mock.submissions[0].prompt['1'].inputs.text, prompt.rendered.positivePrompt);
+        assert.equal(remote.mock.submissions[0].prompt['2'].inputs.text, prompt.rendered.negativePrompt);
+        await app.close();
+        await start();
+        await tick();
+        assert.equal((await read(id)).state, 'fetching');
+        await tick();
+        const complete = await read(id);
+        assert.equal(complete.state, 'completed', JSON.stringify(complete));
+        assert.ok(complete.takeId);
+        const media = (await owner('GET', `/media-versions/${complete.mediaVersionId}`)).data;
+        assert.equal(media.origin, 'generation');
+        assert.equal(media.mediaType, 'image');
+        assert.deepEqual(
+          (await owner('GET', media.contentUrl.replace('/api/v1', ''))).data,
+          fixtures['image.png'].bytes,
+        );
+        const takes = (await owner('GET', `/shots/${shot.id}/takes`)).data.items;
+        assert.equal(takes.find((take) => take.id === complete.takeId).state, 'draft');
+        assert.equal(remote.mock.submissions.length, 1);
+      },
+    );
+    await t.test(
+      'lost submit response is reconciled from correlated history without a second POST',
+      async () => {
+        remote.mock.mode = 'legacy-lost';
+        const queued = await queue(videoWorkflow);
+        assert.equal(queued.status, 201);
+        const id = queued.data.id;
+        await tick();
+        assert.equal((await read(id)).state, 'needs_reconciliation');
+        const oldId = [...remote.mock.history.keys()][0];
+        assert.equal((await control(id, 'reconcile', { remoteId: oldId })).status, 201);
+        await tick();
+        assert.equal((await read(id)).errorCode, 'REMOTE_JOB_UNVERIFIED');
+        const actualId = [...remote.mock.history.keys()].at(-1);
+        await control(id, 'reconcile', { remoteId: actualId });
+        await tick();
+        assert.equal((await read(id)).state, 'fetching');
+        const uploadCount = db().prepare('SELECT COUNT(*) n FROM media_versions').get().n;
+        db().exec(
+          "CREATE TRIGGER fixture_job_completion BEFORE INSERT ON audit_events WHEN NEW.action='generation.job.complete' BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;",
+        );
+        try {
+          await tick();
+          assert.equal((await read(id)).state, 'needs_reconciliation');
+        } finally {
+          db().exec('DROP TRIGGER fixture_job_completion');
+        }
+        const upload = db().prepare('SELECT id, state FROM media_uploads WHERE generation_job_id=?').get(id);
+        assert.equal(upload.state, 'complete');
+        assert.equal(
+          (await owner('PUT', `/media-uploads/${upload.id}/content`, Buffer.from('bad'))).status,
+          403,
+        );
+        assert.equal((await owner('POST', `/media-uploads/${upload.id}/reconcile`, {})).status, 403);
+        assert.ok(
+          !(await owner('GET', `/projects/${project.id}/media-uploads`)).data.items.some(
+            (item) => item.id === upload.id,
+          ),
+        );
+        assert.equal(db().prepare('SELECT COUNT(*) n FROM media_versions').get().n, uploadCount + 1);
+        const downloads = remote.mock.requests.filter((path) => path === '/view').length;
+        await control(id, 'reconcile');
+        await tick();
+        const complete = await read(id);
+        assert.equal(complete.state, 'completed', JSON.stringify(complete));
+        assert.equal(remote.mock.requests.filter((path) => path === '/view').length, downloads);
+        const media = (await owner('GET', `/media-versions/${complete.mediaVersionId}`)).data;
+        assert.equal(media.mediaType, 'video');
+        assert.equal(media.metadata.hasAudio, true);
+        assert.deepEqual(
+          (await owner('GET', media.contentUrl.replace('/api/v1', ''))).data,
+          fixtures['clip.mp4'].bytes,
+        );
+        assert.equal(remote.mock.submissions.length, 2);
+        remote.mock.mode = 'normal';
+      },
+    );
+    await t.test(
+      'cancel, expired submit lease and unsafe outputs do not trigger unintended writes',
+      async () => {
+        const canceled = (await queue(imageWorkflow)).data;
+        await control(canceled.id, 'cancel');
+        assert.equal((await read(canceled.id)).state, 'canceled');
+        const expired = (await queue(imageWorkflow)).data;
+        db()
+          .prepare("UPDATE generation_jobs SET state='submitting',lease_id=?,lease_until=1 WHERE id=?")
+          .run(randomUUID(), expired.id);
+        await tick();
+        assert.equal((await read(expired.id)).state, 'needs_reconciliation');
+        assert.equal(remote.mock.submissions.length, 2);
+        await control(expired.id, 'stop');
+        remote.mock.mode = 'unsafe';
+        const unsafe = (await queue(imageWorkflow)).data;
+        await tick();
+        await tick();
+        assert.equal((await read(unsafe.id)).errorCode, 'WORKFLOW_OUTPUT_INVALID');
+        assert.equal(
+          db().prepare('SELECT COUNT(*) n FROM media_uploads WHERE generation_job_id=?').get(unsafe.id).n,
+          0,
+        );
+        await control(unsafe.id, 'stop');
+        assert.equal((await viewer('POST', `/generation-jobs/${unsafe.id}/stop`, {})).status, 403);
+        remote.mock.mode = 'normal';
+      },
+    );
+    await t.test(
+      'explicit validation failures and uncertain server errors take different paths',
+      async () => {
+        remote.mock.mode = 'reject';
+        const rejected = (await queue(imageWorkflow)).data;
+        await tick();
+        assert.equal((await read(rejected.id)).state, 'failed');
+        assert.equal((await read(rejected.id)).errorCode, 'COMFY_REQUEST_REJECTED');
+        remote.mock.mode = 'server-error';
+        const uncertain = (await queue(imageWorkflow)).data;
+        await tick();
+        assert.equal((await read(uncertain.id)).state, 'needs_reconciliation');
+        const before = remote.mock.submissions.length;
+        await tick();
+        assert.equal(remote.mock.submissions.length, before);
+        await control(uncertain.id, 'stop');
+        remote.mock.mode = 'normal';
+      },
+    );
+    await t.test('changed approvals prevent submission and removal revokes job reads', async () => {
+      const entity = (
+        await owner(
+          'POST',
+          `/projects/${project.id}/entities`,
+          { kind: 'character', body: { name: 'Cyclist' } },
+          { 'Idempotency-Key': randomUUID() },
+        )
+      ).data;
+      shot = (
+        await owner('POST', `/shots/${shot.id}/asset-bindings`, {
+          expectedShotCardVersion: shot.version,
+          bindings: [{ revisionId: entity.revision.id, purpose: 'Cyclist' }],
+        })
+      ).data.shot;
+      prompt = (
+        await owner('POST', `/shots/${shot.id}/prompts/compile`, {
+          mode: 'commit',
+          expectedShotVersion: shot.version,
+          expectedProjectVersion: project.version,
+          profileRevisionId: null,
+        })
+      ).data;
+      assert.equal((await queue(imageWorkflow)).data.code, 'ASSET_NOT_READY');
+      const path = `/entities/${entity.id}/revisions/1/decisions`;
+      const decide = (action, expectedDecisionVersion) =>
+        owner(
+          'POST',
+          path,
+          { action, expectedDecisionVersion, reason: 'Fixture review' },
+          { 'Idempotency-Key': randomUUID() },
+        );
+      assert.equal((await decide('approve', 0)).status, 201);
+      const queued = await queue(imageWorkflow);
+      assert.equal(queued.status, 201);
+      await decide('revoke', 1);
+      const before = remote.mock.submissions.length;
+      await tick();
+      assert.equal((await read(queued.data.id)).errorCode, 'ASSET_NOT_READY');
+      assert.equal(remote.mock.submissions.length, before);
+      const visible = await viewer('GET', `/generation-jobs/${queued.data.id}`);
+      assert.equal(visible.status, 200);
+      assert.equal(visible.data.canControl, false);
+      await owner('DELETE', `/projects/${project.id}/members/${viewerId}`, { expectedRole: 'VIEWER' });
+      assert.equal((await viewer('GET', `/generation-jobs/${queued.data.id}`)).status, 404);
+    });
+  } finally {
+    if (app) await app.close();
+    if (remote) await remote.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

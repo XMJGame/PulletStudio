@@ -38,6 +38,10 @@ import { MediaController } from './assets/media.controller';
 import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
 import { AssetApprovalService } from './assets/asset-approval.service';
+import { ComfyProvider } from './generation/comfy-provider';
+import { GenerationService } from './generation/generation.service';
+import { GenerationController } from './generation/generation.controller';
+import { GenerationWorker } from './generation/generation-worker';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -55,6 +59,7 @@ import { AssetApprovalService } from './assets/asset-approval.service';
     StoryboardExportsController,
     MediaController,
     EntitiesController,
+    GenerationController,
   ],
   providers: [
     AppConfig,
@@ -80,6 +85,9 @@ import { AssetApprovalService } from './assets/asset-approval.service';
     MediaService,
     EntitiesService,
     AssetApprovalService,
+    ComfyProvider,
+    GenerationService,
+    GenerationWorker,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

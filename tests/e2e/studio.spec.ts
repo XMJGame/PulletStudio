@@ -7,12 +7,13 @@ import { exerciseTextDelivery } from './text-delivery-flow';
 import { exerciseStoryboardExports } from './storyboard-export-flow';
 import { exerciseMedia } from './media-flow';
 import { exerciseEntities } from './entities-flow';
+import { exerciseGeneration } from './generation-flow';
 
 test('initialize, create a storyboard, keep conflicting edits, and sign back in', async ({
   page,
   browser,
 }) => {
-  test.setTimeout(60000);
+  test.setTimeout(75000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('dialog', (dialog) => dialog.accept());
@@ -321,6 +322,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await exerciseStoryboardExports(page, otherPage);
   await exerciseMedia(page);
   await exerciseEntities(page, otherPage);
+  await exerciseGeneration(page);
   expect(errors).toEqual([]);
   await second.close();
 });

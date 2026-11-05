@@ -6,6 +6,7 @@ import { FullCardEditorDialog } from './FullCardEditorDialog';
 import { PromptDialog } from './PromptDialog';
 import { MediaDialog } from './MediaDialog';
 import { AssetBindingsDialog } from './AssetBindingsDialog';
+import { GenerationDialog } from './GenerationDialog';
 export function ShotEditor({
   shot,
   disabled,
@@ -22,6 +23,7 @@ export function ShotEditor({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
+  const [showGeneration, setShowGeneration] = useState(false);
   return (
     <section className="editor panel">
       <div className="section-heading">
@@ -37,6 +39,7 @@ export function ShotEditor({
         <button onClick={() => setShowPrompt(true)}>镜头提示词</button>
         <button onClick={() => setShowMedia(true)}>镜头素材</button>
         <button onClick={() => setShowAssets(true)}>资产引用</button>
+        <button onClick={() => setShowGeneration(true)}>媒体生成</button>
       </div>
       <form
         onSubmit={(e) => {
@@ -132,6 +135,7 @@ export function ShotEditor({
       )}
       {showPrompt && <PromptDialog shotId={shot.id} onClose={() => setShowPrompt(false)} />}
       {showMedia && <MediaDialog shotId={shot.id} onClose={() => setShowMedia(false)} />}
+      {showGeneration && <GenerationDialog shotId={shot.id} onClose={() => setShowGeneration(false)} />}
       {showAssets && (
         <AssetBindingsDialog
           shotId={shot.id}

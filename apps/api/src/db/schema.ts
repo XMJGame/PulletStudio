@@ -781,6 +781,7 @@ export const mediaUploads = sqliteTable(
     declaredMime: text('declared_mime').notNull(),
     expectedBytes: integer('expected_bytes').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
+    generationJobId: text('generation_job_id'),
     requestHash: text('request_hash').notNull(),
     state: text('state', { enum: mediaUploadStates }).notNull(),
     leaseOwner: text('lease_owner'),
@@ -971,5 +972,118 @@ export const shotAssetBindings = sqliteTable(
     }),
     uniqueIndex('shot_asset_revision').on(t.shotId, t.cardVersion, t.revisionId),
     index('shot_asset_impact').on(t.revisionId, t.id),
+  ],
+);
+
+export const generationConnections = sqliteTable(
+  'generation_connections',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    baseUrl: text('base_url').notNull(),
+    trustedPrivate: integer('trusted_private', { mode: 'boolean' }).notNull(),
+    encryptedSecret: text('encrypted_secret'),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    version: integer('version').notNull().default(1),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId)],
+);
+
+export const generationWorkflows = sqliteTable(
+  'generation_workflows',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    projectId: text('project_id').notNull(),
+    connectionId: text('connection_id').notNull(),
+    name: text('name').notNull(),
+    capability: text('capability', { enum: ['image.text_to_image', 'video.text_to_video'] }).notNull(),
+    definitionJson: text('definition_json').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.connectionId, t.workspaceId],
+      foreignColumns: [generationConnections.id, generationConnections.workspaceId],
+    }),
+    uniqueIndex('generation_workflow_scope').on(t.id, t.projectId, t.workspaceId),
+    index('generation_workflow_project').on(t.projectId, t.createdAt),
+  ],
+);
+
+export const generationStates = [
+  'queued',
+  'preparing',
+  'submitting',
+  'submitted',
+  'fetching',
+  'completed',
+  'needs_reconciliation',
+  'failed',
+  'canceled',
+] as const;
+export const generationJobs = sqliteTable(
+  'generation_jobs',
+  {
+    id: text('id').primaryKey(),
+    shotId: text('shot_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    workflowId: text('workflow_id').notNull(),
+    promptId: text('prompt_id')
+      .notNull()
+      .references(() => promptArtifacts.id),
+    shotVersion: integer('shot_version').notNull(),
+    projectVersion: integer('project_version').notNull(),
+    connectionVersion: integer('connection_version').notNull(),
+    creatorId: text('creator_id')
+      .notNull()
+      .references(() => users.id),
+    requestKey: text('request_key').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    state: text('state', { enum: generationStates }).notNull(),
+    remoteId: text('remote_id'),
+    resultJson: text('result_json'),
+    mediaVersionId: text('media_version_id').references(() => mediaVersions.id),
+    takeId: text('take_id').references(() => takes.id),
+    leaseId: text('lease_id'),
+    leaseUntil: integer('lease_until'),
+    nextAt: integer('next_at').notNull(),
+    deadline: integer('deadline'),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.shotId, t.projectId, t.workspaceId],
+      foreignColumns: [shots.id, shots.projectId, shots.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.workflowId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        generationWorkflows.id,
+        generationWorkflows.projectId,
+        generationWorkflows.workspaceId,
+      ],
+    }),
+    uniqueIndex('generation_job_request').on(t.shotId, t.creatorId, t.requestKey),
+    index('generation_job_schedule').on(t.state, t.nextAt, t.leaseUntil),
+    index('generation_job_shot').on(t.shotId, t.createdAt, t.id),
+    check(
+      'generation_job_complete',
+      sql`${t.state} <> 'completed' OR (${t.mediaVersionId} IS NOT NULL AND ${t.takeId} IS NOT NULL)`,
+    ),
   ],
 );

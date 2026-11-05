@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { AppConfig } from '../config';
@@ -107,7 +107,13 @@ export class MediaService {
       return { available: false, maxBytes: this.config.mediaMaxBytes, error: safeMediaError(error) };
     }
   }
-  async initiate(user: CurrentUser, projectId: string, input: UploadInput, key: string) {
+  async initiate(
+    user: CurrentUser,
+    projectId: string,
+    input: UploadInput,
+    key: string,
+    generationJobId?: string,
+  ) {
     const project = this.authz.project(user, projectId, 'edit');
     if (input.byteLength > this.config.mediaMaxBytes)
       fail(413, 'MEDIA_SIZE_LIMIT', '文件超过当前媒体上传限制');
@@ -124,7 +130,7 @@ export class MediaService {
       )
       .get();
     if (existing) {
-      if (existing.requestHash !== requestHash)
+      if (existing.requestHash !== requestHash || existing.generationJobId !== (generationJobId ?? null))
         fail(409, 'IDEMPOTENCY_CONFLICT', '上传请求标识已用于另一文件或目标');
       return this.upload(user, existing.id);
     }
@@ -145,7 +151,7 @@ export class MediaService {
           )
           .get();
         if (replay) {
-          if (replay.requestHash !== requestHash)
+          if (replay.requestHash !== requestHash || replay.generationJobId !== (generationJobId ?? null))
             fail(409, 'IDEMPOTENCY_CONFLICT', '上传请求标识已用于其他文件');
           return this.uploadView(replay);
         }
@@ -179,6 +185,7 @@ export class MediaService {
             declaredMime: input.contentType,
             expectedBytes: input.byteLength,
             idempotencyKey: key,
+            generationJobId,
             requestHash,
             state: 'created',
           })
@@ -363,7 +370,7 @@ export class MediaService {
             posterJson: prepared.details.poster
               ? JSON.stringify({ ...prepared.details.poster, key: `${prefix}/poster.jpg` })
               : null,
-            origin: 'manual',
+            origin: row.generationJobId ? 'generation' : 'manual',
             createdBy: row.createdBy,
             createdAt: now,
           })
@@ -406,7 +413,16 @@ export class MediaService {
       .where(and(eq(mediaUploads.id, row.id), eq(mediaUploads.leaseOwner, lease)))
       .run();
   }
-  async receive(user: CurrentUser, id: string, body: AsyncIterable<Uint8Array>, contentLength?: string) {
+  async receive(
+    user: CurrentUser,
+    id: string,
+    body: AsyncIterable<Uint8Array>,
+    contentLength?: string,
+    generation?: { jobId: string; mediaType: 'image' | 'video'; signal: AbortSignal },
+  ) {
+    const requested = this.uploadRow(user, id, true);
+    if (requested.generationJobId !== (generation?.jobId ?? null))
+      fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
     await this.upload(user, id);
     const initial = this.uploadRow(user, id, true);
     if ((await this.storage.ready()) !== initial.storageId)
@@ -441,7 +457,7 @@ export class MediaService {
         lease,
         body,
         { bytes: row.expectedBytes, timeoutMs: this.config.mediaUploadTimeoutMs },
-        controller.signal,
+        generation ? AbortSignal.any([controller.signal, generation.signal]) : controller.signal,
         (bytes) => {
           received = bytes;
         },
@@ -454,6 +470,8 @@ export class MediaService {
         row.fileName,
         row.declaredMime,
       );
+      if (generation && (generation.signal.aborted || details.mediaType !== generation.mediaType))
+        throw new StorageFailure('GENERATION_OUTPUT_INVALID', '生成输出类型不符或任务已停止');
       const prepared: Prepared = { original, details };
       this.owner(row, lease);
       this.database.db
@@ -480,7 +498,9 @@ export class MediaService {
       clearInterval(heartbeat);
     }
   }
-  async reconcile(user: CurrentUser, id: string) {
+  async reconcile(user: CurrentUser, id: string, generationJobId?: string) {
+    if (this.uploadRow(user, id, true).generationJobId !== (generationJobId ?? null))
+      fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
     await this.upload(user, id);
     const initial = this.uploadRow(user, id, true);
     if ((await this.storage.ready()) !== initial.storageId)
@@ -520,6 +540,7 @@ export class MediaService {
               eq(mediaUploads.id, cursor),
               eq(mediaUploads.projectId, projectId),
               eq(mediaUploads.createdBy, user.id),
+              isNull(mediaUploads.generationJobId),
             ),
           )
           .get()
@@ -532,6 +553,7 @@ export class MediaService {
         and(
           eq(mediaUploads.projectId, projectId),
           eq(mediaUploads.createdBy, user.id),
+          isNull(mediaUploads.generationJobId),
           boundary
             ? or(
                 lt(mediaUploads.createdAt, boundary.createdAt),

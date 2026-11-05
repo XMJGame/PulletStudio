@@ -1,0 +1,198 @@
+import { Injectable } from '@nestjs/common';
+import { request as httpRequest, IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP } from 'node:net';
+import { z } from 'zod';
+import { addressAllowed, approvedBaseUrl, SafeTextHttp } from '../providers/safe-text-http';
+import { ResultDescriptor, resultDescriptor, WorkflowInput } from './generation-contract';
+
+export class GenerationError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+type Config = { baseUrl: string; trustedPrivate: boolean; token: string | null };
+export type RemoteObservation =
+  { state: 'pending' | 'failed' } | { state: 'ready'; result: ResultDescriptor };
+export interface MediaProvider {
+  probe(signal?: AbortSignal): Promise<void>;
+  validate(workflow: WorkflowInput): Promise<void>;
+  submit(jobId: string, graph: WorkflowInput['graph'], signal: AbortSignal): Promise<string>;
+  observe(
+    remoteId: string,
+    jobId: string,
+    workflow: WorkflowInput,
+    requireMarker: boolean,
+    signal: AbortSignal,
+  ): Promise<RemoteObservation>;
+  download(
+    result: ResultDescriptor,
+    limit: number,
+    signal: AbortSignal,
+  ): Promise<{ body: IncomingMessage; length: number }>;
+}
+const uuid = z.uuid();
+const object = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+@Injectable()
+export class ComfyProvider {
+  constructor(private readonly network: SafeTextHttp) {}
+  async prepare(config: Config): Promise<MediaProvider> {
+    const base = approvedBaseUrl(config.baseUrl, config.trustedPrivate);
+    const hostname = new URL(base).hostname.replace(/^\[|\]$/g, '');
+    const addresses = await this.network.resolve(hostname).catch(() => {
+      throw new GenerationError('ENDPOINT_DNS_FAILED');
+    });
+    if (!addresses.length || addresses.some((item) => !addressAllowed(item.address, config.trustedPrivate)))
+      throw new GenerationError('ENDPOINT_BLOCKED');
+    const address = addresses[0];
+    const request = (path: string, signal?: AbortSignal, payload?: unknown, timeout = 15000) =>
+      new Promise<IncomingMessage>((resolve, reject) => {
+        const url = new URL(base + path);
+        const encoded = payload === undefined ? undefined : JSON.stringify(payload);
+        const timer = AbortSignal.timeout(timeout);
+        const outgoing = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+          url,
+          {
+            method: encoded === undefined ? 'GET' : 'POST',
+            agent: false,
+            family: address.family,
+            maxHeaderSize: 16384,
+            lookup: (_host, _options, callback) => callback(null, address.address, address.family),
+            servername: isIP(hostname) ? undefined : hostname,
+            signal: signal ? AbortSignal.any([timer, signal]) : timer,
+            headers: {
+              ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
+              ...(encoded === undefined
+                ? {}
+                : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(encoded) }),
+            },
+          },
+          (incoming) => {
+            incoming.on('error', () => undefined);
+            resolve(incoming);
+          },
+        );
+        outgoing.on('error', () => reject(new GenerationError('COMFY_CONNECTION_FAILED')));
+        outgoing.end(encoded);
+      });
+    const json = async (path: string, signal?: AbortSignal, payload?: unknown) => {
+      const response = await request(path, signal, payload);
+      try {
+        const validationReply = path === '/prompt' && response.statusCode === 400;
+        if (response.statusCode !== 200 && !validationReply)
+          throw new GenerationError(response.statusCode === 429 ? 'COMFY_RATE_LIMIT' : 'COMFY_HTTP_ERROR');
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        for await (const chunk of response) {
+          bytes += chunk.length;
+          if (bytes > 4 * 1024 * 1024) throw new GenerationError('COMFY_RESPONSE_LIMIT');
+          chunks.push(chunk);
+        }
+        const data = object(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        if (validationReply) {
+          const error = object(data.error);
+          throw new GenerationError(
+            typeof error.type === 'string' && Object.hasOwn(data, 'node_errors')
+              ? 'COMFY_REQUEST_REJECTED'
+              : 'COMFY_HTTP_ERROR',
+          );
+        }
+        return data;
+      } catch (error) {
+        if (error instanceof GenerationError) throw error;
+        throw new GenerationError('COMFY_RESPONSE_INVALID');
+      } finally {
+        response.destroy();
+      }
+    };
+    return {
+      async probe(signal) {
+        const data = await json('/system_stats', signal);
+        if (!data.system) throw new GenerationError('COMFY_RESPONSE_INVALID');
+      },
+      async validate(workflow) {
+        const node = async (id: string, signal: AbortSignal) => {
+          const type = workflow.graph[id].class_type;
+          const data = await json(`/object_info/${encodeURIComponent(type)}`, signal);
+          const info = object(data[type]);
+          if (!Object.keys(info).length) throw new GenerationError('WORKFLOW_NODE_UNAVAILABLE');
+          return info;
+        };
+        const signal = AbortSignal.timeout(15000);
+        await Promise.all([
+          ...[workflow.positive, workflow.negative]
+            .filter((binding) => binding !== undefined)
+            .map(async (binding) => {
+              const info = await node(binding.node, signal),
+                inputs = object(info.input);
+              const definition =
+                object(inputs.required)[binding.input] ?? object(inputs.optional)[binding.input];
+              if (!Array.isArray(definition) || definition[0] !== 'STRING')
+                throw new GenerationError('WORKFLOW_TEXT_BINDING_INVALID');
+            }),
+          node(workflow.output.node, signal).then((info) => {
+            if (info.output_node !== true) throw new GenerationError('WORKFLOW_OUTPUT_NODE_INVALID');
+          }),
+        ]);
+      },
+      async submit(jobId, graph, signal) {
+        const data = await json('/prompt', signal, {
+          prompt: graph,
+          prompt_id: jobId,
+          client_id: jobId,
+          extra_data: { studio_job_id: jobId },
+        });
+        const remoteId = uuid.safeParse(data.prompt_id);
+        if (!remoteId.success) throw new GenerationError('COMFY_RESPONSE_INVALID');
+        return remoteId.data;
+      },
+      async observe(remoteId, jobId, workflow, requireMarker, signal) {
+        const payload = await json(`/history/${uuid.parse(remoteId)}`, signal);
+        if (!Object.hasOwn(payload, remoteId)) return { state: 'pending' };
+        const row = object(payload[remoteId]),
+          prompt = row.prompt;
+        if (
+          requireMarker &&
+          (!Array.isArray(prompt) || prompt[1] !== remoteId || object(prompt[3]).studio_job_id !== jobId)
+        )
+          throw new GenerationError('REMOTE_JOB_UNVERIFIED');
+        const status = object(row.status);
+        if (status.status_str === 'error') return { state: 'failed' };
+        if (status.completed !== true || status.status_str !== 'success')
+          throw new GenerationError('COMFY_HISTORY_INVALID');
+        const outputs = object(object(row.outputs)[workflow.output.node])[workflow.output.field];
+        if (!Array.isArray(outputs) || outputs.length !== 1)
+          throw new GenerationError('WORKFLOW_OUTPUT_COUNT');
+        const result = resultDescriptor.safeParse(outputs[0]);
+        if (!result.success) throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
+        return { state: 'ready', result: result.data };
+      },
+      async download(result, limit, signal) {
+        const query = new URLSearchParams({
+          filename: result.filename,
+          subfolder: result.subfolder,
+          type: 'output',
+        });
+        const body = await request('/view?' + query.toString(), signal, undefined, 120000);
+        const declared = body.headers['content-length'];
+        const length = Number(declared);
+        if (
+          body.statusCode !== 200 ||
+          body.headers['content-encoding'] ||
+          body.headers['content-range'] ||
+          !declared ||
+          !/^\d+$/.test(declared) ||
+          !Number.isSafeInteger(length) ||
+          length < 1 ||
+          length > limit
+        ) {
+          body.destroy();
+          throw new GenerationError('COMFY_DOWNLOAD_INVALID');
+        }
+        return { body, length };
+      },
+    };
+  }
+}
