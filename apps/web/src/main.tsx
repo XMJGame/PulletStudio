@@ -504,7 +504,7 @@ function App() {
             )}
           </div>
           <span className="local-indicator">
-            <i /> 私有工作区
+            <a href="/canvas-lab.html">创作画布原型 ↗</a>　<i /> 私有工作区
           </span>
         </header>
         <main className="content">

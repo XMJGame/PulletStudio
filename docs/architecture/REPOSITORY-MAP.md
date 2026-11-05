@@ -1,6 +1,6 @@
 # 工程目录与整理规则
 
-审计：2026-11-05，代码基线e828d8c。当前82个API源文件、43个Web源文件、18个API测试文件、13个E2E文件；统计不含node_modules/dist/data。文件数量仅供本次定位，不作为持续进度指标。
+审计：2026-11-05，整理时基线e828d8c为82个API源文件、43个Web源文件、18个API测试文件、13个E2E文件；统计不含node_modules/dist/data。G0随后增加独立canvas-lab及tests/canvas，详见下方增量。文件数量仅供定位，不作为持续进度指标。
 
 ## 保持的工程边界
 
@@ -23,9 +23,11 @@ PulletStudio/
 ├─ apps/web/src/
 │  ├─ main.tsx / style.css             现有应用入口/布局/样式
 │  ├─ components/                     当前工作台、表单与Dialog
+│  ├─ canvas-lab/                     G0独立交互实验，不读取正式项目/资产
 │  └─ *-types.ts / api.ts              前端类型与HTTP调用
 ├─ packages/contracts/                Storage接口已使用；通用Provider接口仍是草案
 ├─ tests/e2e/ / tests/fixtures/        浏览器业务flow、Mock及合成媒体工具
+├─ tests/canvas/                      G0独立浏览器验收，另用playwright.canvas.config.ts
 ├─ tools/                             setup、API监视启动、媒体校验
 ├─ examples/                          通用绑定样例，无本机连接配置
 ├─ infra/                             历史Compose示例，非可用SQLite正式部署
@@ -39,6 +41,8 @@ PulletStudio/
 ```
 
 没有独立apps/worker、provider-sdk或storage-sdk应用，旧技术图中的同名目录属于建议。Provider实际实现为providers/text-provider与generation/comfy-provider，LocalStorage实现contracts/storage-port；可插拔边界保留，但不能把草案类型当成已交付多Provider/S3。
+
+G0新增apps/web/canvas-lab.html独立Vite入口、canvas-lab/共享模型/卡片/两底座/样式，生产main只增加导航链接；React Flow分块懒加载，未将画布依赖直接导入生产工作台。原浏览器结果改为test-results/production，画布结果为test-results/canvas，避免不同验收清空同一根目录。实验框架不直接搬到正式Board，G1保留可复用节点/模型边界并按正式数据合同接入。
 
 ## 本轮实际整理
 

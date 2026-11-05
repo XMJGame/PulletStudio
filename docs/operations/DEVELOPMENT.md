@@ -71,6 +71,8 @@ Playwright默认本机Edge，支持PLAYWRIGHT_CHANNEL指定Chrome/Chromium。当
 
 CI配置在.github/workflows/checks.yml，Ubuntu/Node24/FFmpeg/Chromium。远端某次提交是否通过要单独查对应运行，不能拿本机结果代替；本轮不重装依赖或重跑远端CI。
 
+G0画布另有 `npm run test:canvas`：只构建Web并运行playwright.canvas.config.ts，独立Vite/5191，无API/数据库，不重走原生产链初始化。CI在已构建后直接运行该配置。具体边界见[CANVAS-LAB](../CANVAS-LAB.md)。
+
 ## 备份与恢复
 
 ```powershell

@@ -14,6 +14,7 @@ const testEnvironment = {
 };
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: 'test-results/production',
   workers: 1,
   fullyParallel: false,
   retries: 0,

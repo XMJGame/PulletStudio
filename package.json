@@ -19,8 +19,9 @@
     "db:backup": "npm run db:backup --workspace @pullet-studio/api",
     "test": "npm run build --workspace @pullet-studio/api && npm run test --workspace @pullet-studio/api",
     "test:e2e": "npm run build && playwright test",
-    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts",
-    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts"
+    "test:canvas": "npm run build --workspace @pullet-studio/web && playwright test --config playwright.canvas.config.ts",
+    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.canvas.config.ts",
+    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts playwright.canvas.config.ts"
   },
   "devDependencies": { "@playwright/test": "^1.64.1", "prettier": "3.9.10" },
   "overrides": {

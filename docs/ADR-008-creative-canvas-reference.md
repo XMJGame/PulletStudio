@@ -1,6 +1,6 @@
 # ADR-008：创作画布参考与渐进接入
 
-状态：采用接入边界；React Flow 保持蓝图首选，底座替换未决定。2026-11-05。
+状态：G0交互对照后继续采用React Flow作为G1正式底座，DOM方案保留为实验对照。2026-11-05。正式Board/权限/生成接入仍待后续，不代表完整画布交付。
 
 用户要求评估 basketikun/infinite-canvas 并自主规划。粘贴材料中的原型、Fork、安装及 Agent 命令均按参考内容处理，本轮没有执行。保留现有 React/NestJS/Drizzle/SQLite 和 ADR-005 的统一生产内核。
 
@@ -44,4 +44,11 @@
 
 G0 之前不替换蓝图选型。若证据建议自研底座或核心架构改变，先报告维护成本、迁移影响和证据并等待确认。基础组件选型的兼容细节自主处理。
 
-本轮只完成源码评估与规划，未完成原型性能对比、画布产品功能或上游运行验收。
+初次评估只阅读源码。随后G0已独立实现两底座的交互对照，结果见[阶段记录](history/CANVAS-G0-2026-11-05.md)，用法见[CANVAS-LAB](CANVAS-LAB.md)。两底座在本机合成样例下均达到原型目标，未发现需要自研的性能证据；React Flow提供小地图、原生拖线、边与节点键盘操作、选择/可见性等更完整能力，对照DOM需自行维护。继续React Flow，不切换业务架构，也不维护第二套正式引擎。
+
+### G0实际借鉴与实现
+
+- 用户要求后，将上游固定提交再次只读克隆到忽略目录，除前述文件外，实际读了[资源引用解析](https://github.com/basketikun/infinite-canvas/blob/9cd3deacbcc598361807afc16c059a80dd18b6f9/web/src/lib/canvas/canvas-resource-references.ts)、[生成输入组合](https://github.com/basketikun/infinite-canvas/blob/9cd3deacbcc598361807afc16c059a80dd18b6f9/web/src/components/canvas/canvas-node-generation.ts)、[配置面板](https://github.com/basketikun/infinite-canvas/blob/9cd3deacbcc598361807afc16c059a80dd18b6f9/web/src/components/canvas/canvas-config-node-panel.tsx)、[连线组件](https://github.com/basketikun/infinite-canvas/blob/9cd3deacbcc598361807afc16c059a80dd18b6f9/web/src/components/canvas/canvas-connections.tsx)及canvas-node.tsx结果组/主结果逻辑。
+- 采用输入来源可见、媒体与提示词节点、配置节点、结果并排比较/主方案、Inspector和适度快捷键的交互；不复制其代码/样例素材/远程脚本/浏览器密钥/Agent安装流程。
+- 正式增量依赖是MIT的@xyflow/react 12.12.1，保留默认署名；20个新增包锁定版本/完整性，MIT/ISC/BSD-3-Clause原许可随public/canvas-third-party-notices.txt进入Web构建。此许可文件只覆盖本轮新增包，不冒称全系统许可审计完成。
+- 实验单独入口/lab本地JSON，无正式DB迁移，无生产请求，无模型调用。G1仍须写真实Board/引用/权限/并发/备份合同。
