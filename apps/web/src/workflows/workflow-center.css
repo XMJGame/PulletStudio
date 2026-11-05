@@ -1,0 +1,148 @@
+.studio-dialog.workflow-center-dialog {
+  width: min(1240px, calc(100vw - 32px));
+  max-width: none;
+  height: min(920px, calc(100dvh - 32px));
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workflow-center-dialog > .dialog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workflow-center-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.65fr) minmax(0, 1.35fr);
+  gap: 28px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.workflow-center-layout > section {
+  min-width: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+.workflow-center-layout h3 {
+  margin-top: 0;
+}
+.workflow-saved-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.workflow-saved-list article {
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+.workflow-saved-list article p {
+  font-size: 13px;
+}
+.workflow-center-dialog .dialog-footer {
+  gap: 16px;
+  justify-content: space-between;
+}
+.workflow-graph-controls {
+  margin: 16px 0;
+}
+.workflow-graph-preview {
+  margin-top: 14px;
+  min-width: 0;
+}
+.workflow-technical-surface {
+  height: 340px;
+  min-width: 0;
+  border: 1px solid #3b4655;
+  border-radius: 8px;
+  background: #10151b;
+}
+.workflow-technical-surface .react-flow__node {
+  border-color: #536575;
+  background: #1c2630;
+  color: #e4e9ef;
+}
+.workflow-technical-surface .react-flow__node.selected {
+  border-color: #dec28f;
+  box-shadow: 0 0 0 2px #dec28f;
+}
+.workflow-graph-card {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  text-align: left;
+  gap: 6px;
+  overflow: hidden;
+  height: 100%;
+}
+.workflow-graph-card strong {
+  font-size: 12px;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.workflow-graph-card small {
+  color: #c6ae7b;
+  font-size: 11px;
+}
+.workflow-technical-surface .react-flow__edge-textbg {
+  fill: #18222e;
+}
+.workflow-technical-surface .react-flow__edge-text {
+  fill: #d8e0e9;
+}
+.workflow-node-inspector {
+  padding: 14px;
+  margin-top: 12px;
+  border: 1px solid #3b4655;
+  border-radius: 8px;
+}
+.workflow-node-inspector h4 {
+  overflow-wrap: anywhere;
+  margin-top: 0;
+}
+.workflow-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workflow-map-actions button {
+  padding: 9px;
+}
+.workflow-graph-preview .notice p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .studio-dialog.workflow-center-dialog {
+    width: calc(100vw - 16px);
+  }
+  .workflow-center-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    display: block;
+    overflow: visible;
+  }
+  .workflow-center-dialog > .dialog-body {
+    display: block;
+    overflow: auto;
+  }
+  .workflow-center-layout > section {
+    overflow: visible;
+    padding-right: 0;
+    margin-bottom: 20px;
+  }
+  .workflow-technical-surface {
+    height: 300px;
+  }
+  .workflow-technical-surface .react-flow__minimap {
+    width: 110px;
+    height: 80px;
+  }
+  .workflow-center-dialog .dialog-footer {
+    flex-wrap: wrap;
+  }
+}

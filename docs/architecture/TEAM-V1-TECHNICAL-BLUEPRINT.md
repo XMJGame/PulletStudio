@@ -10,6 +10,8 @@
 
 ## 0. TL;DR：最终冻结的技术方案
 
+工作流配置补充：G2-A先复用GenerationService及已有导入/绑定，补集中入口/只读技术图，再增量实现Schema/依赖/修订；G2-B接正式画布Job/结果/Take，G2-C做独立实例。参考hero8152的[能力对照](HERO-INFINITE-CANVAS-REVIEW.md)严格区分已见代码/README宣称及授权边界，不复制源码、不新建Generation/Storage/权限事实源。
+
 G1实施修订：[正式画布合同](../modules/CANVAS-G1-IMPLEMENTATION.md)使用boards/board_revisions、固定卡/实体/媒体引用与原RBAC/CAS，连线只注释，不自动改Shot。原G1–G5命名仅作历史需求映射；当前顺序G1→G2现有生成/候选闭环→ComfyUI多独立实例→团队/批次/交付/部署。依据[ADR-010](../ADR-010-comfy-instances-and-board-boundary.md)，不为G1提前实现执行DAG、Skills或调度。
 
 - **主技术栈**：保留现有 NestJS 11 + TypeScript + React 19/Vite + Drizzle + better-sqlite3，不整体迁移 FastAPI。

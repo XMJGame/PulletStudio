@@ -26,11 +26,13 @@ PulletStudio/
 │  ├─ components/                     当前工作台、表单与Dialog
 │  ├─ canvas-lab/                     G0独立交互实验，不读取正式项目/资产
 │  ├─ canvas/                         G1正式React Flow/来源/Inspector/冲突/历史，懒加载
+│  ├─ workflows/                      工作流中心、共享GenerationSettings、只读技术图/解析
 │  └─ *-types.ts / api.ts              前端类型与HTTP调用
 ├─ packages/contracts/                Storage接口已使用；通用Provider接口仍是草案
 ├─ tests/e2e/ / tests/fixtures/        浏览器业务flow、Mock及合成媒体工具
 ├─ tests/canvas/                      G0独立浏览器验收，另用playwright.canvas.config.ts
 ├─ tests/boards/                      G1真实隔离API/媒体验收，playwright.boards.config.ts
+├─ tests/workflows/                   解析/边界单测与中心浏览器验收，复用隔离启动配置
 ├─ tools/                             setup、API监视启动、媒体校验
 ├─ examples/                          通用绑定样例，无本机连接配置
 ├─ infra/                             历史Compose示例，非可用SQLite正式部署

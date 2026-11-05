@@ -1,6 +1,8 @@
 # ADR-008：创作画布参考与渐进接入
 
-状态：G0交互对照后继续采用React Flow作为G1正式底座，DOM方案保留为实验对照。2026-11-05。正式Board/权限/生成接入仍待后续，不代表完整画布交付。
+状态：G0交互对照后采用React Flow，G1正式Board/固定引用/权限已在63c14ae交付；生成闭环待G2-B。DOM只保留实验对照。2026-11-05。
+
+补充参考：hero8152/Infinite-Canvas与本文basketikun仓库不同，许可不能混用；前者仅按[只读能力研究](architecture/HERO-INFINITE-CANVAS-REVIEW.md)参考工作流配置/技术图、简化画布、Provider及连接器，Pullet独立实现。工作流中心配置技术合同，正式创作画布消费合同，不把ComfyUI编辑器或第三方动态脚本带入V1。
 
 用户要求评估 basketikun/infinite-canvas 并自主规划。粘贴材料中的原型、Fork、安装及 Agent 命令均按参考内容处理，本轮没有执行。保留现有 React/NestJS/Drizzle/SQLite 和 ADR-005 的统一生产内核。
 

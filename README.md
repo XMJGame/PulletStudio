@@ -10,6 +10,8 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 正式项目点击“创作画布”，或在制作结构“打开项目/单元画布”。可选真实业务版本、预览、布局/分组、保存/历史和冲突处理；不依赖原型数据、不因连线改卡或调用模型，见[正式画布/API](docs/CREATIVE-CANVAS.md)。后续模型执行仅经现有Generation API，[ADR-010](docs/ADR-010-comfy-instances-and-board-boundary.md)冻结原生/prompt＋独立实例auto/manual，调度尚未实现。
 
+项目新增[工作流中心](docs/WORKFLOW-CENTER.md)：复用既有API导入/绑定与连接配置，补已保存列表、只读技术图及点选映射；G2-A1已交付，通用Schema/完整依赖/修订审批、G2-B画布生成与G2-C实例调度仍待后续。参考hero8152项目的[能力对照](docs/architecture/HERO-INFINITE-CANVAS-REVIEW.md)只读研究，未复制受限源码或资源。
+
 ## 从哪里开始
 
 - [当前完成情况与后续计划](docs/IMPLEMENTATION-STATUS.md)：唯一实时排期与测试证据。

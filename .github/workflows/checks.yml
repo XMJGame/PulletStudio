@@ -25,6 +25,10 @@ jobs:
       - run: npx playwright test --config playwright.boards.config.ts
         env:
           PLAYWRIGHT_CHANNEL: chromium
+      - run: npm run test:workflow-graph
+      - run: npx playwright test --config playwright.workflows.config.ts
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

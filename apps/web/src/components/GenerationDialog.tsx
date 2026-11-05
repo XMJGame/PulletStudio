@@ -1,26 +1,12 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, CursorPage } from '../api';
 import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
-import {
-  AvailableParameter,
-  ParameterValues,
-  parameterLabels,
-  describeParameters,
-  readParameterBindings,
-  WorkflowParameterFields,
-} from './GenerationParameters';
+import { ParameterValues, parameterLabels, describeParameters } from './GenerationParameters';
 
-type Workflow = {
-  id: string;
-  name: string;
-  capability: string;
-  enabled: boolean;
-  createdAt: string;
-  parameters: AvailableParameter[];
-};
-type Connection = { id: string; name: string; version: number; enabled: boolean };
-type Config = { canConfigure: boolean; canEdit: boolean; workflows: Workflow[]; connections: Connection[] };
+import type { GenerationConfig as Config } from '../workflows/workflow-types';
+import { GenerationSettings } from '../workflows/GenerationSettings';
+
 type Job = {
   id: string;
   state: string;
@@ -43,25 +29,6 @@ type Job = {
 };
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
-function readWorkflowGraph(text: string) {
-  const graph: unknown = JSON.parse(text.replace(/^\uFEFF/u, ''));
-  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw new Error();
-  const entries = Object.entries(graph);
-  if (
-    !entries.length ||
-    entries.length > 200 ||
-    entries.some(
-      ([, node]) =>
-        !node ||
-        typeof node.class_type !== 'string' ||
-        !node.inputs ||
-        typeof node.inputs !== 'object' ||
-        Array.isArray(node.inputs),
-    )
-  )
-    throw new Error();
-  return graph as Record<string, { class_type: string }>;
-}
 const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
   'video.text_to_video': '文字生视频',
@@ -104,17 +71,6 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflowId, setWorkflowId] = useState('');
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
-  const [bindingFormVersion, setBindingFormVersion] = useState(0);
-  const [capability, setCapability] = useState('image.text_to_image');
-  const [graphText, setGraphText] = useState('');
-  const nodeListId = useId();
-  const workflowNodes = useMemo(() => {
-    try {
-      return Object.entries(readWorkflowGraph(graphText));
-    } catch {
-      return [];
-    }
-  }, [graphText]);
   const [images, setImages] = useState<CursorPage<ReferenceImage>>();
   const [imageVersionId, setImageVersionId] = useState('');
   const [promptId, setPromptId] = useState('');
@@ -555,244 +511,15 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
             )}
           </article>
         ))}
-        {config?.canConfigure && (
-          <details>
-            <summary>配置 ComfyUI 连接与工作流</summary>
-            <h3>生成连接</h3>
-            {config.connections.map((item) => (
-              <div className="entity-reference" key={item.id}>
-                <span>
-                  {item.name} · {item.enabled ? '启用' : '停用'}
-                </span>
-                <div className="review-actions">
-                  <button
-                    disabled={busy || !item.enabled}
-                    onClick={() =>
-                      void run(async () => {
-                        await api(`/generation-connections/${item.id}/test`, 'POST', {});
-                        setMessage('ComfyUI 可达。');
-                      })
-                    }
-                  >
-                    测试连接
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api(`/generation-connections/${item.id}`, 'PATCH', {
-                          enabled: !item.enabled,
-                          expectedVersion: item.version,
-                        });
-                        await refreshConfig();
-                      })
-                    }
-                  >
-                    {item.enabled ? '停用' : '启用'}
-                  </button>
-                </div>
-              </div>
-            ))}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = event.currentTarget;
-                const data = new FormData(form);
-                void run(async () => {
-                  await api(`${projectPath}/generation-connections`, 'POST', {
-                    name: data.get('name'),
-                    baseUrl: data.get('baseUrl'),
-                    token: data.get('token'),
-                    trustedPrivate: data.has('trustedPrivate'),
-                  });
-                  form.reset();
-                  await refreshConfig();
-                  setMessage('已添加生成连接。');
-                });
-              }}
-            >
-              <fieldset className="plain-fieldset" disabled={busy}>
-                <label>
-                  连接名称
-                  <input name="name" required maxLength={120} />
-                </label>
-                <label>
-                  ComfyUI 基础地址
-                  <input name="baseUrl" type="url" placeholder="http://192.168.x.x:8188" required />
-                </label>
-                <label>
-                  Bearer 凭据（可选）
-                  <input name="token" type="password" autoComplete="off" />
-                </label>
-                <label className="checkbox-label">
-                  <input type="checkbox" name="trustedPrivate" />
-                  批准自部署 HTTP 或私有网络地址
-                </label>
-                <button>添加连接</button>
-              </fieldset>
-            </form>
-            <h3>工作流</h3>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = event.currentTarget;
-                const data = new FormData(form);
-                void run(async () => {
-                  let graph: unknown;
-                  try {
-                    graph = readWorkflowGraph(graphText);
-                  } catch {
-                    throw new Error('请输入有效的 API 格式 JSON。');
-                  }
-                  const negativeNode = data.get('negativeNode'),
-                    negativeInput = data.get('negativeInput');
-                  if (Boolean(negativeNode) !== Boolean(negativeInput))
-                    throw new Error('负向绑定须同时填写节点和输入。');
-                  await api(`${projectPath}/generation-workflows`, 'POST', {
-                    name: data.get('name'),
-                    connectionId: data.get('connectionId'),
-                    capability: data.get('capability'),
-                    graph,
-                    positive: { node: data.get('positiveNode'), input: data.get('positiveInput') },
-                    ...(negativeNode ? { negative: { node: negativeNode, input: negativeInput } } : {}),
-                    ...(data.get('capability') === 'video.image_to_video'
-                      ? { image: { node: data.get('imageNode'), input: data.get('imageInput') } }
-                      : {}),
-                    output: { node: data.get('outputNode'), field: data.get('outputField') },
-                    parameters: readParameterBindings(data),
-                  });
-                  form.reset();
-                  setCapability('image.text_to_image');
-                  setGraphText('');
-                  setBindingFormVersion((value) => value + 1);
-                  await refreshConfig();
-                  setMessage('工作流的绑定节点已验证并保存。');
-                });
-              }}
-            >
-              <fieldset className="plain-fieldset" disabled={busy}>
-                <label>
-                  工作流名称
-                  <input name="name" required maxLength={120} />
-                </label>
-                <label>
-                  工作流连接
-                  <select name="connectionId" required>
-                    <option value="">选择连接</option>
-                    {config.connections
-                      .filter((item) => item.enabled)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  生成方式
-                  <select
-                    aria-label="生成方式"
-                    name="capability"
-                    value={capability}
-                    onChange={(event) => setCapability(event.target.value)}
-                  >
-                    <option value="image.text_to_image">文字生图</option>
-                    <option value="video.text_to_video">文字生视频</option>
-                    <option value="video.image_to_video">图生视频</option>
-                  </select>
-                </label>
-                {capability === 'video.image_to_video' && (
-                  <div className="dialog-field-row">
-                    <label>
-                      首帧图片节点
-                      <input name="imageNode" list={nodeListId} required />
-                    </label>
-                    <label>
-                      首帧图片输入
-                      <input name="imageInput" defaultValue="image" required />
-                    </label>
-                  </div>
-                )}
-                <label>
-                  选择 API 格式 JSON 文件
-                  <input
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      event.currentTarget.value = '';
-                      if (!file) return;
-                      void run(async () => {
-                        if (file.size > 160000) throw new Error('工作流文件不能超过 160 KB。');
-                        const content = await file.text();
-                        try {
-                          readWorkflowGraph(content);
-                        } catch {
-                          throw new Error('请选择从 ComfyUI 导出的 API 格式 JSON。');
-                        }
-                        setGraphText(content);
-                      });
-                    }}
-                  />
-                </label>
-                <label>
-                  API 格式工作流 JSON
-                  <textarea
-                    aria-label="API 格式工作流 JSON"
-                    rows={5}
-                    required
-                    maxLength={160000}
-                    value={graphText}
-                    onChange={(event) => setGraphText(event.target.value)}
-                  />
-                </label>
-                <datalist id={nodeListId}>
-                  {workflowNodes.map(([id, node]) => (
-                    <option key={id} value={id} label={node.class_type} />
-                  ))}
-                </datalist>
-                <p className="field-hint">
-                  使用你已验证并信任的工作流。节点可能访问该 ComfyUI 主机上的文件或外部服务。
-                </p>
-                <div className="dialog-field-row">
-                  <label>
-                    正向文本节点
-                    <input name="positiveNode" list={nodeListId} required />
-                  </label>
-                  <label>
-                    正向文本输入
-                    <input name="positiveInput" required defaultValue="text" />
-                  </label>
-                </div>
-                <div className="dialog-field-row">
-                  <label>
-                    负向文本节点（可选）
-                    <input name="negativeNode" list={nodeListId} />
-                  </label>
-                  <label>
-                    负向文本输入（可选）
-                    <input name="negativeInput" />
-                  </label>
-                </div>
-                <div className="dialog-field-row">
-                  <label>
-                    输出节点
-                    <input name="outputNode" list={nodeListId} required />
-                  </label>
-                  <label>
-                    历史输出字段
-                    <input name="outputField" required defaultValue="images" />
-                  </label>
-                </div>
-                <WorkflowParameterFields
-                  key={bindingFormVersion}
-                  nodeListId={nodeListId}
-                  capability={capability}
-                />
-                <button>验证绑定并保存</button>
-              </fieldset>
-            </form>
-          </details>
+        {config && (
+          <GenerationSettings
+            config={config}
+            projectPath={projectPath}
+            busy={busy}
+            run={run}
+            refreshConfig={refreshConfig}
+            setMessage={setMessage}
+          />
         )}
       </div>
       <div className="dialog-footer">

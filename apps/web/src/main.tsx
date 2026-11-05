@@ -18,6 +18,7 @@ import { AnalysisWorkbench } from './components/AnalysisWorkbench';
 import { projectFormData } from './project-settings';
 import './style.css';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
+const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
 
 type Status = { initialized: boolean; setupEnabled: boolean };
 type Access = { canEdit: boolean; canManage: boolean };
@@ -184,6 +185,7 @@ function App() {
     'shots',
   );
   const [canvasUnit, setCanvasUnit] = useState<ProductionUnit>();
+  const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [episodeForm, setEpisodeForm] = useState(false);
   const [shotForm, setShotForm] = useState(false);
@@ -337,6 +339,7 @@ function App() {
     setAccess({ canEdit: false, canManage: false });
     setEpisodeForm(false);
     setShotForm(false);
+    setShowWorkflowCenter(false);
     setEditProject(undefined);
     setEditEpisode(undefined);
     if (!projectId) return;
@@ -862,7 +865,20 @@ function App() {
                 >
                   创作画布
                 </button>
+                <button aria-expanded={showWorkflowCenter} onClick={() => setShowWorkflowCenter(true)}>
+                  工作流中心
+                </button>
               </div>
+              {showWorkflowCenter && (
+                <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>
+                  <WorkflowCenter
+                    key={projectId}
+                    projectId={projectId}
+                    onClose={() => setShowWorkflowCenter(false)}
+                    onUnauthorized={() => setUser(undefined)}
+                  />
+                </Suspense>
+              )}
               {projectView === 'canvas' ? (
                 <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
                   <BoardWorkspace

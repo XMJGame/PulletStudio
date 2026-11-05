@@ -87,4 +87,6 @@ npm run db:backup
 
 ## 当前验收界限
 
+工作流中心：`npm run test:workflow-graph`运行4项纯解析/边界测试，`npm run test:workflows`先构建再跑解析及playwright.workflows.config.ts的3项浏览器验收。复用正式画布隔离启动配置/3112与5192端口，因此`test:workflows`和`test:boards`顺序执行。测试不调用用户ComfyUI；只用隔离ComfyMock校验/object_info，不提交生成。配置/API/DB未变的纯Web增量不无故重跑全量媒体API。
+
 最新证据见[实施状态](../IMPLEMENTATION-STATUS.md)。Mock证明协议/权限/恢复，不能证明远端模型画质；真实I2V已独立验收，真实文本/T2I/T2V、正式作品、多GB/长片、LAN/TLS/S3及灾备仍需要对应门禁。详细历史不再塞入此运行手册。
