@@ -37,6 +37,7 @@ import { MediaService } from './assets/media.service';
 import { MediaController } from './assets/media.controller';
 import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
+import { AssetApprovalService } from './assets/asset-approval.service';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -78,6 +79,7 @@ import { EntitiesController } from './assets/entities.controller';
     MediaProbe,
     MediaService,
     EntitiesService,
+    AssetApprovalService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

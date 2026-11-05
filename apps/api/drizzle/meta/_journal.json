@@ -155,6 +155,20 @@
       "when": 1793853889769,
       "tag": "0021_entity_history_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1793855753675,
+      "tag": "0022_loose_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1793855753676,
+      "tag": "0023_asset_decision_guards",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, CursorPage } from '../api';
 import { CardEditor } from '../prompt-types';
-import { Entity, EntityReference, EntityRevision, entityLabels } from '../entity-types';
+import { Entity, EntityReference, EntityRevision, entityLabels, approvalLabels } from '../entity-types';
 import { Dialog } from './Dialog';
 export function AssetBindingsDialog({
   shotId,
@@ -17,7 +17,7 @@ export function AssetBindingsDialog({
     [references, setReferences] = useState<(EntityReference & { detail: EntityRevision })[]>([]);
   const [chosen, setChosen] = useState(''),
     [revisions, setRevisions] = useState<{
-      items: { id: string; version: number }[];
+      items: { id: string; version: number; status: EntityRevision['status'] }[];
       nextCursor: number | null;
     }>({ items: [], nextCursor: null }),
     [revisionId, setRevisionId] = useState(''),
@@ -26,6 +26,11 @@ export function AssetBindingsDialog({
     [error, setError] = useState(''),
     [conflict, setConflict] = useState(false),
     [message, setMessage] = useState('');
+  const [readiness, setReadiness] = useState<{
+    shotVersion: number;
+    ready: boolean;
+    blockers: { code: string; message: string; revisionId?: string }[];
+  }>();
   function report(reason: unknown) {
     setError(reason instanceof Error ? reason.message : '资产引用操作失败');
     setConflict(reason instanceof ApiError && reason.status === 409);
@@ -95,6 +100,30 @@ export function AssetBindingsDialog({
             <p className="field-hint">
               {context.shot.code} · 制作卡 v{context.shot.version} · {references.length}/20 个固定引用
             </p>
+            <section aria-label="资产准入检查">
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => setReadiness(await api(`/shots/${shotId}/asset-readiness`)))
+                }
+              >
+                检查已保存卡的资产准入
+              </button>
+              {readiness && (
+                <div role="status">
+                  <p>
+                    制作卡 v{readiness.shotVersion} · {readiness.ready ? '资产条件通过' : '需要处理资产条件'}
+                  </p>
+                  {readiness.blockers.length > 0 && (
+                    <ul>
+                      {readiness.blockers.map((item) => (
+                        <li key={item.code + (item.revisionId ?? '')}>{item.message}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </section>
             <section aria-label="已选资产引用">
               {references.map((ref, index) => (
                 <article className="entity-reference" key={ref.revisionId}>
@@ -102,7 +131,9 @@ export function AssetBindingsDialog({
                     <strong>
                       {entityLabels[ref.detail.kind]}：{ref.detail.name} · v{ref.detail.version}
                     </strong>
-                    <p>{ref.purpose || '未补充用途'} · 草稿，尚未批准</p>
+                    <p>
+                      {ref.purpose || '未补充用途'} · {approvalLabels[ref.detail.status]}
+                    </p>
                     <p className="field-hint">{ref.detail.description}</p>
                   </div>
                   {context.canEdit && (
@@ -173,7 +204,7 @@ export function AssetBindingsDialog({
                     <option value="">选择固定修订</option>
                     {revisions.items.map((ref) => (
                       <option key={ref.id} value={ref.id}>
-                        v{ref.version} · 草稿
+                        v{ref.version} · {approvalLabels[ref.status]}
                       </option>
                     ))}
                   </select>
@@ -220,7 +251,7 @@ export function AssetBindingsDialog({
                   加入引用列表
                 </button>
                 <p className="field-hint">
-                  没有可选项时，先在项目“资产库”创建设定。资产为草稿，后续仍需正式审批。
+                  没有可选项时，先在项目“资产库”创建设定。生成准入要求所引用版本有有效批准。
                 </p>
               </fieldset>
             )}

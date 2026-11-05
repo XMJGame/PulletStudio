@@ -24,7 +24,7 @@ export async function exerciseEntities(page: Page, otherPage: Page) {
   await expect(library.getByRole('alert')).toBeVisible();
   await expect(library.getByLabel('资产名称', { exact: true })).toHaveValue('Mira');
   await library.getByRole('button', { name: '保存资产版本', exact: true }).click();
-  await expect(library.getByRole('status')).toContainText('v1');
+  await expect(library.getByText('已保存「Mira」v1', { exact: false })).toBeVisible();
   await expect
     .poll(() =>
       library
@@ -47,7 +47,7 @@ export async function exerciseEntities(page: Page, otherPage: Page) {
     await library.getByLabel('参考位置', { exact: true }).selectOption({ label: role });
     await library.getByRole('button', { name: '添加媒体参考', exact: true }).click();
     await library.getByRole('button', { name: '保存资产版本', exact: true }).click();
-    await expect(library.getByRole('status')).toContainText(`已保存「${name}」v1`);
+    await expect(library.getByText(`已保存「${name}」v1`, { exact: false })).toBeVisible();
   }
   await expect(library).not.toContainText('SHA256');
   await page.keyboard.press('Escape');
@@ -94,7 +94,7 @@ export async function exerciseEntities(page: Page, otherPage: Page) {
   await otherLibrary.getByRole('button', { name: 'Mira · v1 · 草稿', exact: true }).click();
   await otherLibrary.getByLabel('外观设定', { exact: true }).fill('Long hair');
   await otherLibrary.getByRole('button', { name: '保存资产版本', exact: true }).click();
-  await expect(otherLibrary.getByRole('status')).toContainText('v2');
+  await expect(otherLibrary.getByText('已保存「Mira」v2', { exact: false })).toBeVisible();
   await library.getByRole('button', { name: '保存资产版本', exact: true }).click();
   await expect(library.getByRole('alert')).toContainText('已有新修订');
   await expect(library.getByLabel('资产描述', { exact: true })).toHaveValue('Local unsaved description');
@@ -144,4 +144,40 @@ export async function exerciseEntities(page: Page, otherPage: Page) {
   await expect(binding.getByLabel('已选资产引用')).toContainText('Mira · v2');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: '资产引用', exact: true })).toBeFocused();
+
+  await page.getByRole('button', { name: '资产库', exact: true }).click();
+  await library.getByRole('button', { name: 'Mira · v2 · 草稿', exact: true }).click();
+  const review = library.getByRole('region', { name: '资产版本审批', exact: true });
+  await review.getByRole('button', { name: '批准此版本', exact: true }).click();
+  await expect(review.getByRole('button', { name: '确认批准此版本', exact: true })).toBeDisabled();
+  await review.getByLabel('审批理由').fill('Checked the fixed wardrobe and reference.');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await review.getByRole('button', { name: '确认批准此版本', exact: true }).scrollIntoViewIfNeeded();
+  expect(await library.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/asset-approval-mobile.png' });
+  await review.getByRole('button', { name: '确认批准此版本', exact: true }).click();
+  await expect(review.getByRole('status')).toHaveText('Mira · v2 · 已批准');
+  await expect(review).toContainText('Checked the fixed wardrobe and reference.');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: '资产引用', exact: true }).click();
+  await binding.getByRole('button', { name: '检查已保存卡的资产准入', exact: true }).click();
+  const readiness = binding.getByRole('region', { name: '资产准入检查', exact: true });
+  await expect(readiness).toContainText('需要处理资产条件');
+  await expect(readiness).toContainText('「Shop」v1需要有效批准');
+  await expect(readiness).not.toContainText('「Mira」v2需要有效批准');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '资产库', exact: true }).click();
+  await library.getByRole('button', { name: 'Mira · v2 · 已批准', exact: true }).click();
+  await review.getByRole('button', { name: '撤销此版本的批准', exact: true }).click();
+  await review.getByLabel('审批理由').fill('Continuity needs another pass.');
+  await review.getByRole('button', { name: '确认撤销此版本的批准', exact: true }).click();
+  await expect(review.getByRole('status')).toHaveText('Mira · v2 · 已撤销批准');
+  await expect(review).toContainText('Checked the fixed wardrobe and reference.');
+  await expect(review).toContainText('Continuity needs another pass.');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '资产引用', exact: true }).click();
+  await binding.getByRole('button', { name: '检查已保存卡的资产准入', exact: true }).click();
+  await expect(readiness).toContainText('「Mira」v2需要有效批准');
+  await page.keyboard.press('Escape');
 }

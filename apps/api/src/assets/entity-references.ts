@@ -11,6 +11,7 @@ import {
   workspaceMembers,
 } from '../db/schema';
 import { AssetReference } from './entity-contract';
+import { assetApproval } from './asset-approval-state';
 
 export function assertSampleAccess(
   database: DatabaseService,
@@ -65,7 +66,7 @@ export function entityRevisionSnapshot(database: DatabaseService, id: string, pr
     name: row.revision.name,
     description: row.revision.description,
     attributes: JSON.parse(row.revision.attributesJson) as Record<string, string>,
-    status: 'draft' as const,
+    ...assetApproval(database, id),
     media: refs.map((ref) => ({
       role: ref.role,
       mediaVersionId: ref.media.id,

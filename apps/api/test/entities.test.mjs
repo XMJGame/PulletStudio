@@ -106,6 +106,69 @@ test('semantic assets freeze revisions and media through cards prompts and deliv
     const json=JSON.parse((await owner.request('GET',done.data.downloadPath.replace('/api/v1',''))).bytes.toString('utf8'));assert.equal(json.shots[0].card.assetReferences.length,4);
     for(const format of ['md','csv']){const request={...options,format},preview=await post(owner,path+'/preview',request),file=await post(owner,path,{...request,expectedSnapshotHash:preview.data.snapshotHash});assert.equal(file.status,201);const text=(await owner.request('GET',file.data.downloadPath.replace('/api/v1',''))).bytes.toString('utf8');assert.ok(text.includes(format==='md'?'### 固定资产引用':'asset_references_json'));assert.ok(text.includes('Short hair'));}
   });
+  await t.test('asset approval follows the exact revision and the reviewer role', async () => {
+    const card = (await owner.request('GET', shotPath('/card'))).data;
+    const fixedCharacter = card.assetReferences.find(ref => ref.kind === 'character');
+    const decisions = (ref) => `/entities/${ref.entityId}/revisions/${ref.version}/decisions`;
+    const path = decisions(fixedCharacter);
+    const approve = {action:'approve', reason:'Checked the reference and costume', expectedDecisionVersion:0};
+    const ready = async (actor) => (await actor.request('GET', shotPath('/asset-readiness'))).data;
+    assert.equal((await ready(owner)).ready,false);
+    assert.equal((await post(editor,path,approve)).status,403);
+    assert.equal((await post(viewer,path,approve)).status,403);
+    assert.equal((await post(stranger,path,approve)).status,404);
+    assert.equal((await post(reviewer,path,{...approve,reason:'  '})).status,400);
+    assert.equal((await post(reviewer,path,{...approve,action:'revoke'})).status,409);
+    const key = randomUUID();
+    const [approved,competing] = await Promise.all([post(reviewer,path,approve,key),post(owner,path,approve,key)]);
+    assert.deepEqual([approved.status,competing.status].sort(),[201,409]);
+    const winner = approved.status === 201 ? reviewer : owner;
+    assert.deepEqual((await post(winner,path,approve,key)).data,approved.status===201?approved.data:competing.data);
+    assert.equal((await post(winner,path,{...approve,reason:'Different reason'},key)).status,409);
+    for(const reference of card.assetReferences.filter(ref=>ref.kind!=='character'))
+      assert.equal((await post(reviewer,decisions(reference),approve)).status,201);
+    assert.equal((await owner.request('GET',`/entities/${character.id}`)).data.revision.status,'draft');
+    assert.equal((await owner.request('GET',path)).data.status,'approved');
+    assert.deepEqual((await ready(owner)).blockers.map(item=>item.code),['VOICE_RIGHTS_REQUIRED']);
+    assert.ok((await ready(editor)).blockers.some(item=>item.code==='VOICE_SAMPLE_RESTRICTED'));
+    const historical = (await owner.request('GET',shotPath(`/prompts/${artifact.id}`))).data;
+    assert.deepEqual(historical.snapshot,artifact.snapshot);
+    assert.ok(historical.freshness.reasons.some(message=>message.includes('审批已变化')));
+    const licensed = await revise(voice,{attributes:{...voice.revision.attributes,consentStatus:'licensed',usageRights:'For this project only'}});
+    assert.equal(licensed.status,201);
+    assert.equal(licensed.data.revision.status,'draft');
+    const licensedRef = {...licensed.data.revision};
+    assert.equal((await post(reviewer,decisions(licensedRef),approve)).status,201);
+    const bindings = card.assetReferences.map(ref=>({revisionId:ref.kind==='voice'?licensedRef.id:ref.id,purpose:ref.purpose}));
+    const saved = await post(editor,shotPath('/asset-bindings'),{expectedShotCardVersion:shot.version,bindings});
+    assert.equal(saved.status,201);
+    shot=saved.data.shot;
+    assert.equal((await ready(owner)).ready,true);
+    assert.deepEqual((await ready(editor)).blockers.map(item=>item.code),['VOICE_SAMPLE_RESTRICTED']);
+    const compiled=await post(owner,shotPath('/prompts/compile'),{mode:'commit',expectedShotVersion:shot.version,expectedProjectVersion:1,profileRevisionId:null});
+    assert.equal(compiled.status,201);
+    assert.ok(compiled.data.snapshot.entityRevisions.every(ref=>ref.status==='approved'&&ref.decisionId));
+    assert.equal(compiled.data.rendered.productionReady,false);
+    const revoke={action:'revoke',reason:'Continuity needs another pass',expectedDecisionVersion:1};
+    const revoked=await post(reviewer,path,revoke);
+    assert.equal(revoked.status,201);
+    const history=(await viewer.request('GET',path)).data;
+    assert.equal(history.status,'revoked');
+    assert.deepEqual(history.items.map(item=>item.action),['revoke','approve']);
+    assert.equal(history.items[0].actorName,'REVIEWER');
+    assert.equal((await ready(owner)).ready,false);
+    assert.equal((await owner.request('GET',shotPath(`/prompts/${compiled.data.id}`))).data.snapshot.entityRevisions[0].status,'approved');
+    const db=app.get(DatabaseService).sqlite;
+    db.exec("CREATE TRIGGER fixture_decision_failure BEFORE INSERT ON audit_events WHEN NEW.action='entity.revision.approve' BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;");
+    try {
+      assert.equal((await post(owner,path,{...approve,expectedDecisionVersion:2})).status,409);
+      assert.equal((await owner.request('GET',path)).data.decisionVersion,2);
+    } finally { db.exec('DROP TRIGGER fixture_decision_failure'); }
+    assert.equal((await post(owner,path,{...approve,expectedDecisionVersion:2})).status,201);
+    assert.equal((await ready(owner)).ready,true);
+    assert.throws(()=>db.prepare('DELETE FROM asset_revision_decisions').run(),/immutable/);
+    assert.throws(()=>db.prepare('UPDATE asset_revision_decisions SET reason=?').run('Changed'),/immutable/);
+  });
   await t.test('failed revision audit rolls back the head and references atomically',async()=>{
     const db=app.get(DatabaseService).sqlite,before=db.prepare('SELECT COUNT(*) n FROM asset_entity_revisions').get().n;
     db.exec("CREATE TRIGGER fixture_entity_failure BEFORE INSERT ON audit_events WHEN NEW.action='entity.revise' BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;");

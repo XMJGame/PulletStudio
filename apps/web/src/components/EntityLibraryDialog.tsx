@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, CursorPage } from '../api';
-import { Entity, EntityKind, entityLabels, attributeLabels, roleLabels } from '../entity-types';
+import {
+  Entity,
+  EntityKind,
+  entityLabels,
+  attributeLabels,
+  roleLabels,
+  approvalLabels,
+} from '../entity-types';
+import { AssetApprovalPanel } from './AssetApprovalPanel';
 import { MediaAsset, MediaVersion } from '../media-types';
 import { Dialog } from './Dialog';
 type Draft = {
@@ -166,7 +174,7 @@ export function EntityLibraryDialog({ projectId, onClose }: { projectId: string;
           <div className="entity-list">
             {list.items.map((value) => (
               <button key={value.id} disabled={busy} onClick={() => void run(() => select(value))}>
-                {value.revision.name} · v{value.currentVersion} · 草稿
+                {value.revision.name} · v{value.currentVersion} · {approvalLabels[value.revision.status]}
               </button>
             ))}
           </div>
@@ -415,6 +423,26 @@ export function EntityLibraryDialog({ projectId, onClose }: { projectId: string;
         </form>
         {current && (
           <>
+            <AssetApprovalPanel
+              key={current.revision.id}
+              entity={current}
+              disabled={busy}
+              onStatus={(status) => {
+                setCurrent((previous) =>
+                  previous?.revision.id === current.revision.id
+                    ? { ...previous, revision: { ...previous.revision, status } }
+                    : previous,
+                );
+                setList((previous) => ({
+                  ...previous,
+                  items: previous.items.map((item) =>
+                    item.revision.id === current.revision.id
+                      ? { ...item, revision: { ...item.revision, status } }
+                      : item,
+                  ),
+                }));
+              }}
+            />
             <h3>资产版本历史</h3>
             <div className="review-actions">
               {history.items.map((item) => (

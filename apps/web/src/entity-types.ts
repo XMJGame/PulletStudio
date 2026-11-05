@@ -29,6 +29,7 @@ export const attributeLabels: Record<EntityKind, Record<string, string>> = {
   voice: { language: '语言', timbre: '音色描述', usageRights: '授权与使用范围' },
 };
 export type EntityReference = { revisionId: string; purpose: string };
+export const approvalLabels = { draft: '草稿', approved: '已批准', revoked: '已撤销批准' };
 export type EntityRevision = {
   id: string;
   entityId: string;
@@ -37,7 +38,7 @@ export type EntityRevision = {
   name: string;
   description: string;
   attributes: Record<string, string>;
-  status: 'draft';
+  status: keyof typeof approvalLabels;
   media: { role: string; mediaVersionId: string; version: number; fileName: string; mediaType: string }[];
   purpose?: string;
 };
@@ -48,4 +49,5 @@ export type Entity = {
   currentVersion: number;
   revision: EntityRevision;
   canEdit: boolean;
+  canReview: boolean;
 };

@@ -11,6 +11,7 @@ import { formalCardSchema } from '../production/formal-card';
 import { compilePrompt, compilerVersion } from './compiler';
 import { CompileInput, PromptConfig, promptConfigSchema } from './prompt-contract';
 import { resolveAssetReferences, entityFreshness } from '../assets/entity-references';
+import { assetApproval } from '../assets/asset-approval-state';
 
 @Injectable()
 export class PromptService {
@@ -202,6 +203,10 @@ export class PromptService {
     }
     const snapshot = JSON.parse(row.snapshotJson);
     reasons.push(...entityFreshness(this.database, snapshot.entityRevisions ?? []));
+    for (const ref of snapshot.entityRevisions ?? []) {
+      if ((ref.decisionVersion ?? 0) !== assetApproval(this.database, ref.id).decisionVersion)
+        reasons.push(`资产「${ref.name}」v${ref.version}的审批已变化`);
+    }
     const script = this.database.db.select().from(scripts).where(eq(scripts.projectId, project.id)).get();
     if (
       snapshot.card.sources.some(

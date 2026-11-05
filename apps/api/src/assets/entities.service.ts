@@ -15,6 +15,7 @@ import {
 import { AuthorizationService } from '../production/authorization.service';
 import { attributesByKind, EntityBody, entityKinds } from './entity-contract';
 import { assertSampleAccess, entityRevisionSnapshot } from './entity-references';
+import { assetApproval } from './asset-approval-state';
 type Kind = (typeof entityKinds)[number];
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 @Injectable()
@@ -52,11 +53,20 @@ export class EntitiesService {
         createdAt: row.createdAt,
       },
       canEdit: this.canEdit(user, entity.projectId),
+      canReview: this.canReview(user, entity.projectId),
     };
   }
   private canEdit(user: CurrentUser, projectId: string) {
     try {
       this.authz.project(user, projectId, 'edit');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  private canReview(user: CurrentUser, projectId: string) {
+    try {
+      this.authz.project(user, projectId, 'review');
       return true;
     } catch {
       return false;
@@ -120,7 +130,12 @@ export class EntitiesService {
       .orderBy(desc(assetEntityRevisions.version))
       .limit(21)
       .all();
-    return { items: rows.slice(0, 20), nextCursor: rows.length > 20 ? rows[19].version : null };
+    return {
+      items: rows
+        .slice(0, 20)
+        .map((row) => ({ ...row, status: assetApproval(this.database, row.id).status })),
+      nextCursor: rows.length > 20 ? rows[19].version : null,
+    };
   }
   save(
     user: CurrentUser,

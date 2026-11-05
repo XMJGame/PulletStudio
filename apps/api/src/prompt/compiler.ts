@@ -1,7 +1,8 @@
 import { FormalCard } from '../production/formal-card';
 import { PromptConfig } from './prompt-contract';
 import { EntitySnapshot } from '../assets/entity-references';
-export const compilerVersion = 'neutral-text-2';
+export const compilerVersion = 'neutral-text-3';
+const approvalLabels = { draft: '草稿', approved: '已批准', revoked: '已撤销批准' };
 export type CompileProject = {
   title: string;
   aspectRatio: string;
@@ -84,7 +85,7 @@ export function compilePrompt(
       references
         .map(
           (ref) =>
-            `${ref.name}（${entityLabels[ref.kind]}，v${ref.version}，草稿）${ref.purpose ? '；用途：' + ref.purpose : ''}\n${ref.description}\n${Object.entries(
+            `${ref.name}（${entityLabels[ref.kind]}，v${ref.version}）${ref.purpose ? '；用途：' + ref.purpose : ''}\n${ref.description}\n${Object.entries(
               ref.attributes,
             )
               .filter(([key, value]) => Boolean(value) && !['usageRights', 'consentStatus'].includes(key))
@@ -107,13 +108,17 @@ export function compilePrompt(
         : '资产仅为名称，尚无固定版本的媒体参考绑定。',
     );
   for (const ref of references) {
-    warnings.push(`资产「${ref.name}」v${ref.version}为草稿，尚未正式批准。`);
+    if (ref.status !== 'approved')
+      warnings.push(`资产「${ref.name}」v${ref.version}状态为${approvalLabels[ref.status]}，需要有效批准。`);
     if (!ref.media.length) warnings.push(`资产「${ref.name}」没有固定媒体参考。`);
     if (ref.kind === 'character' && !ref.media.some((media) => media.role === 'front'))
       warnings.push(`人物「${ref.name}」缺少正面主锚点。`);
     if (ref.kind === 'environment' && !ref.media.some((media) => media.role === 'overview'))
       warnings.push(`场景「${ref.name}」缺少全景参考。`);
-    if (ref.kind === 'voice' && ref.attributes.consentStatus === 'unknown')
+    if (
+      ref.kind === 'voice' &&
+      (ref.attributes.consentStatus === 'unknown' || !ref.attributes.usageRights?.trim())
+    )
       warnings.push(`声音「${ref.name}」的授权/同意尚待核对；不得用于外部生成。`);
   }
   if (config.negativeMode === 'inline' && config.negativeRules.length)

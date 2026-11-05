@@ -913,6 +913,38 @@ export const entityMediaBindings = sqliteTable(
     index('entity_media_lookup').on(t.mediaVersionId, t.role),
   ],
 );
+export const assetRevisionDecisions = sqliteTable(
+  'asset_revision_decisions',
+  {
+    id: text('id').primaryKey(),
+    revisionId: text('revision_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    action: text('action', { enum: ['approve', 'revoke'] }).notNull(),
+    reason: text('reason').notNull(),
+    actorId: text('actor_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.revisionId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        assetEntityRevisions.id,
+        assetEntityRevisions.projectId,
+        assetEntityRevisions.workspaceId,
+      ],
+    }),
+    uniqueIndex('asset_decision_version').on(t.revisionId, t.version),
+    uniqueIndex('asset_decision_request').on(t.revisionId, t.actorId, t.requestKey),
+    check('asset_decision_action', sql`${t.action} IN ('approve', 'revoke')`),
+    check('asset_decision_reason', sql`length(trim(${t.reason})) BETWEEN 1 AND 1000`),
+  ],
+);
+
 export const shotAssetBindings = sqliteTable(
   'shot_asset_bindings',
   {

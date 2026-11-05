@@ -3,7 +3,7 @@ import { api } from '../api';
 import { AnalysisSource, DraftShot } from '../analysis-types';
 import { Dialog } from './Dialog';
 import { ShotDraftDetails } from './ShotDraftDetails';
-import { EntityRevision, entityLabels } from '../entity-types';
+import { EntityRevision, entityLabels, approvalLabels } from '../entity-types';
 type Card = {
   assetReferences?: EntityRevision[];
   assetWarnings?: string[];
@@ -74,8 +74,8 @@ export function ShotCardDialog({ shotId, onClose }: { shotId: string; onClose: (
                   <h3>固定资产引用</h3>
                   {card.assetReferences.map((ref) => (
                     <p key={ref.id}>
-                      {entityLabels[ref.kind]} · {ref.name} · v{ref.version} · {ref.purpose || '未补充用途'}
-                      （草稿）
+                      {entityLabels[ref.kind]} · {ref.name} · v{ref.version} · {ref.purpose || '未补充用途'}（
+                      {approvalLabels[ref.status]}）
                     </p>
                   ))}
                   {card.assetWarnings?.map((warning) => (

@@ -133,7 +133,8 @@ export class StoryboardExportsService {
       const warnings: string[] = [];
       if (card.available) {
         warnings.push(...card.assetWarnings);
-        if (card.assetReferences.length) warnings.push('固定资产引用包含草稿修订，尚未正式批准。');
+        if (card.assetReferences.some((ref) => ref.status !== 'approved'))
+          warnings.push('部分固定资产修订缺少有效批准。');
       }
       let prompt: ExportPrompt | null = null;
       if (!card.available) warnings.push('未保存完整制作卡，仅导出已有镜头基本资料。');
