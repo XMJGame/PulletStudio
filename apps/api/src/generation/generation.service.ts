@@ -31,6 +31,12 @@ import { latestCompatibleRevision, latestRelease } from './workflow-release-stat
 import { jobRoute, reserveInstance, routingOptions } from './generation-routing';
 import { ComfyProvider, GenerationError } from './comfy-provider';
 import {
+  assertMediaExecutable,
+  hasExtendedMedia,
+  mediaExecutionReason,
+  publicMediaSchema,
+} from './workflow-media';
+import {
   CreateJobInput,
   CreateProjectJobInput,
   renderWorkflow,
@@ -170,6 +176,9 @@ export class GenerationService {
         fieldValues = resolveFields(definition);
       return {
         ...workflow,
+        mediaSchema: publicMediaSchema(definition.mediaSchema),
+        executable: !hasExtendedMedia(definition.mediaSchema),
+        executionBlocker: hasExtendedMedia(definition.mediaSchema) ? mediaExecutionReason : null,
         reviewRequired: definition.reviewRequired === true,
         enabled: workflow.enabled && !workflow.archived,
         parameters: (definition.parameters ?? []).map((binding) => ({
@@ -405,6 +414,8 @@ export class GenerationService {
       fail(400, code, '参数绑定与远端输入类型、可选值或数值范围不匹配');
     if (code === 'WORKFLOW_FIELD_BINDING_INVALID')
       fail(400, code, '公开字段与节点声明的类型、范围或选项不匹配，请核对参数合同');
+    if (code === 'WORKFLOW_MEDIA_BINDING_INVALID')
+      fail(400, code, '媒体槽位与远端声明的上传类型或输出节点不匹配，请检查媒体配置');
     fail(
       502,
       code,
@@ -604,6 +615,7 @@ export class GenerationService {
         const catalog = catalogState(this.database, workflow.id);
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
+        assertMediaExecutable(definition.mediaSchema);
         if (shot && purpose === 'production') {
           const release = catalog && latestRelease(this.database, catalog.familyId);
           if (

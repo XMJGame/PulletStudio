@@ -144,7 +144,8 @@ export function WorkflowReleaseDialog({
           <section aria-label="提示词试跑">
             <h3>直接试跑</h3>
             <p className="field-hint">粘贴提示词验证当前工作流，结果仅保留为试跑证据。</p>
-            <button disabled={busy} onClick={() => setFreeTrial(true)}>
+            {current?.executable === false && <p role="status">{current.executionBlocker}</p>}
+            <button disabled={busy || current?.executable === false} onClick={() => setFreeTrial(true)}>
               粘贴提示词试跑
             </button>
           </section>

@@ -14,6 +14,7 @@ import {
   WorkflowParameter,
 } from './generation-contract';
 import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
+import { mediaInputMatchesMetadata } from './workflow-media';
 
 export class GenerationError extends Error {
   constructor(readonly code: string) {
@@ -168,6 +169,21 @@ export class ComfyProvider {
             if (info.output_node !== true) throw new GenerationError('WORKFLOW_OUTPUT_NODE_INVALID');
           }),
           ...(workflow.image ? [validateImage(workflow.image)] : []),
+          ...(workflow.mediaSchema?.inputs ?? []).map(async (slot) => {
+            const info = await node(slot.node, signal),
+              inputs = object(info.input);
+            if (
+              !mediaInputMatchesMetadata(
+                slot.mediaType,
+                object(inputs.required)[slot.input] ?? object(inputs.optional)[slot.input],
+              )
+            )
+              throw new GenerationError('WORKFLOW_MEDIA_BINDING_INVALID');
+          }),
+          ...(workflow.mediaSchema?.outputs ?? []).map(async (slot) => {
+            if ((await node(slot.node, signal)).output_node !== true)
+              throw new GenerationError('WORKFLOW_MEDIA_BINDING_INVALID');
+          }),
           ...(workflow.parameters ?? []).map(validateParameter),
           ...(workflow.fields ?? []).map(async (field) => {
             const info = await node(field.node, signal),

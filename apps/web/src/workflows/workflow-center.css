@@ -247,3 +247,33 @@
     flex-wrap: wrap;
   }
 }
+.workflow-media-editor {
+  margin-block: 18px;
+  border-block: 1px solid var(--line);
+  padding-block: 12px;
+}
+.workflow-media-editor > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.workflow-media-editor > p {
+  margin-block: 10px;
+}
+.workflow-media-slot {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 12px;
+  margin-top: 12px;
+}
+.workflow-media-slot legend {
+  font-size: 12px;
+  color: var(--muted);
+  padding-inline: 5px;
+}
+.workflow-media-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}

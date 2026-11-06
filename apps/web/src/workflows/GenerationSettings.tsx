@@ -6,6 +6,8 @@ import { ExposedFieldsEditor } from './ExposedFieldsEditor';
 import type { ExposedField } from '../../../../packages/contracts/src/workflow';
 import { readWorkflowGraph } from './workflow-graph';
 import { StudioButton } from '../shared/ui/StudioUI';
+import { WorkflowMediaEditor } from './WorkflowMediaEditor';
+import type { WorkflowMediaSchema } from '../../../../packages/contracts/src/workflow';
 const WorkflowGraphPreview = lazy(() => import('./WorkflowGraphPreview'));
 const initialBindings: Record<string, string> = {
   positiveNode: '',
@@ -61,6 +63,7 @@ export function GenerationSettings({
   };
   const [bindings, setBindings] = useState(initial);
   const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
+  const [mediaSchema, setMediaSchema] = useState<WorkflowMediaSchema | undefined>(definition?.mediaSchema);
   const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
   useEffect(() => onDraftChange?.(dirtyForms.connection || dirtyForms.workflow), [dirtyForms, onDraftChange]);
@@ -188,6 +191,7 @@ export function GenerationSettings({
               output: { node: data.get('outputNode'), field: data.get('outputField') },
               parameters: readParameterBindings(data),
               fields,
+              ...(mediaSchema ? { mediaSchema } : {}),
               ...(requireRelease ? { reviewRequired: true } : {}),
               ...(fields.length ? { fieldSchemaVersion: 'studio.workflow-fields.v1' } : {}),
             };
@@ -216,6 +220,7 @@ export function GenerationSettings({
             setCapability('image.text_to_image');
             setGraphText('');
             setFields([]);
+            setMediaSchema(undefined);
             attempt.current = { body: '', key: '' };
             setBindingFormVersion((value) => value + 1);
             await refreshConfig();
@@ -453,6 +458,14 @@ export function GenerationSettings({
               graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
               change={(value) => {
                 setFields(value);
+                setDirtyForms((current) => ({ ...current, workflow: true }));
+              }}
+            />
+            <WorkflowMediaEditor
+              value={mediaSchema}
+              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+              change={(value) => {
+                setMediaSchema(value);
                 setDirtyForms((current) => ({ ...current, workflow: true }));
               }}
             />

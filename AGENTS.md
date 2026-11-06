@@ -12,7 +12,7 @@
 
 ## 产品输入
 
-正式 UI 优先完成 P0 收敛，再分包实施资源共享和多参考生成。Web + Server 是唯一交付形态；DX OS 本地分析资料仅供功能研究，不能复制闭源产物、资源、运行数据或凭据。正式画布继续使用 BoardWorkspace/BoardSurface/BoardExecutionPanel，设计原型不代替正式验收。不新增桌面宿主、完整 ComfyUI 编辑器、模型安装器或专业剪辑器。保留原乐观锁、任务快照、输入/结果分离和固定媒体版本。仅删除画布节点不得删除媒体文件。继续在 redesign/studio-ui-v2 开发，完成后提交 PR；最终视觉认可和合并 main 须用户授权。
+正式 UI 优先完成 P0 收敛，再分包实施资源共享和多参考生成。Web + Server 是唯一交付形态；DX OS 本地分析资料仅供功能研究，不能复制闭源产物、资源、运行数据或凭据。正式画布继续使用 BoardWorkspace/BoardSurface/BoardExecutionPanel，设计原型不代替正式验收。不新增桌面宿主、完整 ComfyUI 编辑器、模型安装器或专业剪辑器。保留原乐观锁、任务快照、输入/结果分离和固定媒体版本。仅删除画布节点不得删除媒体文件。UI 收尾在 redesign/studio-ui-v2，已提交 PR #1；依执行合同第45节，后续多模态后端扩展在 feature/workflow-media-contract 独立实施（基于5bfa4c3叠加），不把大包混入 UI 评审。最终视觉认可和合并 main 须用户授权。
 
 G1固定引用与多实例边界继续遵循ADR-010：共用原RBAC/Generation/Storage；普通连线为注释，具名输入线用于显式执行，不自动修改卡或审批。V1 ComfyUI采用原生POST /prompt＋多个独立实例，默认auto、高级manual不可静默换机；后端维护地址/凭据/能力/授权，禁止进入Board。G2-A/B/C已交付范围复用，后续按V2实施状态推进；不接Distributed专用API或重建队列。
 

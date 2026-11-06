@@ -98,4 +98,12 @@ generation-config 的 workflows 列出目录当前修订。productionWorkflows �
 
 生产任务 API 支持可选 `routing`，取值 `{mode:"auto"}` 或 `{mode:"manual", connectionId}`。省略时沿用工作流绑定连接。无实例池的表单及工作流试跑也使用绑定连接。部署实例池调度时，API 与 Generation Worker 使用同一构建版本。
 
-`npm run test:workflows` 包含图解析与 8 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。[C2 实施合同](modules/COMFY-INSTANCES-G2-C2.md) · [C2 验收](history/COMFY-INSTANCES-G2-C2-2026-11-06.md)
+`npm run test:workflows` 包含图解析与工作流浏览器验收，最新数量见实施状态。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。[C2 实施合同](modules/COMFY-INSTANCES-G2-C2.md) · [C2 验收](history/COMFY-INSTANCES-G2-C2-2026-11-06.md)
+
+## 扩展媒体声明（L3-B1）
+
+工作流配置的「扩展媒体声明」可以记录原首帧之外的图片、视频、音频输入，以及原主输出之外的预览/中间结果。管理员填写名称、用途、节点和文件输入，调整顺序、必填或缺失传空值；标识自动生成，不填写本机路径或外部 URL。输出可声明类型、历史字段和单项/多项，但真实输出类型、数量仍须执行后验证。
+
+保存沿用原不可变修订、权限、冲突和幂等规则；远端须明确声明对应媒体上传类型，普通文本输入不能冒充文件槽位。原正负词、首帧、主输出和标量参数仍使用原绑定。删除扩展槽位不会删除文件或旧版本。
+
+此阶段只交付配置合同。带扩展声明的工作流显示「媒体声明已保存 · 执行未接通」，画布、通用生成和试跑均不能提交；服务端也会拒绝，不静默丢弃素材。无扩展声明的既有 T2I/T2V/单首帧 I2V 不受影响。多媒体快照、Provider/Worker 和画布槽位按 [B1/B2/B3](modules/WORKFLOW-MEDIA-CONTRACT-B1.md) 继续实施。

@@ -64,6 +64,8 @@ G2-A2在generation/追加workflow-catalog.service/controller/state管理原不�
 
 `canvas/BoardEntityVersions` 在正式资源预览中读取原实体历史，处理分页、重试与过期响应；`BoardSourcePreview` 固定所选修订、查看其参考媒体并显式加入画布。它们复用既有实体/引用解析接口，不是第二套资产库，也不扩展多参考执行合同。
 
+多模态 B1 在 `feature/workflow-media-contract` 独立实施：API `generation/workflow-media.ts` 校验原 definitionJson 的扩展媒体声明并提供执行拒绝边界；Web `workflows/WorkflowMediaEditor` 编辑同一声明，`packages/contracts/src/workflow.d.ts` 提供共享类型。复用原 Provider 的元数据验证、目录修订和 config，不新增数据库、队列或上传服务。B1 不包含实际多媒体执行，B2/B3 顺序见实施状态。
+
 `docs/review/studio-ui-v2/` 只存可公开评审的正式页面截图、矩阵和来源清单，`tools/ui-review.mjs` 按白名单重新收集。完整尺寸与主题截图及隔离运行文件仍留在忽略的 `test-results/`。CI 只上传 PNG/错误摘要，不上传 profile、DB 或运行媒体。
 
 ## 本轮实际整理

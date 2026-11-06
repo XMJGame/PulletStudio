@@ -160,6 +160,8 @@ export function BoardExecutionPanel({
   let blocked = '';
   if (!config) blocked = error ? '工作流暂不可用。' : '正在读取工作流与权限…';
   else if (!editable || !config.canEdit) blocked = '此节点为只读。';
+  else if (workflow?.executable === false)
+    blocked = workflow.executionBlocker ?? '此工作流的媒体执行尚未接通。';
   else if (!workflow || workflow.archived || (!workflow.enabled && !config.poolConfigured))
     blocked = '选择一个可用工作流。';
   else if (needsFrame && frame?.media?.mediaType !== 'image') blocked = '图生视频需要选择一张首帧。';

@@ -1,5 +1,6 @@
 import type { WorkflowInput } from './generation-contract';
 import type { ExposedField } from './workflow-fields';
+import { mediaInputMatchesMetadata, hasExtendedMedia, mediaExecutionReason } from './workflow-media';
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
 export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
@@ -104,6 +105,14 @@ export async function inspectWorkflow(
       for (const field of workflow.fields ?? [])
         if (field.node === id && !fieldMatchesMetadata(field, required[field.input] ?? optional[field.input]))
           add('FIELD_SCHEMA_MISMATCH', field.input);
+      for (const slot of workflow.mediaSchema?.inputs ?? [])
+        if (
+          slot.node === id &&
+          !mediaInputMatchesMetadata(slot.mediaType, required[slot.input] ?? optional[slot.input])
+        )
+          add('MEDIA_SCHEMA_MISMATCH', slot.input);
+      if (workflow.mediaSchema?.outputs.some((slot) => slot.node === id) && info.output_node !== true)
+        add('MEDIA_OUTPUT_MISMATCH');
       for (const input of Object.keys(required))
         if (!Object.hasOwn(node.inputs, input)) add('REQUIRED_INPUT_MISSING', input);
       for (const [input, value] of Object.entries(node.inputs)) {
@@ -146,7 +155,11 @@ export async function inspectWorkflow(
             add('LINK_TYPE_MISMATCH', input);
           continue;
         }
-        if ((workflow.image?.node === id && workflow.image.input === input) || limits.image_upload === true)
+        if (
+          (workflow.image?.node === id && workflow.image.input === input) ||
+          limits.image_upload === true ||
+          workflow.mediaSchema?.inputs.some((slot) => slot.node === id && slot.input === input)
+        )
           continue; // Uploaded fixed media is validated separately, not a remote file-existence claim.
         if (Array.isArray(type)) {
           if (!type.some((option) => JSON.stringify(option) === JSON.stringify(value)))
@@ -185,6 +198,6 @@ export async function inspectWorkflow(
       : nodes.some((node) => node.status === 'unverified')
         ? 'unverified'
         : 'compatible',
-    note: '仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。',
+    note: `${hasExtendedMedia(workflow.mediaSchema) ? `${mediaExecutionReason} ` : ''}仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。`,
   };
 }

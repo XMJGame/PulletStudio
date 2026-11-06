@@ -1,6 +1,7 @@
 import type { AvailableParameter } from '../components/GenerationParameters';
 import type { AvailableField, ExposedField } from '../../../../packages/contracts/src/workflow';
 import type { WorkflowGraph } from './workflow-graph';
+import type { WorkflowMediaSchema, WorkflowMediaSummary } from '../../../../packages/contracts/src/workflow';
 export type Workflow = {
   id: string;
   name: string;
@@ -16,6 +17,9 @@ export type Workflow = {
   reviewRequired?: boolean;
   releaseState?: 'compatible' | 'published' | 'draft';
   publishedWorkflowId?: string | null;
+  mediaSchema?: WorkflowMediaSummary;
+  executable?: boolean;
+  executionBlocker?: string | null;
 };
 export type Connection = {
   id: string;
@@ -52,6 +56,7 @@ export type WorkflowDefinition = {
   output: { node: string; field: string };
   parameters?: import('../components/GenerationParameters').WorkflowParameter[];
   fields?: ExposedField[];
+  mediaSchema?: WorkflowMediaSchema;
 };
 export type WorkflowEditing = {
   id: string;

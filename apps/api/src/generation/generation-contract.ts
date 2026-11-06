@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { fail } from '../common/http';
+import { workflowMediaSchema, validateMediaTargets, assertMediaExecutable } from './workflow-media';
 import {
   exposedField,
   fieldValuesInput,
@@ -90,6 +91,7 @@ export const workflowInput = z
     image: target.optional(),
     parameters: z.array(parameter).max(3).optional(),
     fields: z.array(exposedField).max(20).optional(),
+    mediaSchema: workflowMediaSchema.optional(),
     fieldSchemaVersion: z.literal('studio.workflow-fields.v1').optional(),
     reviewRequired: z.literal(true).optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
@@ -141,6 +143,14 @@ export const workflowInput = z
       if (binding.key === 'durationSeconds' && value.capability === 'image.text_to_image')
         issue('图片工作流不支持视频时长');
     }
+    validateMediaTargets(
+      value.mediaSchema,
+      value.graph,
+      occupied,
+      value.output,
+      (value.fields ?? []).map((field) => field.id),
+      issue,
+    );
     validateFieldTargets(value.fields ?? [], value.graph, occupied, issue);
   });
 const routingInput = z.discriminatedUnion('mode', [
@@ -232,6 +242,7 @@ export function renderWorkflow(
   parameters: ParameterValues = {},
   fields: FieldValues = {},
 ) {
+  assertMediaExecutable(workflow.mediaSchema);
   if (negative && !workflow.negative)
     fail(409, 'WORKFLOW_NEGATIVE_UNBOUND', '此提示词包含负向词，请选择配置了负向绑定的工作流');
   const graph = structuredClone(workflow.graph);

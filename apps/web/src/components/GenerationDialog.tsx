@@ -291,7 +291,7 @@ export function GenerationDialog({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (manualChoiceRequired) return;
+              if (manualChoiceRequired || selectedWorkflow?.executable === false) return;
               void run(async () => {
                 const value = await api<Job>(
                   `${projectPath}/${testWorkflow ? 'workflow-trials' : 'generation-jobs'}`,
@@ -593,9 +593,15 @@ export function GenerationDialog({
                 </>
               }
 
+              {selectedWorkflow?.executable === false && (
+                <p role="status" className="field-hint">
+                  {selectedWorkflow.executionBlocker ?? '此工作流的媒体执行尚未接通。'}
+                </p>
+              )}
               <button
                 className="primary"
                 disabled={
+                  selectedWorkflow?.executable === false ||
                   !workflowId ||
                   !positivePrompt.trim() ||
                   (needsImage && !imageVersionId) ||

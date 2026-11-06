@@ -48,6 +48,8 @@ export async function startComfyMock(files) {
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
         LoadImage: { input: { required: { image: [[], { image_upload: true }] } }, output_node: false },
+        LoadVideo: { input: { required: { video: ['STRING', { video_upload: true }] } }, output: ['VIDEO'] },
+        LoadAudio: { input: { required: { audio: ['STRING', { audio_upload: true }] } }, output: ['AUDIO'] },
         'Custom Input': {
           input: { optional: { 'source.file': ['STRING', { image_upload: true }] } },
           output_node: false,
@@ -211,6 +213,67 @@ export function fixtureI2V(connectionId) {
       3: { class_type: 'SaveVideo', inputs: { video: ['5', 0] } },
       4: { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
       5: { class_type: 'ImageToVideo', inputs: { first_frame: ['4', 0], prompt: ['1', 0] } },
+    },
+  };
+}
+
+export function fixtureMediaSchema(connectionId) {
+  const workflow = fixtureWorkflow(connectionId);
+  return {
+    ...workflow,
+    name: 'Declared media study',
+    graph: {
+      ...workflow.graph,
+      6: { class_type: 'LoadImage', inputs: { image: 'private-reference.png' } },
+      7: { class_type: 'LoadVideo', inputs: { video: 'private-reference.mp4' } },
+      8: { class_type: 'LoadAudio', inputs: { audio: 'private-reference.wav' } },
+      9: { class_type: 'ImageOutput', inputs: { conditioning: ['1', 0] } },
+    },
+    mediaSchema: {
+      version: 'studio.workflow-media.v1',
+      inputs: [
+        {
+          id: randomUUID(),
+          label: 'Character reference',
+          mediaType: 'image',
+          role: 'reference',
+          node: '6',
+          input: 'image',
+          required: true,
+          onMissing: 'error',
+        },
+        {
+          id: randomUUID(),
+          label: 'Motion reference',
+          mediaType: 'video',
+          role: 'reference',
+          node: '7',
+          input: 'video',
+          required: false,
+          onMissing: 'empty',
+        },
+        {
+          id: randomUUID(),
+          label: 'Sound reference',
+          mediaType: 'audio',
+          role: 'source',
+          node: '8',
+          input: 'audio',
+          required: true,
+          onMissing: 'error',
+        },
+      ],
+      outputs: [
+        {
+          id: randomUUID(),
+          label: 'Preview image',
+          mediaType: 'image',
+          role: 'preview',
+          node: '9',
+          field: 'images',
+          multiple: false,
+        },
+      ],
     },
   };
 }

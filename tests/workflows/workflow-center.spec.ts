@@ -2,7 +2,12 @@ import { expect, test, request, type APIRequestContext, type Page } from '@playw
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { startComfyMock, fixtureWorkflow, fixtureCreativeFields } from '../fixtures/comfy-mock.mjs';
+import {
+  startComfyMock,
+  fixtureWorkflow,
+  fixtureCreativeFields,
+  fixtureMediaSchema,
+} from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
@@ -500,6 +505,112 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-dark.png', animations: 'disabled' });
 });
+test('media declarations edit fixed slots and outputs while unsupported execution stays blocked', async ({
+  page,
+}) => {
+  const value = await project('Multimodal workflow declarations');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Media schema mock',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const fixture = fixtureMediaSchema(connection.id);
+  await open(page, value);
+  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  await dialog.getByLabel('工作流名称', { exact: true }).fill('Reference study');
+  await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+  await dialog.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
+    name: 'media-api.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(fixture.graph)),
+  });
+  await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
+  await dialog.getByLabel('输出节点', { exact: true }).fill('3');
+  await dialog.getByText('扩展媒体声明', { exact: true }).click();
+  await dialog.getByRole('button', { name: '添加媒体输入', exact: true }).click();
+  await dialog.getByLabel('媒体输入1名称', { exact: true }).fill('角色参考');
+  await dialog.getByLabel('媒体输入1节点', { exact: true }).selectOption('6');
+  await dialog.getByLabel('媒体输入1字段', { exact: true }).selectOption('image');
+  await dialog.getByLabel('媒体输入1类型', { exact: true }).selectOption('video');
+  await dialog.getByRole('button', { name: '添加媒体输入', exact: true }).click();
+  await dialog.getByLabel('媒体输入2名称', { exact: true }).fill('动作参考');
+  await dialog.getByLabel('媒体输入2类型', { exact: true }).selectOption('video');
+  await dialog.getByLabel('媒体输入2节点', { exact: true }).selectOption('7');
+  await dialog.getByLabel('媒体输入2字段', { exact: true }).selectOption('video');
+  await dialog.getByLabel('媒体输入2缺失处理', { exact: true }).selectOption('optional');
+  await dialog.getByRole('button', { name: '添加媒体输出', exact: true }).click();
+  await dialog.getByLabel('媒体输出1名称', { exact: true }).fill('预览图');
+  await dialog.getByLabel('媒体输出1节点', { exact: true }).selectOption('9');
+  await dialog.getByLabel('媒体输出1数量', { exact: true }).selectOption('multiple');
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('媒体槽位与远端声明');
+  await expect(dialog.getByLabel('媒体输入2名称', { exact: true })).toHaveValue('动作参考');
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Reference study');
+  await dialog.getByLabel('媒体输入1类型', { exact: true }).selectOption('image');
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('绑定节点已验证并保存');
+  await expect(dialog.getByText('媒体声明已保存 · 执行未接通', { exact: true })).toBeVisible();
+  const first = (await api('GET', `/projects/${value.id}/generation-config`)).workflows[0];
+  expect(first.executable).toBe(false);
+  const original = (await api('GET', `/generation-workflows/${first.id}/definition`)).definition.mediaSchema;
+  expect(original.inputs.map((slot: any) => slot.label)).toEqual(['角色参考', '动作参考']);
+  expect(original.inputs[1]).toMatchObject({ required: false, onMissing: 'empty' });
+  expect(original.outputs[0].multiple).toBe(true);
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await dialog.getByRole('button', { name: '下移媒体输入1', exact: true }).click();
+  await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toHaveValue('动作参考');
+  await dialog.getByRole('button', { name: '添加媒体输出', exact: true }).click();
+  await dialog.getByRole('button', { name: '移除媒体输出2', exact: true }).click();
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('修订 v2');
+  const latest = (await api('GET', `/projects/${value.id}/generation-config`)).workflows[0];
+  const latestSchema = (await api('GET', `/generation-workflows/${latest.id}/definition`)).definition
+    .mediaSchema;
+  expect(latestSchema.inputs.map((slot: any) => slot.id)).toEqual(
+    original.inputs.map((slot: any) => slot.id).reverse(),
+  );
+  expect(latestSchema.outputs).toEqual(original.outputs);
+  expect((await api('GET', `/generation-workflows/${first.id}/definition`)).definition.mediaSchema).toEqual(
+    original,
+  );
+  await expect(dialog.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await openCenter(page);
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toHaveValue('动作参考');
+  await dialog.getByLabel('媒体输入1名称', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/workflow-media-desktop.png', animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await dialog.getByLabel('媒体输入1名称', { exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toBeInViewport();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/workflow-media-mobile.png', animations: 'disabled' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await openCenter(page);
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toHaveValue('动作参考');
+  await dialog.getByLabel('媒体输入1名称', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/workflow-media-dark.png', animations: 'disabled' });
+  await dialog.getByRole('button', { name: '试跑与发布', exact: true }).click();
+  const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+  await expect(release.getByRole('button', { name: '粘贴提示词试跑', exact: true })).toBeDisabled();
+  await expect(release).toContainText('当前执行尚未接通');
+  await release.getByRole('button', { name: '关闭', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Media contract board');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
+  await panel.getByLabel('节点工作流', { exact: true }).selectOption(latest.id);
+  await panel.getByLabel('生成提示词', { exact: true }).fill('A quiet coast');
+  await expect(panel).toContainText('当前执行尚未接通');
+  await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeDisabled();
+  expect(remote.mock.submissions).toHaveLength(0);
+  expect((await api('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
+});
+
 test('readonly users see existing workflow summaries without connection credentials or configuration controls', async ({
   page,
 }) => {
