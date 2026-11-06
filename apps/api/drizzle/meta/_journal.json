@@ -337,6 +337,13 @@
       "when": 1793981700000,
       "tag": "0047_workspace_media_library",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1793982000000,
+      "tag": "0048_workspace_uploads",
+      "breakpoints": true
     }
   ]
 }

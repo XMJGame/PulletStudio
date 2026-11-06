@@ -10,6 +10,9 @@ import {
   workspaceMediaFolders as folders,
   workspaceMediaImports as imports,
   workspaceMediaResources as resources,
+  workspaceMediaFiles,
+  workspaceNativeResources as nativeResources,
+  workspaceNativeImports,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { MediaService } from './media.service';
@@ -80,6 +83,11 @@ export class WorkspaceLibraryService {
             .set({ folderId: null, version: sql`${resources.version}+1` })
             .where(eq(resources.folderId, row.id))
             .run();
+          this.database.db
+            .update(nativeResources)
+            .set({ folderId: null, version: sql`${nativeResources.version}+1` })
+            .where(eq(nativeResources.folderId, row.id))
+            .run();
           this.database.db.delete(folders).where(eq(folders.id, row.id)).run();
           this.audit(user, workspaceId, 'public.folder.remove', row.id);
           return { removed: true };
@@ -140,7 +148,7 @@ export class WorkspaceLibraryService {
       ? `/api/v1/projects/${projectId}/public-library`
       : `/api/v1/workspaces/${workspaceId}/public-library`;
     if (query.folderId && query.folderId !== 'root') this.folder(workspaceId, query.folderId);
-    const rows = this.database.db
+    const legacyRows = this.database.db
       .select({ resource: resources, media: mediaVersions })
       .from(resources)
       .innerJoin(mediaVersions, eq(mediaVersions.id, resources.sourceMediaVersionId))
@@ -160,7 +168,33 @@ export class WorkspaceLibraryService {
       .orderBy(asc(resources.id))
       .limit(21)
       .all();
+    const nativeRows = this.database.db
+      .select({ resource: nativeResources, media: workspaceMediaFiles })
+      .from(nativeResources)
+      .innerJoin(workspaceMediaFiles, eq(workspaceMediaFiles.id, nativeResources.fileId))
+      .where(
+        and(
+          eq(nativeResources.workspaceId, workspaceId),
+          isNull(nativeResources.removedAt),
+          query.folderId === 'root'
+            ? isNull(nativeResources.folderId)
+            : query.folderId
+              ? eq(nativeResources.folderId, query.folderId)
+              : undefined,
+          query.cursor ? gt(nativeResources.id, query.cursor) : undefined,
+          query.q?.trim() ? like(workspaceMediaFiles.fileName, `%${query.q.trim()}%`) : undefined,
+          query.mediaType ? eq(workspaceMediaFiles.mediaType, query.mediaType) : undefined,
+        ),
+      )
+      .orderBy(asc(nativeResources.id))
+      .limit(21)
+      .all()
+      .map((row) => ({ ...row, resource: { ...row.resource, sourceProjectId: null } }));
+    const rows = [...legacyRows, ...nativeRows]
+      .sort((a, b) => a.resource.id.localeCompare(b.resource.id))
+      .slice(0, 21);
     return {
+      workspaceId,
       canManageFolders: member.role !== 'MEMBER',
       items: rows.slice(0, 20).map(({ resource, media }) => ({
         id: resource.id,
@@ -175,23 +209,27 @@ export class WorkspaceLibraryService {
         inProject:
           !!projectId &&
           (resource.sourceProjectId === projectId ||
-            !!this.database.db
-              .select({ id: imports.id })
-              .from(imports)
-              .innerJoin(mediaUploads, eq(mediaUploads.id, imports.uploadId))
-              .where(
-                and(
-                  eq(imports.resourceId, resource.id),
-                  eq(imports.projectId, projectId),
-                  eq(mediaUploads.state, 'complete'),
-                ),
-              )
-              .get()),
+            this.inProject(projectId, resource.id, resource.sourceProjectId === null)),
         contentUrl: `${base}/resources/${resource.id}/content`,
         posterUrl: media.posterJson ? `${base}/resources/${resource.id}/poster` : null,
       })),
       nextCursor: rows.length > 20 ? rows[19].resource.id : null,
     };
+  }
+  private inProject(projectId: string, resourceId: string, native: boolean) {
+    const table = native ? workspaceNativeImports : imports;
+    return !!this.database.db
+      .select({ id: table.id })
+      .from(table)
+      .innerJoin(mediaUploads, eq(mediaUploads.id, table.uploadId))
+      .where(
+        and(
+          eq(table.resourceId, resourceId),
+          eq(table.projectId, projectId),
+          eq(mediaUploads.state, 'complete'),
+        ),
+      )
+      .get();
   }
   collect(user: CurrentUser, projectId: string, sourceId: string, folderId: string | null, key: string) {
     return this.database.db.transaction(
@@ -266,18 +304,19 @@ export class WorkspaceLibraryService {
     return this.database.db.transaction(
       () => {
         const { workspaceId } = this.context(user, projectId);
-        const { resource } = this.access.publicMedia(user, id, 'manage');
+        const { resource, native } = this.access.publicMedia(user, id, 'manage');
+        const table = native ? nativeResources : resources;
         if (resource.workspaceId !== workspaceId) fail(404, 'NOT_FOUND', '公共素材不存在或无权访问');
         if (resource.version !== expectedVersion)
           fail(409, 'VERSION_CONFLICT', '公共素材已更新，请刷新后重试');
         if (folderId) this.folder(workspaceId, folderId);
         this.database.db
-          .update(resources)
+          .update(table)
           .set({
             version: expectedVersion + 1,
             ...(folderId === undefined ? { removedAt: new Date().toISOString() } : { folderId }),
           })
-          .where(eq(resources.id, id))
+          .where(eq(table.id, id))
           .run();
         this.audit(
           user,
@@ -298,23 +337,24 @@ export class WorkspaceLibraryService {
       return value;
     };
     const value = authorize();
-    return this.media.content(user, value.media.id, poster, range, authorize);
+    return this.media.openContent(value.media, poster, range, authorize);
   }
   async import(user: CurrentUser, projectId: string, id: string, key: string) {
     const project = this.authz.project(user, projectId, 'edit');
-    let record = this.database.db
-      .select()
-      .from(imports)
-      .where(
-        and(eq(imports.projectId, projectId), eq(imports.createdBy, user.id), eq(imports.creationKey, key)),
-      )
-      .get();
+    const getRecord = (table: typeof imports | typeof workspaceNativeImports) =>
+      this.database.db
+        .select()
+        .from(table)
+        .where(and(eq(table.projectId, projectId), eq(table.createdBy, user.id), eq(table.creationKey, key)))
+        .get();
+    let record = getRecord(imports) ?? getRecord(workspaceNativeImports);
     if (record && record.resourceId !== id) fail(409, 'IDEMPOTENCY_CONFLICT', '请求标识已用于其他导入');
     if (record) {
       const current = await this.media.upload(user, record.uploadId);
       if (current.state === 'complete') return current.mediaVersion!;
     }
-    const { media, resource } = this.access.publicMedia(user, id);
+    const { media, resource, native } = this.access.publicMedia(user, id);
+    const importTable = native ? workspaceNativeImports : imports;
     if (resource.workspaceId !== project.workspaceId) fail(404, 'NOT_FOUND', '公共素材不属于当前工作区');
     if (!record) {
       const hex = createHash('sha256').update(`public-import:${user.id}:${projectId}:${key}`).digest('hex');
@@ -333,17 +373,7 @@ export class WorkspaceLibraryService {
         () => {
           this.authz.project(user, projectId, 'edit');
           this.access.publicMedia(user, id);
-          const old = this.database.db
-            .select()
-            .from(imports)
-            .where(
-              and(
-                eq(imports.projectId, projectId),
-                eq(imports.createdBy, user.id),
-                eq(imports.creationKey, key),
-              ),
-            )
-            .get();
+          const old = getRecord(imports) ?? getRecord(workspaceNativeImports);
           if (old) {
             if (old.resourceId !== id) fail(409, 'IDEMPOTENCY_CONFLICT', '请求标识已用于其他导入');
             return old;
@@ -358,7 +388,7 @@ export class WorkspaceLibraryService {
             creationKey: key,
             createdAt: new Date().toISOString(),
           };
-          this.database.db.insert(imports).values(row).run();
+          this.database.db.insert(importTable).values(row).run();
           this.audit(user, project.workspaceId, 'public.resource.import', row.id);
           return row;
         },

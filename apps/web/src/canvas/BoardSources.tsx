@@ -29,6 +29,7 @@ export function BoardSources({
 }) {
   const [kind, setKind] = useState('media');
   const [publicLibrary, setPublicLibrary] = useState(false);
+  const [publicBusy, setPublicBusy] = useState(false);
   const [publicFilters, setPublicFilters] = useState<PublicLibraryFilters>({
     folderId: '',
     query: '',
@@ -55,15 +56,20 @@ export function BoardSources({
           <span className="creative-kicker">{publicLibrary ? 'SHARED LIBRARY' : 'PROJECT LIBRARY'}</span>
           <h3>{publicLibrary ? '工作区公共库' : '项目资源库'}</h3>
         </div>
-        <button className="creative-icon-button" aria-label="收起资源库" onClick={onClose}>
+        <button
+          className="creative-icon-button"
+          aria-label="收起资源库"
+          disabled={publicBusy}
+          onClick={onClose}
+        >
           ×
         </button>
       </div>
       <div className="creative-source-tabs creative-library-scopes" role="group" aria-label="资源库范围">
-        <button aria-pressed={!publicLibrary} onClick={() => setPublicLibrary(false)}>
+        <button aria-pressed={!publicLibrary} disabled={publicBusy} onClick={() => setPublicLibrary(false)}>
           本项目
         </button>
-        <button aria-pressed={publicLibrary} onClick={() => setPublicLibrary(true)}>
+        <button aria-pressed={publicLibrary} disabled={publicBusy} onClick={() => setPublicLibrary(true)}>
           公共库
         </button>
       </div>
@@ -78,6 +84,7 @@ export function BoardSources({
           editable={editable}
           filters={publicFilters}
           onFiltersChange={setPublicFilters}
+          onBusyChange={setPublicBusy}
           onImported={() => {
             setPublicLibrary(false);
             setFolderId('');

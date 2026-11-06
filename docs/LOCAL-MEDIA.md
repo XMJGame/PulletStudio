@@ -1,8 +1,14 @@
 # 本地媒体与镜头候选
 
-2026-11-05，Phase C1/C2。无需配置模型即可导入已有图片、视频和音频。语义人物/场景/道具/声音角色及固定引用现已由 [C3/C4 资产库](SEMANTIC-ASSETS.md)提供草稿基础；媒体生成、正式审批及选片尚未交付。实施合同见 [LOCAL-MEDIA-IMPLEMENTATION](modules/LOCAL-MEDIA-IMPLEMENTATION.md)，兼容决策见 [ADR-006](ADR-006-local-media.md)。
+本文保留历史 C1/C2 的媒体与候选接口背景，以及仍有效的存储、恢复和备份操作。当前使用入口见[画布与公共资源库](CREATIVE-CANVAS.md)，实际进度见[实施状态](IMPLEMENTATION-STATUS.md)。旧制作结构和镜头 UI 已移除，下文对应操作属于历史背景。实施合同见 [LOCAL-MEDIA-IMPLEMENTATION](modules/LOCAL-MEDIA-IMPLEMENTATION.md)，兼容决策见 [ADR-006](ADR-006-local-media.md)。
 
-## 使用
+## 工作区公共库直接上传
+
+工作台「公共库」或项目资源库「公共库」内可选择「上传素材」，逐份归档图片、视频和音频。工作区成员可上传，完成后工作区成员可浏览；不会自动进入项目或画布。上传状态只允许发起人或工作区管理员读取和恢复，失败时可继续同一请求，归档后登记未完成可「重试登记」。页面刷新后可查询自己的未完成上传，需要重传时重新选择名称与大小相同的原文件。单次最多选择 20 份，不提供分片续传。
+
+工作区原件存放在 `workspaces/:workspaceId/library/objects/:fileId`，项目原件继续使用原 `projects/:projectId/objects/:versionId` 路径；都在同一个受控 `MEDIA_ROOT` 内。原件与文件版本不可改写，移出公共库为软移除，已导入的项目副本继续保留。`media:verify` 同时检查两类原件、封面和未完成归档，恢复必须使用匹配的数据库、完整媒体根及存储根标记。新 API 为 `workspaces/:workspaceId/public-library/media-status` 和 `media-uploads`，未将磁盘路径或校验码增加到常规创作界面。
+
+## 历史项目媒体与候选操作
 
 进入项目“制作结构”→“项目素材”，或打开镜头→“镜头素材”。选择文件后点击“上传并归档”。后台核对实际文件内容、大小和媒体流，图片/视频生成独立封面；完成后才能预览、播放及下载原件。
 

@@ -1048,6 +1048,129 @@ export const workspaceMediaImports = sqliteTable(
     uniqueIndex('workspace_media_import_key').on(t.projectId, t.createdBy, t.creationKey),
   ],
 );
+export const workspaceMediaFiles = sqliteTable(
+  'workspace_media_files',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    objectKey: text('object_key').notNull().unique(),
+    fileName: text('file_name').notNull(),
+    mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),
+    mime: text('mime').notNull(),
+    byteLength: integer('byte_length').notNull(),
+    sha256: text('sha256').notNull(),
+    metadataJson: text('metadata_json').notNull(),
+    posterJson: text('poster_json'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_file_scope').on(t.id, t.workspaceId),
+    check('workspace_file_size', sql`${t.byteLength}>0`),
+  ],
+);
+export const workspaceNativeResources = sqliteTable(
+  'workspace_native_resources',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    fileId: text('file_id').notNull().unique(),
+    folderId: text('folder_id'),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.fileId, t.workspaceId],
+      foreignColumns: [workspaceMediaFiles.id, workspaceMediaFiles.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.workspaceId],
+      foreignColumns: [workspaceMediaFolders.id, workspaceMediaFolders.workspaceId],
+    }),
+    uniqueIndex('workspace_native_scope').on(t.id, t.workspaceId),
+    index('workspace_native_page').on(t.workspaceId, t.folderId, t.id),
+    check('workspace_native_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaUploads = sqliteTable(
+  'workspace_media_uploads',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    fileId: text('file_id').notNull().unique(),
+    resourceId: text('resource_id').notNull().unique(),
+    folderId: text('folder_id'),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    fileName: text('file_name').notNull(),
+    declaredMime: text('declared_mime').notNull(),
+    expectedBytes: integer('expected_bytes').notNull(),
+    receivedBytes: integer('received_bytes').notNull().default(0),
+    state: text('state', { enum: mediaUploadStates }).notNull().default('created'),
+    leaseOwner: text('lease_owner'),
+    leaseUntil: integer('lease_until'),
+    preparedJson: text('prepared_json'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_upload_key').on(t.workspaceId, t.createdBy, t.idempotencyKey),
+    index('workspace_upload_lease').on(t.state, t.leaseUntil),
+    index('workspace_upload_page').on(t.workspaceId, t.createdBy, t.id),
+    check('workspace_upload_size', sql`${t.expectedBytes}>0`),
+  ],
+);
+export const workspaceNativeImports = sqliteTable(
+  'workspace_native_imports',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    uploadId: text('upload_id')
+      .notNull()
+      .unique()
+      .references(() => mediaUploads.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.resourceId, t.workspaceId],
+      foreignColumns: [workspaceNativeResources.id, workspaceNativeResources.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('workspace_native_import_key').on(t.projectId, t.createdBy, t.creationKey),
+  ],
+);
 export const takes = sqliteTable(
   'takes',
   {

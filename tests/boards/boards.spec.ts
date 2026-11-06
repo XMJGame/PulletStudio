@@ -117,6 +117,111 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('direct public uploads persist real media, recover lost responses and resume after reload', async ({
+  page,
+}) => {
+  const workspace = await call('POST', '/workspaces', { name: 'Direct upload team' });
+  await page.context().addCookies((await owner.storageState()).cookies);
+  await page.addInitScript(
+    ({ userId, workspaceId }) => {
+      localStorage.setItem(`pullet.workspace.${userId}`, workspaceId);
+    },
+    { userId: setup.user.id, workspaceId: workspace.id },
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: '公共库', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '工作区公共库', exact: true });
+  await dialog.getByRole('button', { name: '上传素材', exact: true }).click();
+  const upload = dialog.getByRole('region', { name: '公共库上传', exact: true });
+  await upload.getByLabel('选择公共素材', { exact: true }).setInputFiles([
+    { name: 'image.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes },
+    { name: 'clip.mp4', mimeType: 'video/mp4', buffer: fixtures['clip.mp4'].bytes },
+    { name: 'sound.wav', mimeType: 'audio/wav', buffer: fixtures['sound.wav'].bytes },
+  ]);
+  let finish!: () => void,
+    begun!: () => void,
+    lose = true;
+  const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    }),
+    started = new Promise<void>((resolve) => {
+      begun = resolve;
+    });
+  await page.route(`**/workspaces/${workspace.id}/public-library/media-uploads/*/content`, async (route) => {
+    if (lose) {
+      lose = false;
+      await route.fetch();
+      begun();
+      await gate;
+      await route.abort();
+    } else await route.continue();
+  });
+  await upload.getByRole('button', { name: '开始上传', exact: true }).click();
+  await started;
+  await expect(dialog.getByRole('button', { name: '关闭对话框', exact: true })).toBeDisabled();
+  finish();
+  await expect(upload.getByText('已归档到公共库', { exact: true })).toHaveCount(3);
+  await expect(dialog.locator('.creative-source-card')).toHaveCount(3);
+  expect(await call('GET', `/projects?workspaceId=${workspace.id}`)).toHaveLength(0);
+  const resources = await call('GET', `/workspaces/${workspace.id}/public-library/resources`);
+  for (const row of resources.items) {
+    const response = await owner.get(row.contentUrl);
+    expect(await response.body()).toEqual(fixtures[row.title].bytes);
+  }
+  await upload.getByRole('button', { name: '上传素材', exact: true }).click();
+  await page.screenshot({ path: 'test-results/public-direct-upload-desktop.png' });
+  await upload.getByRole('button', { name: '上传素材', exact: true }).click();
+  await upload.getByLabel('选择公共素材', { exact: true }).setInputFiles({
+    name: 'invalid.png',
+    mimeType: 'image/png',
+    buffer: Buffer.alloc(fixtures['image.png'].bytes.length, 33),
+  });
+  await upload.getByRole('button', { name: '开始上传', exact: true }).click();
+  const failed = upload.locator('li').filter({ has: page.getByText('invalid.png', { exact: true }) });
+  await expect(failed.getByRole('alert')).toBeVisible();
+  await expect(dialog.locator('.creative-source-card')).toHaveCount(3);
+  const pending = await call('GET', `/workspaces/${workspace.id}/public-library/media-uploads`);
+  expect(pending.items).toHaveLength(1);
+  const pendingId = pending.items[0].id;
+  await page.reload();
+  await page.getByRole('button', { name: '公共库', exact: true }).click();
+  await upload.getByRole('button', { name: '上传素材', exact: true }).click();
+  await upload
+    .getByLabel('继续上传 invalid.png', { exact: true })
+    .setInputFiles({ name: 'invalid.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
+  await upload.getByRole('button', { name: '开始上传', exact: true }).click();
+  await expect(upload.getByText('已归档到公共库', { exact: true })).toHaveCount(1);
+  expect(
+    (await call('GET', `/workspaces/${workspace.id}/public-library/media-uploads/${pendingId}`)).state,
+  ).toBe('complete');
+  await expect(dialog.locator('.creative-source-card')).toHaveCount(4);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/public-direct-upload-mobile.png' });
+  await dialog.getByRole('button', { name: '关闭对话框', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const target = await call('POST', '/projects', { workspaceId: workspace.id, title: 'Direct media reuse' });
+  await page.reload();
+  await page.getByRole('button', { name: `打开项目 ${target.title}`, exact: true }).click();
+  await createBoard(page, 'Native media');
+  const library = page.getByRole('complementary', { name: '正式项目资源' });
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await library.getByRole('button', { name: '添加公共素材 image.png 到本项目', exact: true }).click();
+  await expect(library.getByRole('button', { name: '添加 image.png', exact: true })).toBeVisible();
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  const inlineUpload = library.getByRole('region', { name: '公共库上传', exact: true });
+  await inlineUpload.getByRole('button', { name: '上传素材', exact: true }).click();
+  await inlineUpload
+    .getByLabel('选择公共素材', { exact: true })
+    .setInputFiles({ name: 'from-project.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
+  await inlineUpload.getByRole('button', { name: '开始上传', exact: true }).click();
+  await expect(inlineUpload.getByText('已归档到公共库', { exact: true })).toHaveCount(1);
+  await expect(
+    library.getByRole('button', { name: '预览公共素材 from-project.png', exact: true }),
+  ).toBeVisible();
+  expect((await call('GET', `/projects/${target.id}/media-assets`)).items).toHaveLength(1);
+});
+
 test('workspace library opens independently, preserves focus and isolates workspace changes', async ({
   page,
 }) => {

@@ -29,7 +29,7 @@ export const publicLibraryQuery = z
     cursor: uuid.optional(),
   })
   .strict();
-async function publicMediaAction<T>(action: () => Promise<T>) {
+export async function publicMediaAction<T>(action: () => Promise<T>) {
   try {
     return await action();
   } catch (error) {

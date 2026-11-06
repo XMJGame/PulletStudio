@@ -13,6 +13,8 @@ import {
   storageConnections,
   takes,
   workspaceMediaImports,
+  workspaceNativeImports,
+  workspaceMediaUploads,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -24,6 +26,10 @@ import { takeReviewState } from './take-review-state';
 import { ResourceAccessService } from './resource-access.service';
 type Upload = typeof mediaUploads.$inferSelect;
 type Prepared = { original: { bytes: number; sha256: string }; details: MediaDetails };
+export type ArchivedMedia = Pick<
+  typeof mediaVersions.$inferSelect,
+  'id' | 'storageId' | 'objectKey' | 'fileName' | 'mime' | 'byteLength' | 'sha256' | 'posterJson'
+>;
 export function safeMediaError(error: unknown) {
   if (error instanceof StorageFailure) return { code: error.code, message: error.message };
   if (error instanceof HttpException) {
@@ -76,6 +82,15 @@ export class MediaService {
             .where(eq(mediaUploads.mediaVersionId, row.id))
             .get() ?? null)
         : null;
+    const nativeSource =
+      row.origin === 'workspace_library' && !librarySource
+        ? this.database.db
+            .select({ importId: workspaceNativeImports.id, resourceId: workspaceNativeImports.resourceId })
+            .from(workspaceNativeImports)
+            .innerJoin(mediaUploads, eq(mediaUploads.id, workspaceNativeImports.uploadId))
+            .where(eq(mediaUploads.mediaVersionId, row.id))
+            .get()
+        : null;
     return {
       id: row.id,
       assetId: row.assetId,
@@ -88,7 +103,7 @@ export class MediaService {
       sha256: row.sha256,
       metadata: JSON.parse(row.metadataJson) as MediaDetails['metadata'],
       origin: row.origin,
-      ...(librarySource ? { librarySource } : {}),
+      ...((librarySource ?? nativeSource) ? { librarySource: librarySource ?? nativeSource } : {}),
       createdAt: row.createdAt,
       contentUrl: `/api/v1/media-versions/${row.id}/content`,
       downloadUrl: `/api/v1/media-versions/${row.id}/content?download=1`,
@@ -330,7 +345,17 @@ export class MediaService {
           .from(mediaUploads)
           .where(and(eq(mediaUploads.state, 'uploading'), gt(mediaUploads.leaseUntil, Date.now())))
           .get()!.n;
-        if (active >= 2) fail(429, 'MEDIA_UPLOAD_BUSY', '当前已有两个媒体任务，请稍后重试');
+        const publicActive = this.database.db
+          .select({ n: count() })
+          .from(workspaceMediaUploads)
+          .where(
+            and(
+              eq(workspaceMediaUploads.state, 'uploading'),
+              gt(workspaceMediaUploads.leaseUntil, Date.now()),
+            ),
+          )
+          .get()!.n;
+        if (active + publicActive >= 2) fail(429, 'MEDIA_UPLOAD_BUSY', '当前已有两个媒体任务，请稍后重试');
         const lease = randomUUID();
         const updated = this.database.db
           .update(mediaUploads)
@@ -783,22 +808,21 @@ export class MediaService {
       { behavior: 'immediate' },
     );
   }
-  async content(
-    user: CurrentUser,
-    id: string,
-    poster: boolean,
-    rangeHeader?: string,
-    authorizedResource?: () => void,
-  ) {
+  async content(user: CurrentUser, id: string, poster: boolean, rangeHeader?: string) {
     const row = this.database.db.select().from(mediaVersions).where(eq(mediaVersions.id, id)).get();
     if (!row) fail(404, 'NOT_FOUND', '媒体版本不存在或无权访问');
     const authorize = () => {
-      if (authorizedResource) authorizedResource();
-      else {
-        this.authz.project(user, row.projectId);
-        assertSampleAccess(this.database, user, row);
-      }
+      this.authz.project(user, row.projectId);
+      assertSampleAccess(this.database, user, row);
     };
+    return this.openContent(row, poster, rangeHeader, authorize);
+  }
+  async openContent(
+    row: ArchivedMedia,
+    poster: boolean,
+    rangeHeader: string | undefined,
+    authorize: () => void,
+  ) {
     authorize();
     if ((await this.storage.ready()) !== row.storageId)
       throw new StorageFailure('STORAGE_CONNECTION_UNAVAILABLE', '此媒体的原存储根尚未恢复');

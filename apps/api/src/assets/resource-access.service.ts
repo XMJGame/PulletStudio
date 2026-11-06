@@ -8,6 +8,9 @@ import {
   mediaVersions,
   workspaceMediaImports,
   workspaceMediaResources,
+  workspaceMediaFiles,
+  workspaceNativeResources,
+  workspaceNativeImports,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 
@@ -42,24 +45,44 @@ export class ResourceAccessService {
     );
   }
   publicMedia(user: CurrentUser, id: string, action: 'read' | 'manage' = 'read') {
-    const row = this.database.db
+    const legacy = this.database.db
       .select()
       .from(workspaceMediaResources)
       .where(eq(workspaceMediaResources.id, id))
       .get();
+    const native = legacy
+      ? undefined
+      : this.database.db
+          .select()
+          .from(workspaceNativeResources)
+          .where(eq(workspaceNativeResources.id, id))
+          .get();
+    const row =
+      legacy ?? (native ? { ...native, sourceProjectId: null, sourceMediaVersionId: null } : undefined);
     if (!row || row.removedAt) fail(404, 'PUBLIC_RESOURCE_UNAVAILABLE', '公共素材已移除或不可用');
     const member = this.authz.workspace(user, row.workspaceId);
     if (action === 'manage' && member.role === 'MEMBER' && row.createdBy !== user.id)
       fail(403, 'FORBIDDEN', '仅收录者和工作区管理员可管理此素材');
-    const media = this.database.db
-      .select()
-      .from(mediaVersions)
-      .where(eq(mediaVersions.id, row.sourceMediaVersionId))
-      .get();
+    const media = legacy
+      ? this.database.db
+          .select()
+          .from(mediaVersions)
+          .where(eq(mediaVersions.id, legacy.sourceMediaVersionId))
+          .get()
+      : this.database.db
+          .select()
+          .from(workspaceMediaFiles)
+          .where(eq(workspaceMediaFiles.id, native!.fileId))
+          .get();
     if (!media || media.workspaceId !== row.workspaceId)
       fail(404, 'PUBLIC_RESOURCE_UNAVAILABLE', '公共素材不可用');
-    this.shareable(media);
-    return { resource: row, media, canManage: member.role !== 'MEMBER' || row.createdBy === user.id };
+    if (legacy) this.shareable(media as typeof mediaVersions.$inferSelect);
+    return {
+      resource: row,
+      media,
+      native: !!native,
+      canManage: member.role !== 'MEMBER' || row.createdBy === user.id,
+    };
   }
   shareable(media: typeof mediaVersions.$inferSelect) {
     const asset = this.database.db.select().from(mediaAssets).where(eq(mediaAssets.id, media.assetId)).get();
@@ -77,11 +100,18 @@ export class ResourceAccessService {
       fail(403, 'VOICE_SAMPLE_RESTRICTED', '受保护的声音样本不能收录到公共库');
   }
   pendingImport(user: CurrentUser, uploadId: string) {
-    const row = this.database.db
+    const legacy = this.database.db
       .select()
       .from(workspaceMediaImports)
       .where(eq(workspaceMediaImports.uploadId, uploadId))
       .get();
+    const row =
+      legacy ??
+      this.database.db
+        .select()
+        .from(workspaceNativeImports)
+        .where(eq(workspaceNativeImports.uploadId, uploadId))
+        .get();
     if (!row) return;
     const project = this.authz.project(user, row.projectId, 'edit');
     const source = this.publicMedia(user, row.resourceId);

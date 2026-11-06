@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { api, type CursorPage } from '../api';
 import { LibraryFolderControls, type LibraryFolder } from './LibraryFolderControls';
 import { StudioIcon } from '../shared/ui/StudioUI';
+import { PublicLibraryUpload } from './PublicLibraryUpload';
 export type PublicLibraryFilters = { folderId: string; query: string; mediaType: string };
 type PublicMedia = {
   id: string;
@@ -15,7 +16,7 @@ type PublicMedia = {
   posterUrl: string | null;
   metadata: { width: number | null; height: number | null; durationMs: number | null };
 };
-type PublicPage = CursorPage<PublicMedia> & { canManageFolders: boolean };
+type PublicPage = CursorPage<PublicMedia> & { canManageFolders: boolean; workspaceId?: string };
 export function PublicLibraryPanel({
   projectId,
   workspaceId,
@@ -45,9 +46,11 @@ export function PublicLibraryPanel({
   const [error, setError] = useState(''),
     [operationError, setOperationError] = useState('');
   const [folderBusy, setFolderBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
   useEffect(() => {
-    onBusyChange?.(busy || folderBusy);
-  }, [busy, folderBusy, onBusyChange]);
+    onBusyChange?.(busy || folderBusy || uploadBusy);
+    return () => onBusyChange?.(false);
+  }, [busy, folderBusy, uploadBusy, onBusyChange]);
   const [preview, setPreview] = useState<PublicMedia>(),
     [remove, setRemove] = useState<string>();
   const [previewError, setPreviewError] = useState(false);
@@ -74,7 +77,12 @@ export function PublicLibraryPanel({
   useEffect(() => {
     let active = true;
     setLoading(true);
-    setValue({ items: [], nextCursor: null, canManageFolders: false });
+    setValue((old) => ({
+      items: [],
+      nextCursor: null,
+      canManageFolders: old.canManageFolders,
+      workspaceId: old.workspaceId,
+    }));
     setError('');
     api<PublicPage>(path)
       .then(
@@ -199,6 +207,14 @@ export function PublicLibraryPanel({
           ? '工作区成员共享。添加到项目后，可用于画布与生成。'
           : '整理团队共用的参考素材。进入项目后，可从资源库添加并用于创作。'}
       </p>
+      {(workspaceId ?? value.workspaceId) && (
+        <PublicLibraryUpload
+          workspaceId={(workspaceId ?? value.workspaceId)!}
+          folderId={folderId}
+          onBusyChange={setUploadBusy}
+          onComplete={() => setRetry((count) => count + 1)}
+        />
+      )}
       <div className="creative-public-controls">
         <LibraryFolderControls
           projectId={projectId ?? ''}
@@ -267,7 +283,7 @@ export function PublicLibraryPanel({
           <div className="creative-source-item creative-public-item" key={row.id}>
             <button
               className="creative-source-card"
-              disabled={folderBusy}
+              disabled={folderBusy || uploadBusy}
               id={`${previewId}-${row.id}`}
               aria-label={`预览公共素材 ${row.title}`}
               onClick={() => {
