@@ -94,7 +94,7 @@
   isolation: isolate;
   overflow: hidden;
   border-radius: var(--r-panel);
-  background: #243c3b;
+  background: #252830;
   color: #fff;
   box-shadow: var(--shadow);
 }
@@ -112,11 +112,11 @@
   inset: 0;
   content: '';
   z-index: -1;
-  background: linear-gradient(90deg, #0c1b23ef 0%, #0d20279e 40%, #10212604 82%);
+  background: linear-gradient(90deg, #181b23ef 0%, #20242c9e 40%, #20242c04 82%);
 }
 .v2-featured[data-cover='false'] {
   height: clamp(185px, 25vh, 255px);
-  background: radial-gradient(ellipse at 100% 0%, #55776a60, transparent 64%), #18352f;
+  background: radial-gradient(ellipse at 100% 0%, #66708445, transparent 64%), #262a32;
 }
 .v2-featured-copy {
   height: 100%;
@@ -133,7 +133,7 @@
   border: 1px solid #ffffff45;
   border-radius: 99px;
   padding: 3px 9px;
-  color: #e0ede5;
+  color: #e6e8ed;
   font-size: 11px;
 }
 .v2-featured-copy h2 {
@@ -143,14 +143,14 @@
   margin: 12px 0 8px;
 }
 .v2-featured-copy p {
-  color: #e0ede5;
+  color: #e6e8ed;
   margin-bottom: 19px;
   font-size: 12px;
 }
 .v2-featured-copy .v2-button {
   background: #fff;
   border-color: #fff;
-  color: #183529;
+  color: #292c33;
 }
 .v2-gallery-header {
   margin: 26px 0 12px;
@@ -256,21 +256,8 @@
 }
 .v2-project-cover:has(.v2-cover-mark) {
   background:
-    radial-gradient(ellipse at 78% 17%, #d2e7d3 0%, transparent 59%),
-    linear-gradient(125deg, #b5d4c2, #e5ece2);
-  color: #254636;
-}
-.v2-project-cover[data-tone='1']:has(.v2-cover-mark) {
-  background:
-    radial-gradient(ellipse at 75% 12%, #e4decc 0%, transparent 56%),
-    linear-gradient(125deg, #c5b895, #eee9de);
-  color: #54462f;
-}
-.v2-project-cover[data-tone='2']:has(.v2-cover-mark) {
-  background:
-    radial-gradient(ellipse at 74% 17%, #d8e2ec 0%, transparent 55%),
-    linear-gradient(125deg, #afc4d4, #e4eaf0);
-  color: #304655;
+    radial-gradient(ellipse at 78% 17%, var(--cover-highlight) 0%, transparent 59%), var(--cover-ground);
+  color: var(--cover-ink);
 }
 .v2-cover-mark {
   display: grid;
@@ -278,8 +265,8 @@
   width: 52px;
   height: 52px;
   border-radius: 16px;
-  border: 1px solid #ffffff9f;
-  background: #ffffff5c;
+  border: 1px solid var(--line);
+  background: var(--paper);
 }
 .v2-project-top-actions {
   display: flex;

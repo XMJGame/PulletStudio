@@ -619,7 +619,7 @@ export default function BoardWorkspace({
         sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
         targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
         label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
-        style: edge.kind === 'input_binding' ? { stroke: '#67bdcf', strokeWidth: 2 } : undefined,
+        style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
         hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
       })),
     [layout?.edges, flowNodes],

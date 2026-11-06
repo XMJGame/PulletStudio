@@ -34,7 +34,7 @@
   font-size: 12px;
 }
 .v2-candidate-filed {
-  color: var(--accent);
+  color: var(--success);
 }
 .v2-candidate-snapshot {
   margin-top: 10px;

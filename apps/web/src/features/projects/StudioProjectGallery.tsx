@@ -167,7 +167,7 @@ export function StudioProjectGallery({
                 aria-label={`打开项目 ${project.title}`}
                 onClick={() => onOpen(project)}
               >
-                <div className="v2-project-cover" data-tone={project.id.charCodeAt(0) % 3}>
+                <div className="v2-project-cover">
                   {project.cover ? (
                     <img src={project.cover} alt="" />
                   ) : (

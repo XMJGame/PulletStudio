@@ -7,7 +7,7 @@
       "file": "project.png",
       "width": 1440,
       "height": 900,
-      "bytes": 196500
+      "bytes": 183466
     },
     {
       "label": "项目首页 · 深色手机",
@@ -15,7 +15,7 @@
       "file": "project-mobile.png",
       "width": 390,
       "height": 844,
-      "bytes": 125933
+      "bytes": 101621
     },
     {
       "label": "正式创作与候选归档",
@@ -23,7 +23,15 @@
       "file": "canvas.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 205842
+      "bytes": 201831
+    },
+    {
+      "label": "正式创作与候选归档 · 深色",
+      "source": "test-results/studio-acceptance-result-dark.png",
+      "file": "canvas-dark.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 203753
     },
     {
       "label": "素材上传",
@@ -31,7 +39,7 @@
       "file": "media.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 176459
+      "bytes": 164418
     },
     {
       "label": "提示词管理",
@@ -39,7 +47,7 @@
       "file": "prompts.png",
       "width": 1440,
       "height": 900,
-      "bytes": 101192
+      "bytes": 97053
     },
     {
       "label": "工作流中心",
@@ -47,7 +55,7 @@
       "file": "workflows.png",
       "width": 1440,
       "height": 900,
-      "bytes": 121083
+      "bytes": 116578
     },
     {
       "label": "候选对照",
@@ -55,7 +63,7 @@
       "file": "candidates.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 114559
+      "bytes": 112158
     },
     {
       "label": "只读资源预览",
@@ -63,7 +71,7 @@
       "file": "resource-mobile.png",
       "width": 390,
       "height": 844,
-      "bytes": 37518
+      "bytes": 35801
     },
     {
       "label": "工作流中心 · 深色实际 150% 缩放",
@@ -71,7 +79,7 @@
       "file": "workflow-zoom.png",
       "width": 1440,
       "height": 900,
-      "bytes": 101466
+      "bytes": 100571
     },
     {
       "label": "画布冲突与草稿",
@@ -79,7 +87,7 @@
       "file": "conflict.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 82594
+      "bytes": 80058
     },
     {
       "label": "提示词冲突与草稿",
@@ -87,7 +95,7 @@
       "file": "prompt-conflict.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 89046
+      "bytes": 86480
     },
     {
       "label": "无效工作流与输入保留",
@@ -95,7 +103,7 @@
       "file": "workflow-error.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 97203
+      "bytes": 93971
     },
     {
       "label": "生成中 · Mock 远端",
@@ -103,7 +111,7 @@
       "file": "running.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 108452
+      "bytes": 105381
     },
     {
       "label": "项目撤权",
@@ -111,7 +119,7 @@
       "file": "denied.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 12754
+      "bytes": 12730
     },
     {
       "label": "上传失败与恢复",
@@ -119,7 +127,7 @@
       "file": "upload-error.png",
       "width": 390,
       "height": 844,
-      "bytes": 55638
+      "bytes": 51396
     }
   ]
 }

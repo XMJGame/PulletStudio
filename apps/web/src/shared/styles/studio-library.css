@@ -103,7 +103,8 @@
 }
 .v2-library .notice.success {
   border-color: var(--line);
-  background: var(--accent-soft);
+  color: var(--success);
+  background: var(--success-soft);
 }
 .v2-library .notice.error {
   background: var(--danger-soft);

@@ -1,23 +1,31 @@
 .studio-v2 {
-  --ink: #17221e;
-  --muted: #53615b;
-  --subtle: #65726b;
-  --ground: #f6f7f5;
+  --ink: #24262b;
+  --muted: #62666f;
+  --subtle: #737780;
+  --ground: #f6f7f9;
   --paper: #ffffff;
-  --soft: #eef1ed;
-  --line: #dce2dc;
-  --dot: #cbd4cc;
-  --accent: #176449;
-  --accent-soft: #e6f3eb;
-  --action: #183d31;
+  --soft: #f0f1f3;
+  --line: #dfe1e6;
+  --dot: #d6d9de;
+  --accent: #0969da;
+  --accent-soft: #eaf3ff;
+  --action: #303238;
   --action-ink: #ffffff;
+  --success: #237544;
+  --success-soft: #ebf5ee;
+  --edge: #858c98;
+  --mini-node: #98a2af;
+  --media-ground: #181a1f;
+  --cover-ground: #e5e7eb;
+  --cover-highlight: #f3f4f6;
+  --cover-ink: #4b515c;
   --danger: #9e3428;
   --danger-soft: #faeee9;
   --warning: #80551b;
   --warning-soft: #fff3dc;
   --warning-line: #dfc79b;
-  --shadow: 0 3px 10px #10291b0a, 0 12px 35px #10291b0c;
-  --lift: 0 5px 14px #10291b10, 0 24px 56px #10291b1a;
+  --shadow: 0 3px 10px #171a2008, 0 12px 35px #171a200b;
+  --lift: 0 5px 14px #171a2010, 0 24px 56px #171a201a;
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
@@ -44,18 +52,25 @@
     sans-serif;
 }
 .studio-v2[data-theme='dark'] {
-  --ink: #e8f0eb;
-  --muted: #b5c2ba;
-  --subtle: #a7b5ac;
-  --ground: #161d1a;
-  --paper: #202a25;
-  --soft: #2a362f;
-  --line: #39483e;
-  --dot: #38483e;
-  --accent: #90d5af;
-  --accent-soft: #273e32;
-  --action: #a0daba;
-  --action-ink: #182b21;
+  --ink: #e8eaed;
+  --muted: #b2b5bc;
+  --subtle: #a4a8b0;
+  --ground: #1c1f24;
+  --paper: #24262c;
+  --soft: #2e3138;
+  --line: #3b3e47;
+  --dot: #343840;
+  --accent: #70b4ff;
+  --accent-soft: #193451;
+  --action: #eef0f4;
+  --action-ink: #25272d;
+  --success: #8ed4a7;
+  --success-soft: #25392c;
+  --edge: #777f8d;
+  --mini-node: #7d8796;
+  --cover-ground: #30343c;
+  --cover-highlight: #414650;
+  --cover-ink: #c4c8d0;
   --danger: #ffb2a6;
   --danger-soft: #493029;
   --warning: #f2c784;
@@ -67,6 +82,16 @@
 }
 .studio-v2 * {
   box-sizing: border-box;
+}
+.studio-v2 .react-flow {
+  --xy-background-color: var(--ground);
+  --xy-minimap-background-color: var(--paper);
+  --xy-controls-button-background-color: var(--paper);
+  --xy-controls-button-background-color-hover: var(--soft);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-border-color: var(--line);
+  --xy-attribution-background-color: var(--paper);
+  --xy-attribution-color: var(--muted);
 }
 .studio-v2 :is(button, input, select, textarea) {
   font: inherit;

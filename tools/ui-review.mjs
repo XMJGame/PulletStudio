@@ -8,6 +8,7 @@ const captures = [
   ['项目首页 · 浅色桌面', 'review-project-light-1440.png', 'project.png'],
   ['项目首页 · 深色手机', 'review-project-dark-390.png', 'project-mobile.png'],
   ['正式创作与候选归档', 'studio-acceptance-result.png', 'canvas.png'],
+  ['正式创作与候选归档 · 深色', 'studio-acceptance-result-dark.png', 'canvas-dark.png'],
   ['素材上传', 'studio-acceptance-media-light.png', 'media.png'],
   ['提示词管理', 'review-prompts-light-1440.png', 'prompts.png'],
   ['工作流中心', 'review-workflows-light-1440.png', 'workflows.png'],

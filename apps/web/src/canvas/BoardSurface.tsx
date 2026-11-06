@@ -232,11 +232,11 @@ export function BoardSurface({
             onlyRenderVisibleElements
             colorMode={theme}
             defaultEdgeOptions={{
-              style: { stroke: theme === 'light' ? '#738094' : '#a7aebd', strokeWidth: 2 },
+              style: { stroke: 'var(--edge)', strokeWidth: 2 },
             }}
           >
-            <Background gap={22} size={1} color={theme === 'light' ? '#bcc7d8' : '#394454'} />
-            <MiniMap nodeColor={theme === 'light' ? '#91a3bf' : '#7187a7'} pannable zoomable />
+            <Background gap={22} size={1} color="var(--dot)" />
+            <MiniMap nodeColor="var(--mini-node)" maskColor="var(--ground)" pannable zoomable />
             <Controls showInteractive={false} />
           </ReactFlow>
         </BoardVideoPreview.Provider>

@@ -119,6 +119,7 @@ test('project main view keeps drafts and isolates modal focus and clipboard inpu
   await expect(page.locator('.v2-project-shell')).toHaveCount(0);
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   const id = await createBoard(page, 'Main view');
+  await expectReadable(page.getByRole('button', { name: '资源库', exact: true }));
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(new RegExp(`#canvas/${id}$`));
   for (const viewport of [
@@ -169,6 +170,10 @@ test('project main view keeps drafts and isolates modal focus and clipboard inpu
   await expect(page.getByLabel('当前画布名称')).toHaveValue('Main view');
   await expect(page.locator('.react-flow__node')).toHaveCount(1);
   await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.getByLabel('当前画布名称').fill('Main view contrast');
+  await page.getByRole('button', { name: '保存画布', exact: true }).hover();
+  await expectReadable(page.getByRole('button', { name: '保存画布', exact: true }));
+  await page.getByLabel('当前画布名称').fill('Main view');
   await page.screenshot({ path: 'test-results/project-main-dark.png' });
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true })).toBeVisible();
@@ -913,6 +918,14 @@ test('a new project imports media and a workflow, generates and shares its resul
       .toBeGreaterThan(0.05);
     await video.evaluate((element: HTMLVideoElement) => element.pause());
     await page.screenshot({ path: 'test-results/studio-acceptance-result.png' });
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.screenshot({
+      path: 'test-results/studio-acceptance-result-dark.png',
+      animations: 'disabled',
+    });
+    await expectReadable(page.getByRole('button', { name: '媒体', exact: true }));
+    await expectReadable(panel.getByRole('button', { name: '执行生成节点', exact: true }));
+    await page.getByRole('button', { name: '浅色画布', exact: true }).click();
     await panel.getByRole('button', { name: '查看任务与候选', exact: true }).click();
     const tasks = page.getByRole('dialog', { name: '自由生成', exact: true });
     await expect(tasks).toHaveAttribute('data-theme', 'light');

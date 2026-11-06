@@ -138,8 +138,8 @@ export default function WorkflowGraphPreview({
                 setInput('');
               }}
             >
-              <Background />
-              <MiniMap />
+              <Background color="var(--dot)" />
+              <MiniMap nodeColor="var(--mini-node)" maskColor="var(--ground)" />
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>

@@ -52,8 +52,8 @@
   border-color: var(--line);
 }
 .studio-modal .notice.success {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--success);
+  background: var(--success-soft);
   border-color: var(--line);
 }
 .studio-modal :is(.danger-text, .creative-remove) {

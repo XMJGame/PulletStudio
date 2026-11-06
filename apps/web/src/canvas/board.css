@@ -31,7 +31,7 @@
 .creative-board-list span,
 .creative-save-state,
 .creative-help {
-  color: #a9b2c0;
+  color: var(--board-muted);
   font-size: 12px;
 }
 .creative-save-state {
@@ -116,8 +116,8 @@
   padding: 8px 12px;
 }
 .creative-source-tabs button[aria-pressed='true'] {
-  border-color: #c9ad79;
-  color: #dec28f;
+  border-color: var(--board-accent);
+  color: var(--board-accent);
 }
 .creative-source-list {
   display: grid;
@@ -135,7 +135,7 @@
 }
 .creative-source-list span,
 .creative-source-list small {
-  color: #a9b2c0;
+  color: var(--board-muted);
   font-size: 11px;
 }
 .creative-source-list strong,
@@ -171,7 +171,7 @@
   padding: 2px 5px;
   border-radius: 4px;
   color: #fff;
-  background: #172338db;
+  background: #252932db;
 }
 .creative-surface {
   position: absolute;
@@ -203,7 +203,7 @@
 }
 .creative-node-kind,
 .creative-node footer {
-  color: #c9ad79;
+  color: var(--board-muted);
   font-size: 11px;
 }
 .creative-node p {
@@ -234,7 +234,7 @@
   height: 100%;
   min-height: 0;
   object-fit: contain;
-  background: #101512;
+  background: var(--media-ground);
 }
 .creative-media-frame .creative-media-play {
   position: absolute;
@@ -263,7 +263,7 @@
   bottom: 7px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: #101512cc;
+  background: #181a1fcc;
   color: white;
   font-size: 11px;
 }
@@ -297,29 +297,29 @@
 }
 .creative-node.unavailable {
   opacity: 0.8;
-  border: 1px dashed #92705e;
+  border: 1px dashed var(--danger);
 }
 .creative-resource-error,
 .creative-reference-state.revoked,
 .creative-reference-state.unavailable {
-  color: #e7a797;
+  color: var(--danger);
 }
 .creative-reference-state.stale,
 .creative-reference-state.draft {
-  color: #dfc38d;
+  color: var(--warning);
 }
 .creative-group-card {
   height: 100%;
   padding: 20px;
-  background: #b6a0700b;
-  border: 1px dashed #8a7958;
+  background: var(--soft);
+  border: 1px dashed var(--line);
   border-radius: 12px;
   display: flex;
   align-items: start;
   justify-content: space-between;
 }
 .creative-group-card small {
-  color: #b6a070;
+  color: var(--muted);
 }
 .creative-inspector label {
   margin-top: 20px;
@@ -374,7 +374,7 @@
 }
 .creative-remove {
   margin-top: 24px;
-  color: #e7a797;
+  color: var(--danger);
 }
 .creative-media {
   margin: 16px 0;
@@ -385,14 +385,14 @@
   width: 100%;
   max-height: 280px;
   object-fit: contain;
-  background: #0c1015;
+  background: var(--media-ground);
 }
 .creative-media a {
   font-size: 12px;
 }
 .creative-help {
   padding: 8px 18px;
-  border-top: 1px solid #343c48;
+  border-top: 1px solid var(--board-line);
 }
 .creative-history {
   display: grid;
@@ -404,7 +404,7 @@
   gap: 8px;
 }
 .creative-history small {
-  color: #a9b2c0;
+  color: var(--board-muted);
 }
 .creative-detail-text {
   font-size: 12px;
@@ -417,7 +417,7 @@
   font-size: 13px;
 }
 .creative-detail-fields dt {
-  color: #a9b2c0;
+  color: var(--board-muted);
   margin: 12px 0 5px;
 }
 .creative-detail-fields dd {

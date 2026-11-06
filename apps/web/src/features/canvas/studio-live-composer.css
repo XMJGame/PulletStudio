@@ -189,7 +189,7 @@
   font-size: var(--caption);
 }
 .v2-live-candidate strong[data-state='completed'] {
-  color: var(--accent);
+  color: var(--success);
 }
 .v2-live-candidate :is(img, video) {
   display: block;
@@ -201,7 +201,7 @@
 .v2-live-candidate video {
   width: min(100%, 320px);
   aspect-ratio: 16 / 9;
-  background: #15231e;
+  background: var(--media-ground);
 }
 @media (max-width: 760px) {
   .studio-live-board .creative-context-composer {
