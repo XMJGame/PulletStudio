@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Connection, EdgeChange, NodeChange } from '@xyflow/react';
 import type {
   BoardLayout,
@@ -14,15 +14,20 @@ import { Dialog } from '../components/Dialog';
 import { GenerationDialog } from '../components/GenerationDialog';
 import { MediaDialog } from '../components/MediaDialog';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
-import type { PromptDraft } from '../prompts/prompt-library-types';
+import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
+import { CanvasImportDialog } from './CanvasImportDialog';
+import { mediaFileAccept } from '../media-upload';
 import { BoardExecutionPanel } from './BoardExecutionPanel';
 import type { GenerationJob } from '../components/GenerationDialog';
-import { BoardInspector } from './BoardInspector';
+import { BoardInspector, BoardNodeLayout } from './BoardInspector';
 import { BoardSources } from './BoardSources';
 import type { CanvasNode } from './board-types';
 import './board.css';
+import { StudioBrand, StudioButton } from '../shared/ui/StudioUI';
+import { EntityLibraryDialog } from '../components/EntityLibraryDialog';
+import '../features/canvas/studio-live-board.css';
 type History = {
   items: { revision: number; title: string; createdAt: string; authorName: string }[];
   nextCursor: number | null;
@@ -39,17 +44,27 @@ const unavailable = { status: 'unavailable', title: '引用不可用' } as const
 export default function BoardWorkspace({
   projectId,
   projectTitle,
+  projectMessage,
   userId,
   canEdit,
   onClose,
   onUnauthorized,
+  theme,
+  onToggleTheme,
+  onWorkflows,
+  projectActions,
 }: {
   projectId: string;
   projectTitle: string;
+  projectMessage?: string;
   userId: string;
   canEdit: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
+  onWorkflows: () => void;
+  projectActions?: ReactNode;
 }) {
   const [boards, setBoards] = useState<BoardListItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -68,15 +83,16 @@ export default function BoardWorkspace({
   const [detail, setDetail] = useState<BoardResolved>();
   const [freeGeneration, setFreeGeneration] = useState(false);
   const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft; target?: string }>();
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    try {
-      return localStorage.getItem('pullet.canvas.theme') === 'dark' ? 'dark' : 'light';
-    } catch {
-      return 'light';
-    }
-  });
   const [showSources, setShowSources] = useState(() => window.innerWidth > 760);
   const [mediaLibrary, setMediaLibrary] = useState(false);
+  const [entityLibrary, setEntityLibrary] = useState(false);
+  const [fileImport, setFileImport] = useState<{ files: File[]; position?: BoardNode['position'] }>();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  useEffect(() => {
+    workspaceRef.current?.focus();
+  }, []);
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 760px)');
     const collapse = (event: MediaQueryListEvent) => {
@@ -95,8 +111,8 @@ export default function BoardWorkspace({
   const createAttempt = useRef({ body: '', key: '' });
   const saveAttempt = useRef({ body: '', key: '' });
   const epoch = useRef(0);
-  const current = useRef({ base, layout, title });
-  current.current = { base, layout, title };
+  const current = useRef({ base, layout, title, canEdit: false });
+  current.current = { base, layout, title, canEdit: !!base?.canEdit && !busy && !denied };
   const dirty =
     !!base &&
     !!layout &&
@@ -166,18 +182,37 @@ export default function BoardWorkspace({
   }
   useEffect(() => {
     let live = true;
-    void api<CursorPage<BoardListItem>>(listPath)
-      .then((value) => {
-        if (live) {
-          setBoards(value.items);
-          setCursor(value.nextCursor);
+    const requested = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1];
+    const remembered = lastBoard(userId, projectId);
+    void (async () => {
+      try {
+        const value = await api<CursorPage<BoardListItem>>(listPath);
+        if (!live) return;
+        setBoards(value.items);
+        setCursor(value.nextCursor);
+        const choices = [
+          ...new Set([requested, remembered, value.items[0]?.id].filter((id): id is string => Boolean(id))),
+        ];
+        for (const id of choices) {
+          try {
+            const board = await api<BoardView>(`/boards/${id}`);
+            if (!live) return;
+            if (board.projectId === projectId) {
+              accept(board);
+              return;
+            }
+          } catch (reason) {
+            if (!(reason instanceof ApiError && [403, 404].includes(reason.status))) throw reason;
+          }
+          if (live && id === remembered) forgetBoard(userId, projectId);
         }
-      })
-      .catch((reason) => {
+        if (live && (requested || remembered)) window.history.replaceState(null, '', '#canvas');
+      } catch (reason) {
         if (live) report(reason);
-      });
-    const id = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1] ?? lastBoard(userId, projectId);
-    if (id) void load(id);
+      } finally {
+        if (live) setInitialLoading(false);
+      }
+    })();
     return () => {
       live = false;
       epoch.current++;
@@ -261,7 +296,6 @@ export default function BoardWorkspace({
         'Idempotency-Key': saveAttempt.current.key,
       });
       accept(value, true);
-      setMessage(`已保存 v${value.revision}`);
       if (value.headRevision > value.revision) {
         setRemote(await api<BoardView>(`/boards/${base.id}`));
         return;
@@ -338,11 +372,13 @@ export default function BoardWorkspace({
     const width = type === 'group' ? 700 : media ? Math.round(clamp(265 * Math.sqrt(ratio), 200, 420)) : 250;
     const height =
       type === 'group' ? 540 : media ? Math.round(clamp(265 / Math.sqrt(ratio) + 64, 185, 470)) : 280;
+    const columnWidth = Math.max(280, width + 24);
+    const rowHeight = Math.max(310, height + 24);
     const columns = Math.max(
       1,
       Math.floor(
         ((document.querySelector('.creative-surface')?.clientWidth ?? 800) - 60) /
-          (280 * layout.viewport.zoom),
+          (columnWidth * layout.viewport.zoom),
       ),
     );
     let position = {
@@ -350,11 +386,15 @@ export default function BoardWorkspace({
       y: (30 - layout.viewport.y) / layout.viewport.zoom,
     };
     // Choose a free grid cell in the current viewport rather than stacking new references.
-    for (let index = 0; index <= layout.nodes.length; index++) {
+    for (let index = 0; index <= layout.nodes.length * 12; index++) {
       position = {
-        x: clamp((30 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * 280, -50000, 50000),
+        x: clamp(
+          (30 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * columnWidth,
+          -50000,
+          50000,
+        ),
         y: clamp(
-          (30 - layout.viewport.y) / layout.viewport.zoom + Math.floor(index / columns) * 310,
+          (30 - layout.viewport.y) / layout.viewport.zoom + Math.floor(index / columns) * rowHeight,
           -50000,
           50000,
         ),
@@ -413,6 +453,28 @@ export default function BoardWorkspace({
     setSelected([id]);
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
     return true;
+  }
+  function applyLibraryRevision(revision: LibraryRevision, target?: string) {
+    if (revision.projectId !== projectId || !current.current.canEdit)
+      throw new Error('当前提示词或画布已不可编辑，草稿已保留');
+    const draft = {
+      positivePrompt: revision.positivePrompt,
+      negativePrompt: revision.negativePrompt,
+      source: revision.source,
+      promptLibraryRevisionId: revision.id,
+    };
+    const inserted = target
+      ? setNodePrompt(target, draft, true)
+      : add('note', undefined, {
+          text: revision.positivePrompt,
+          prompt: {
+            negativePrompt: revision.negativePrompt,
+            source: revision.source,
+            promptLibraryRevisionId: revision.id,
+          },
+        });
+    if (!inserted) throw new Error('无法插入提示词，请检查画布容量与编辑权限');
+    setMessage('已插入固定版本提示词，请保存画布。');
   }
   function setNodePrompt(target: string, draft: PromptDraft, replace = false) {
     if (!editable || !layout) return false;
@@ -490,8 +552,18 @@ export default function BoardWorkspace({
     });
     return true;
   }
-  async function pinCandidate(media: MediaVersion) {
+  function importFiles(files: File[], position?: BoardNode['position']) {
+    if (!editable || !layout || !files.length || fileImport) return;
+    if (files.length > 20 || files.length > 100 - layout.nodes.length) {
+      setError('一次最多导入20份文件，且不能超出画布剩余节点数。');
+      return;
+    }
+    setError('');
+    setFileImport({ files, position });
+  }
+  async function pinCandidate(media: MediaVersion, position?: BoardNode['position']) {
     if (!editable || !layout) throw new Error('当前画布不可编辑。');
+    const ticket = epoch.current;
     const existing = layout.nodes.find(
       (node) => node.data.ref?.kind === 'media' && node.data.ref.id === media.id,
     );
@@ -509,8 +581,11 @@ export default function BoardWorkspace({
       },
     );
     const value = values[nodeId];
+    if (ticket !== epoch.current || !current.current.canEdit)
+      throw new Error('当前画布已变化，素材已保留在项目中，请重新添加。');
     if (!value || value.status === 'unavailable') throw new Error('此候选媒体目前不可引用。');
-    if (!add('reference', { ref, value, ready: true })) throw new Error('此画布已达节点上限。');
+    if (!add('reference', { ref, value, ready: true }, undefined, position))
+      throw new Error('此画布已达节点上限。');
   }
   const flowNodes = useMemo<CanvasNode[]>(() => {
     if (!layout) return [];
@@ -544,7 +619,7 @@ export default function BoardWorkspace({
         sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
         targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
         label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
-        style: edge.kind === 'input_binding' ? { stroke: '#67bdcf', strokeWidth: 2 } : undefined,
+        style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
         hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
       })),
     [layout?.edges, flowNodes],
@@ -756,176 +831,121 @@ export default function BoardWorkspace({
     else leaveBoard(target);
   }
   return (
-    <Dialog
-      title="创作画布"
-      description={projectTitle}
-      busy={busy}
-      onClose={() => close()}
-      className={`creative-board-dialog creative-theme-${theme}`}
+    <main
+      ref={workspaceRef}
+      aria-label="创作画布"
+      tabIndex={-1}
+      className={`creative-board-dialog creative-theme-${theme} studio-v2 studio-live-board`}
+      data-theme={theme}
+      onPaste={(event) => {
+        const target = event.target;
+        if (
+          !editable ||
+          !(target instanceof Element) ||
+          target.closest('dialog') ||
+          target.closest('.studio-live-board') !== event.currentTarget ||
+          target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+        )
+          return;
+        const files = [...event.clipboardData.items]
+          .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => Boolean(file));
+        if (!files.length) return;
+        event.preventDefault();
+        importFiles(files);
+      }}
     >
-      {denied ? (
-        <div className="dialog-body">
-          <p role="alert" className="notice error">
-            画布或项目已不可访问，已隐藏资源详情。{error}
-          </p>
-          <button onClick={onClose}>返回工作台</button>
-        </div>
-      ) : !base || !layout ? (
-        <div className="dialog-body creative-board-home">
-          {error && (
-            <p role="alert" className="notice error">
-              {error}
-            </p>
-          )}
-          <h3>项目画布</h3>
-          <p>每张画布独立保存布局与历史，共用此项目的资产和媒体。</p>
-          {canEdit && (
-            <form
-              className="creative-create"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void (async () => {
-                  const body = { title: newTitle, unitId: null },
-                    serialized = JSON.stringify(body);
-                  if (createAttempt.current.body !== serialized)
-                    createAttempt.current = { body: serialized, key: crypto.randomUUID() };
-                  setBusy(true);
-                  setError('');
-                  try {
-                    const value = await api<BoardView>(`/projects/${projectId}/boards`, 'POST', body, {
-                      'Idempotency-Key': createAttempt.current.key,
-                    });
-                    accept(value);
-                  } catch (reason) {
-                    report(reason);
-                  } finally {
-                    setBusy(false);
-                  }
-                })();
-              }}
-            >
-              <label>
-                画布名称
-                <input
-                  data-autofocus
-                  aria-label="画布名称"
-                  value={newTitle}
-                  onChange={(event) => setNewTitle(event.target.value)}
-                  required
-                  maxLength={100}
-                  disabled={busy}
-                />
-              </label>
-              <button className="primary" disabled={busy || !newTitle.trim()}>
-                创建画布
-              </button>
-            </form>
-          )}
-          <div className="creative-board-list">
-            {boards.map((item) => (
-              <button key={item.id} disabled={busy} onClick={() => void load(item.id)}>
-                <strong>{item.title}</strong>
-                <span>
-                  v{item.revision} · {item.unitId ? '制作单元' : '项目'} ·{' '}
-                  {new Date(item.updatedAt).toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
-          {!boards.length && !busy && <p className="field-hint">尚无画布。</p>}
-          {cursor && (
-            <button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  const value = await api<CursorPage<BoardListItem>>(`${listPath}?cursor=${cursor}`);
-                  setBoards((current) => [...current, ...value.items]);
-                  setCursor(value.nextCursor);
-                } catch (reason) {
-                  report(reason);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              更多画布
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="creative-toolbar">
-            <button disabled={busy} onClick={() => close('boards')}>
-              切换 / 新建画布
-            </button>
-            <button disabled={busy} onClick={() => setFreeGeneration(true)}>
-              {base.canEdit ? '自由生成' : '生成与结果'}
-            </button>
-            <button disabled={busy} onClick={() => setPromptLibrary({})}>
-              提示词库
-            </button>
-            <button aria-pressed={showSources} onClick={() => setShowSources((value) => !value)}>
-              资源库
-            </button>
-            <button
-              onClick={() => {
-                const next = theme === 'light' ? 'dark' : 'light';
-                setTheme(next);
-                try {
-                  localStorage.setItem('pullet.canvas.theme', next);
-                } catch {
-                  /* Optional preference. */
-                }
-              }}
-            >
-              {theme === 'light' ? '深色画布' : '浅色画布'}
-            </button>
-            {editable && node?.type === 'note' && node.data.text?.trim() && (
-              <button
+      <header className="v2-live-top">
+        <div className="v2-live-path">
+          <StudioButton
+            variant="ghost"
+            icon="arrow"
+            aria-label="返回工作台"
+            title="返回工作台"
+            disabled={busy}
+            onClick={() => close()}
+          />
+          <StudioBrand compact />
+          <strong title={projectTitle}>{projectTitle}</strong>
+          {base && !denied && (
+            <>
+              <StudioButton
+                variant="ghost"
+                icon="chevron"
+                aria-label="切换 / 新建画布"
+                title="切换 / 新建画布"
                 disabled={busy}
-                onClick={() =>
-                  setPromptLibrary({ draft: { positivePrompt: node.data.text ?? '', ...node.data.prompt } })
-                }
-              >
-                将便签存入提示词库
-              </button>
+                onClick={() => close('boards')}
+              />
+              <input
+                aria-label="当前画布名称"
+                value={title}
+                disabled={!editable}
+                maxLength={100}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </>
+          )}
+        </div>
+        {!denied && (
+          <div className="v2-live-actions">
+            {base && (
+              <span role="status" className="creative-save-state">
+                {busy
+                  ? '处理中…'
+                  : !base.canEdit
+                    ? `只读 · v${base.revision}`
+                    : dirty
+                      ? `未保存 · 基于 v${base.revision}`
+                      : `已保存 v${base.revision}`}
+              </span>
             )}
-            <input
-              aria-label="当前画布名称"
-              value={title}
-              disabled={!editable}
-              maxLength={100}
-              onChange={(event) => setTitle(event.target.value)}
+            {base && (
+              <StudioButton
+                icon="layers"
+                variant="ghost"
+                aria-label="资源库"
+                title="资源库"
+                aria-pressed={showSources}
+                onClick={() => setShowSources((value) => !value)}
+              />
+            )}
+            <StudioButton
+              icon="book"
+              variant="ghost"
+              aria-label={base ? '提示词库' : '打开提示词库'}
+              title="提示词库"
+              onClick={() => setPromptLibrary({})}
             />
-            <span role="status" className="creative-save-state">
-              {busy
-                ? '处理中…'
-                : !base.canEdit
-                  ? `只读 · v${base.revision}`
-                  : dirty
-                    ? `未保存 · 基于 v${base.revision}`
-                    : `已保存 v${base.revision}`}
-            </span>
-            {base.canEdit && (
-              <>
-                <button onClick={() => add('note')} disabled={!editable}>
-                  添加便签
-                </button>
-                <button onClick={() => add('generation')} disabled={!editable}>
-                  添加生成节点
-                </button>
-                <button
-                  className="primary"
-                  disabled={!editable || !dirty || !title.trim()}
-                  onClick={() => void save()}
-                >
-                  保存画布
-                </button>
-              </>
+            <StudioButton
+              icon="spark"
+              variant="ghost"
+              aria-label={
+                base ? (base.canEdit ? '自由生成' : '生成与结果') : canEdit ? '开始生成' : '查看生成结果'
+              }
+              title="生成与结果"
+              onClick={() => setFreeGeneration(true)}
+            />
+            <StudioButton
+              icon={theme === 'light' ? 'moon' : 'sun'}
+              variant="ghost"
+              aria-label={theme === 'light' ? '深色画布' : '浅色画布'}
+              title={theme === 'light' ? '深色画布' : '浅色画布'}
+              onClick={onToggleTheme}
+            />
+            {base?.canEdit && (
+              <StudioButton
+                variant="primary"
+                className="v2-live-save"
+                disabled={!editable || !dirty || !title.trim()}
+                onClick={() => void save()}
+              >
+                保存画布
+              </StudioButton>
             )}
             <details
-              className="creative-toolbar-menu"
+              className="creative-toolbar-menu v2-live-menu"
               onBlur={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
               }}
@@ -936,42 +956,173 @@ export default function BoardWorkspace({
             >
               <summary>更多操作</summary>
               <div>
-                {base.canEdit && (
+                <StudioButton variant="ghost" onClick={onWorkflows}>
+                  工作流中心
+                </StudioButton>
+                <StudioButton variant="ghost" onClick={() => setMediaLibrary(true)}>
+                  打开素材库
+                </StudioButton>
+                <StudioButton variant="ghost" onClick={() => setEntityLibrary(true)}>
+                  角色与场景
+                </StudioButton>
+                {projectActions}
+                {base && (
                   <>
-                    <button onClick={() => add('brief')} disabled={!editable}>
-                      创作说明
-                    </button>
-                    <button onClick={() => add('group')} disabled={!editable}>
-                      添加分组
-                    </button>
+                    {editable && (
+                      <>
+                        <StudioButton variant="ghost" onClick={() => add('brief')}>
+                          创作说明
+                        </StudioButton>
+                        <StudioButton variant="ghost" onClick={() => add('group')}>
+                          添加分组
+                        </StudioButton>
+                        {node?.type === 'note' && node.data.text?.trim() && (
+                          <StudioButton
+                            variant="ghost"
+                            onClick={() =>
+                              setPromptLibrary({
+                                draft: { positivePrompt: node.data.text ?? '', ...node.data.prompt },
+                              })
+                            }
+                          >
+                            将便签存入提示词库
+                          </StudioButton>
+                        )}
+                      </>
+                    )}
+                    <StudioButton variant="ghost" onClick={() => void refreshReferences()}>
+                      刷新引用
+                    </StudioButton>
+                    <StudioButton
+                      variant="ghost"
+                      onClick={() =>
+                        void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report)
+                      }
+                    >
+                      修订历史
+                    </StudioButton>
                   </>
                 )}
-                <button aria-pressed={pan} onClick={() => setPan((value) => !value)}>
-                  {pan ? '切换框选' : '切换平移'}
-                </button>
-                <button disabled={busy} onClick={() => void refreshReferences()}>
-                  刷新引用
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report);
-                  }}
-                >
-                  修订历史
-                </button>
               </div>
             </details>
-            <button disabled={busy} onClick={() => close()}>
-              返回工作台
-            </button>
           </div>
+        )}
+      </header>
+      {projectMessage && !denied && (
+        <p className="creative-notice" role="status">
+          {projectMessage}
+        </p>
+      )}
+      {denied ? (
+        <div className="dialog-body">
+          <p role="alert" className="notice error">
+            画布或项目已不可访问，已隐藏资源详情。{error}
+          </p>
+        </div>
+      ) : !base || !layout ? (
+        <div className="dialog-body creative-board-home v2-live-board-home">
+          {error && (
+            <p role="alert" className="notice error">
+              {error}
+            </p>
+          )}
+          {initialLoading ? (
+            <p role="status">正在读取项目画布…</p>
+          ) : (
+            <>
+              <span className="v2-live-empty-mark">
+                <StudioBrand compact />
+              </span>
+              <h3>{boards.length ? '项目画布' : '从第一帧开始'}</h3>
+              <p>
+                {boards.length
+                  ? '继续已有画布，或开启一个新探索。'
+                  : '创建画布，就可以加入素材、写提示词和生成。'}
+              </p>
+              {canEdit && (
+                <form
+                  className="creative-create"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void (async () => {
+                      const body = { title: newTitle, unitId: null },
+                        serialized = JSON.stringify(body);
+                      if (createAttempt.current.body !== serialized)
+                        createAttempt.current = { body: serialized, key: crypto.randomUUID() };
+                      setBusy(true);
+                      setError('');
+                      try {
+                        const value = await api<BoardView>(`/projects/${projectId}/boards`, 'POST', body, {
+                          'Idempotency-Key': createAttempt.current.key,
+                        });
+                        accept(value);
+                      } catch (reason) {
+                        report(reason);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  <label>
+                    画布名称
+                    <input
+                      data-autofocus
+                      aria-label="画布名称"
+                      value={newTitle}
+                      onChange={(event) => setNewTitle(event.target.value)}
+                      required
+                      maxLength={100}
+                      disabled={busy}
+                    />
+                  </label>
+                  <button className="primary" disabled={busy || !newTitle.trim()}>
+                    创建画布
+                  </button>
+                </form>
+              )}
+              <div className="creative-board-list">
+                {boards.map((item) => (
+                  <button key={item.id} disabled={busy} onClick={() => void load(item.id)}>
+                    <strong>{item.title}</strong>
+                    <span>
+                      v{item.revision} · {item.unitId ? '制作单元' : '项目'} ·{' '}
+                      {new Date(item.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {!boards.length && !busy && !canEdit && <p className="field-hint">项目还没有可查看的画布。</p>}
+              {cursor && (
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const value = await api<CursorPage<BoardListItem>>(`${listPath}?cursor=${cursor}`);
+                      setBoards((current) => [...current, ...value.items]);
+                      setCursor(value.nextCursor);
+                    } catch (reason) {
+                      report(reason);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  更多画布
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <>
           {error && (
             <p role="alert" className="notice error creative-notice">
               {error}
             </p>
           )}
-          {message && !dirty && (
+          {message && (
             <p role="status" className="creative-notice">
               {message}
             </p>
@@ -1010,8 +1161,9 @@ export default function BoardWorkspace({
                 editable={editable}
                 refresh={refresh}
                 add={(source) => {
-                  if (add('reference', source) && window.matchMedia('(max-width: 760px)').matches)
-                    setShowSources(false);
+                  const added = add('reference', source);
+                  if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
+                  return Boolean(added);
                 }}
                 onDragSource={(source) => {
                   draggedResource.current = source;
@@ -1019,17 +1171,77 @@ export default function BoardWorkspace({
                 onImport={() => setMediaLibrary(true)}
                 onClose={() => setShowSources(false)}
                 report={(reason) => {
-                  if (reason instanceof ApiError && [401, 403].includes(reason.status)) report(reason);
+                  if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
                 }}
               />
             )}
+            <nav className="v2-live-tools" aria-label="画布工具">
+              <StudioButton
+                variant="ghost"
+                icon="cursor"
+                aria-label="选择"
+                title="选择"
+                aria-pressed={!pan}
+                onClick={() => setPan(false)}
+              />
+              <StudioButton
+                variant="ghost"
+                icon="hand"
+                aria-label="平移"
+                title="平移"
+                aria-pressed={pan}
+                onClick={() => setPan(true)}
+              />
+              {base.canEdit && (
+                <>
+                  <hr />
+                  <StudioButton
+                    variant="ghost"
+                    icon="upload"
+                    aria-label="导入本地文件"
+                    title="导入本地文件"
+                    disabled={!editable}
+                    onClick={() => fileInput.current?.click()}
+                  />
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept={mediaFileAccept}
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      importFiles([...(event.currentTarget.files ?? [])]);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                  <StudioButton
+                    variant="ghost"
+                    icon="note"
+                    aria-label="添加便签"
+                    title="添加便签"
+                    disabled={!editable}
+                    onClick={() => add('note')}
+                  />
+                  <StudioButton
+                    variant="primary"
+                    icon="spark"
+                    aria-label="添加生成节点"
+                    title="添加生成节点"
+                    disabled={!editable}
+                    onClick={() => add('generation')}
+                  />
+                </>
+              )}
+            </nav>
             <BoardSurface
+              onPreviewStart={() => setSelected([])}
               nodes={flowNodes}
               edges={flowEdges}
               viewport={layout.viewport}
               editable={editable}
               pan={pan}
               theme={theme}
+              onDropFiles={importFiles}
               onDropResource={(position) => {
                 const source = draggedResource.current;
                 draggedResource.current = undefined;
@@ -1057,65 +1269,74 @@ export default function BoardWorkspace({
                   <div
                     className={`creative-context ${node.type === 'generation' ? 'creative-context-composer' : ''}`}
                   >
-                    <BoardInspector
-                      node={node}
-                      value={node && resolved[node.id]}
-                      nodes={layout.nodes}
-                      editable={editable}
-                      update={update}
-                      onDismiss={() => setSelected([])}
-                      onUseImage={
-                        editable &&
-                        (node.type === 'result' || node.data.ref?.kind === 'media') &&
-                        resolved[node.id]?.media?.mediaType === 'image'
-                          ? () => add('generation', undefined, undefined, undefined, node)
-                          : undefined
-                      }
-                      executionPanel={
-                        node?.type === 'generation' ? (
-                          <BoardExecutionPanel
-                            key={`${base.id}:${node.id}`}
-                            board={base}
-                            userId={userId}
-                            node={node}
-                            layout={layout}
-                            resolved={resolved}
-                            editable={editable}
-                            dirty={dirty}
-                            save={title.trim() ? save : undefined}
-                            onPromptChange={(draft) => setNodePrompt(node.id, draft)}
-                            onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
-                            onSavedToLibrary={() => setRefresh((value) => value + 1)}
-                            update={update}
-                            bind={(port, source) => bindInput(node.id, port, source)}
-                            onResult={addResult}
-                            onOpenTasks={() => setFreeGeneration(true)}
-                          />
-                        ) : undefined
-                      }
-                      remove={() => node && remove([node.id])}
-                      detail={detail}
-                      closeDetail={() => setDetail(undefined)}
-                      onDetail={() => {
-                        if (!node?.data.ref) return;
-                        void api<Record<string, BoardResolved>>(
-                          `/projects/${projectId}/board-references/resolve`,
-                          'POST',
-                          { references: [{ nodeId: node.id, ref: node.data.ref }] },
-                        )
-                          .then((values) => {
-                            setResolved((current) => ({ ...current, ...values }));
-                            if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
-                          })
-                          .catch(report);
-                      }}
-                    />
+                    {node.type === 'generation' ? (
+                      <BoardExecutionPanel
+                        key={`${base.id}:${node.id}`}
+                        board={base}
+                        userId={userId}
+                        node={node}
+                        layout={layout}
+                        resolved={resolved}
+                        editable={editable}
+                        dirty={dirty}
+                        save={title.trim() ? save : undefined}
+                        onPromptChange={(draft) => setNodePrompt(node.id, draft)}
+                        onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
+                        onApplyPrompt={(revision) => applyLibraryRevision(revision, node.id)}
+                        onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                        update={update}
+                        bind={(port, source) => bindInput(node.id, port, source)}
+                        onResult={addResult}
+                        onOpenTasks={() => setFreeGeneration(true)}
+                        onDismiss={() => setSelected([])}
+                      >
+                        <BoardNodeLayout
+                          node={node}
+                          nodes={layout.nodes}
+                          editable={editable}
+                          update={update}
+                          remove={() => remove([node.id])}
+                        />
+                      </BoardExecutionPanel>
+                    ) : (
+                      <BoardInspector
+                        node={node}
+                        value={node && resolved[node.id]}
+                        nodes={layout.nodes}
+                        editable={editable}
+                        update={update}
+                        onDismiss={() => setSelected([])}
+                        onUseImage={
+                          editable &&
+                          (node.type === 'result' || node.data.ref?.kind === 'media') &&
+                          resolved[node.id]?.media?.mediaType === 'image'
+                            ? () => add('generation', undefined, undefined, undefined, node)
+                            : undefined
+                        }
+                        remove={() => node && remove([node.id])}
+                        detail={detail}
+                        closeDetail={() => setDetail(undefined)}
+                        onDetail={() => {
+                          if (!node?.data.ref) return;
+                          void api<Record<string, BoardResolved>>(
+                            `/projects/${projectId}/board-references/resolve`,
+                            'POST',
+                            { references: [{ nodeId: node.id, ref: node.data.ref }] },
+                          )
+                            .then((values) => {
+                              setResolved((current) => ({ ...current, ...values }));
+                              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
+                            })
+                            .catch(report);
+                        }}
+                      />
+                    )}
                   </div>
                 ) : layout.nodes.length ? undefined : (
                   <div className="creative-empty">
                     <span className="creative-kicker">PULLET STUDIO</span>
                     <h3>把想法放到画布上</h3>
-                    <p>从一张参考图开始，或添加生成节点直接写提示词。</p>
+                    <p>拖入本地素材、粘贴图片，或添加生成节点直接写提示词。</p>
                     {editable && (
                       <button className="primary" onClick={() => setShowSources(true)}>
                         浏览项目资源
@@ -1133,18 +1354,19 @@ export default function BoardWorkspace({
           </div>
         </>
       )}
-      {freeGeneration && base && !denied && (
+      {freeGeneration && !denied && (
         <GenerationDialog
+          theme={theme}
           creation={{
             projectId,
-            boardId: base.id,
+            boardId: base?.id,
             initialDraft: { positivePrompt: node?.data.text ?? '', ...node?.data.prompt },
             onPin: editable ? pinCandidate : undefined,
           }}
           onClose={() => setFreeGeneration(false)}
         />
       )}
-      {mediaLibrary && base && !denied && (
+      {mediaLibrary && !denied && (
         <MediaDialog
           projectId={projectId}
           onClose={() => {
@@ -1162,38 +1384,43 @@ export default function BoardWorkspace({
           }
         />
       )}
-      {promptLibrary && base && !denied && (
+      {fileImport && !denied && (
+        <CanvasImportDialog
+          projectId={projectId}
+          files={fileImport.files}
+          position={fileImport.position}
+          onImported={pinCandidate}
+          onClose={() => {
+            setFileImport(undefined);
+            setRefresh((value) => value + 1);
+          }}
+          onComplete={() => {
+            setFileImport(undefined);
+            setRefresh((value) => value + 1);
+            setMessage('素材已导入并加入画布，请保存画布。');
+          }}
+        />
+      )}
+      {entityLibrary && !denied && (
+        <EntityLibraryDialog
+          projectId={projectId}
+          onClose={() => {
+            setEntityLibrary(false);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      )}
+      {promptLibrary && !denied && (
         <PromptLibraryDialog
+          theme={theme}
           projectId={projectId}
           initialDraft={promptLibrary.draft}
           onClose={() => setPromptLibrary(undefined)}
           onApply={
             editable
               ? (revision) => {
-                  if (
-                    !(promptLibrary.target
-                      ? setNodePrompt(
-                          promptLibrary.target,
-                          {
-                            positivePrompt: revision.positivePrompt,
-                            negativePrompt: revision.negativePrompt,
-                            source: revision.source,
-                            promptLibraryRevisionId: revision.id,
-                          },
-                          true,
-                        )
-                      : add('note', undefined, {
-                          text: revision.positivePrompt,
-                          prompt: {
-                            negativePrompt: revision.negativePrompt,
-                            source: revision.source,
-                            promptLibraryRevisionId: revision.id,
-                          },
-                        }))
-                  )
-                    throw new Error('无法插入提示词，请检查画布容量与编辑权限');
+                  applyLibraryRevision(revision, promptLibrary.target);
                   setPromptLibrary(undefined);
-                  setMessage('已插入固定版本提示词，请保存画布。');
                 }
               : undefined
           }
@@ -1304,6 +1531,6 @@ export default function BoardWorkspace({
           </div>
         </Dialog>
       )}
-    </Dialog>
+    </main>
   );
 }

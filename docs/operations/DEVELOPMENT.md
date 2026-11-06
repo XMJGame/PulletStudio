@@ -4,7 +4,7 @@
 
 2026-11-06 V2：日常自由创作仅需 API/Web 与 Generation Worker。文本分析和预演 Worker 属于旧兼容能力，按需启动。L1 升级前备份，构建后重新启动全部 Generation Worker；新上下文的租约保护会拒绝旧二进制领取任务。入口和实际范围见 [自由创作](../LIGHT-CREATION.md)。
 
-更新：2026-11-05。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
+更新：2026-11-06。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
 
 ## 安装与启动
 
@@ -75,11 +75,11 @@ Playwright默认本机Edge，支持PLAYWRIGHT_CHANNEL指定Chrome/Chromium。当
 
 CI配置在.github/workflows/checks.yml，Ubuntu/Node24/FFmpeg/Chromium。远端某次提交是否通过要单独查对应运行，不能拿本机结果代替；本轮不重装依赖或重跑远端CI。
 
-G0画布另有 `npm run test:canvas`：只构建Web并运行playwright.canvas.config.ts，独立Vite/5191，无API/数据库，不重走原生产链初始化。CI在已构建后直接运行该配置。具体边界见[CANVAS-LAB](../CANVAS-LAB.md)。
+正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 Mock ComfyUI。覆盖完整 UI 创作链、固定引用、冲突恢复、权限、交互和候选入库。工作流浏览器使用 `playwright.workflows.config.ts`，两套共用端口，须顺序执行。当前数量见[实施状态](../IMPLEMENTATION-STATUS.md)。
+
+评审原型可用 `npm run dev:studio-review` 在 5196 查看，测试用 `npm run test:studio-review`。原型使用隔离示例数据，正式创作仍从 Web 默认入口进入。
 
 ## 备份与恢复
-
-正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 ComfyUI Mock。5 个场景覆盖固定引用、冲突恢复、权限、交互，以及关闭画布后生成归档、候选比较与选片。test:boards 和 test:workflows 共用端口，须顺序执行。
 
 ```powershell
 npm run db:backup
@@ -91,7 +91,11 @@ npm run db:backup
 
 ## 当前验收界限
 
-工作流中心使用 `npm run test:workflows` 构建并运行 4 项图解析测试和 8 项浏览器验收。场景使用独立 Worker 和 ComfyUI Mock，包含实例诊断、手动路由及试跑和正式生成归档。test:workflows 与 test:boards 共用隔离端口 3112/5192，须顺序执行。
+Board 与 Workflow 套件包含实际浏览器 125%/150% 缩放场景：使用 `tests/fixtures/browser-zoom.mjs` 在独立测试 profile 中调用浏览器 [tabs.setZoom/getZoom](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-setZoom)，读回倍率并验证固定 1440×900 下的 innerWidth 和 devicePixelRatio，再操作项目、画布、候选、资源及提示词/工作流管理。临时扩展只存在于忽略的测试输出目录，不使用用户浏览器配置，也不加入应用。正式库管理另覆盖四档分辨率和深浅主题；此证据区别于等效 CSS 视口。
+
+先依次运行 Board、Workflow 套件，再运行 `npm run review:ui`，可收集 18 张代表性正式页面截图到 `docs/review/studio-ui-v2/`，来源清单记录原截图路径和分辨率。两套浏览器测试共用端口，不能并行启动。收集脚本只读取 PNG 白名单，不收集 DB、profile、运行媒体、trace 或环境文件。CI 无论成功或失败都上传有界 PNG 和错误摘要 artifact，保留 14 天，不再上传整个测试目录。完整评审矩阵见[正式界面评审包](../review/studio-ui-v2/README.md)。
+
+工作流中心使用 `npm run test:workflows` 构建并运行图解析测试和浏览器验收。场景使用独立 Worker 和 Mock ComfyUI，包含实例诊断、手动路由及试跑和生成归档。已有构建时可分别运行 `npm run test:workflow-graph` 和工作流 Playwright 配置。
 
 启用 G2-C2 前同时升级 API、Web 和 Generation Worker。数据库保护路由任务，旧 Worker 无法取得这类任务的租约。已经入队的绑定任务仍按原连接执行。
 

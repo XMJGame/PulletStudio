@@ -1,0 +1,39 @@
+.v2-import-list {
+  display: grid;
+  gap: 8px;
+}
+.v2-import-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--ground);
+}
+.v2-import-list strong {
+  overflow-wrap: anywhere;
+}
+.v2-import-list :is(span, p) {
+  color: var(--muted);
+  font-size: var(--caption);
+}
+.v2-import-list p {
+  grid-column: 1 / -1;
+}
+.v2-import-list article[data-state='failed'] p {
+  color: var(--danger);
+}
+.v2-file-drop {
+  position: absolute;
+  z-index: 9;
+  inset: 10px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-panel);
+  background: var(--accent-soft);
+  color: var(--accent);
+  pointer-events: none;
+  font-size: 20px;
+}

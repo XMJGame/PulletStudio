@@ -1,0 +1,182 @@
+.creative-board-dialog.studio-live-board {
+  --board-panel: var(--paper);
+  --board-ground: var(--ground);
+  --board-ink: var(--ink);
+  --board-muted: var(--muted);
+  --board-line: var(--line);
+  --board-accent: var(--accent);
+  --board-primary: var(--action);
+  --board-primary-ink: var(--action-ink);
+  --board-shadow: var(--shadow);
+  --board-card-shadow: var(--shadow);
+  width: 100vw;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--ground);
+  color: var(--ink);
+}
+.v2-live-top {
+  position: relative;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 58px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.v2-live-path,
+.v2-live-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.v2-live-path strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v2-live-path input {
+  width: clamp(96px, 15vw, 190px);
+  min-width: 0;
+  margin: 0;
+  padding: 7px 9px;
+}
+.v2-live-actions {
+  flex: 0 0 auto;
+}
+.v2-live-actions .creative-save-state,
+.v2-live-menu summary {
+  white-space: nowrap;
+}
+.v2-live-menu button {
+  justify-content: flex-start;
+}
+.v2-live-board-home {
+  flex: 1 1 auto;
+  padding: clamp(35px, 12vh, 120px) max(18px, calc((100vw - 660px) / 2)) 40px;
+  background: radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 24px 24px var(--ground);
+}
+.v2-live-board-home h3 {
+  margin: 12px 0 6px;
+  font-size: clamp(24px, 4vw, 36px);
+}
+.v2-live-board-home p {
+  color: var(--muted);
+}
+.v2-live-empty-mark {
+  display: inline-flex;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+.studio-live-board .creative-workspace {
+  position: relative;
+  background: var(--ground);
+}
+.studio-live-board .notice.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--line);
+}
+.studio-live-board .creative-sources {
+  align-self: start;
+  max-height: calc(100% - 24px);
+  margin: 12px 12px 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow);
+}
+.creative-media-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+}
+.creative-media-filters button {
+  padding: 5px 2px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+.studio-live-board .creative-source-tabs button[aria-pressed='true'],
+.creative-media-filters button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.creative-library-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 4px;
+  text-align: center;
+  color: var(--muted);
+}
+.creative-library-empty strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+.creative-library-empty p {
+  font-size: 12px;
+}
+.v2-live-tools {
+  position: absolute;
+  z-index: 6;
+  left: 12px;
+  top: 14px;
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+.v2-live-tools hr {
+  width: 100%;
+  margin: 1px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  .v2-live-top {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 5px 8px;
+  }
+  .v2-live-path,
+  .v2-live-actions {
+    width: 100%;
+  }
+  .v2-live-actions .creative-save-state {
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 2px;
+    font-size: 10px;
+    text-overflow: ellipsis;
+  }
+  .v2-live-actions .v2-button {
+    --h-control: 34px;
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+  .v2-live-save {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .v2-live-menu {
+    margin-left: auto;
+  }
+}

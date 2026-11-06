@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,11 +17,11 @@ import {
 import '@xyflow/react/dist/style.css';
 import { CanvasNode, kindLabels, statusLabels } from './board-types';
 import { boardResourceDrag } from './BoardSources';
+import { BoardMediaFrame, BoardVideoPreview } from './BoardMediaFrame';
 const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
   const { domain, value } = data;
-  const [broken, setBroken] = useState(false);
-  const poster = value?.media?.mediaType === 'image' ? value.media.contentUrl : value?.media?.posterUrl;
-  useEffect(() => setBroken(false), [poster]);
+  const media = value?.media;
+  const visual = media && ['image', 'video'].includes(media.mediaType);
   if (domain.type === 'group')
     return (
       <div className="creative-group-card">
@@ -31,7 +31,7 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
     );
   return (
     <article
-      className={`creative-node ${poster && !broken ? 'creative-node-media' : ''} ${value?.status === 'unavailable' ? 'unavailable' : ''}`}
+      className={`creative-node ${visual ? 'creative-node-media' : ''} ${value?.status === 'unavailable' ? 'unavailable' : ''}`}
     >
       <Handle
         type="target"
@@ -39,6 +39,7 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
         id="in"
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
       />
+      {visual && <BoardMediaFrame id={domain.id} title={value.title} media={media} />}
       <span className="creative-node-kind">{kindLabels[value?.kind ?? domain.type] ?? '业务引用'}</span>
       <strong>
         {domain.type === 'reference' || domain.type === 'result'
@@ -47,17 +48,7 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
       </strong>
       {domain.type === 'reference' || domain.type === 'result' ? (
         <>
-          {poster && !broken && (
-            <img
-              src={poster}
-              alt={value?.title}
-              draggable={false}
-              loading="lazy"
-              onError={() => setBroken(true)}
-            />
-          )}
-          {broken && <p className="creative-resource-error">媒体无法读取，请检查文件或权限</p>}
-          {!poster && (
+          {!visual && (
             <p className="creative-node-summary">
               {value?.summary || (value?.status === 'unavailable' ? '资源已缺失或无权读取' : '固定业务引用')}
             </p>
@@ -140,6 +131,8 @@ export function BoardSurface({
   pan,
   theme,
   onDropResource,
+  onDropFiles,
+  onPreviewStart,
   overlay,
 }: {
   nodes: CanvasNode[];
@@ -149,23 +142,61 @@ export function BoardSurface({
   pan: boolean;
   theme: 'light' | 'dark';
   onDropResource: (position: { x: number; y: number }) => void;
+  onDropFiles: (files: File[], position: { x: number; y: number }) => void;
+  onPreviewStart: () => void;
   overlay?: React.ReactNode;
   onNodesChange: OnNodesChange<CanvasNode>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
   onViewportChange: (value: Viewport) => void;
 }) {
+  const [fileDrag, setFileDrag] = useState(false);
+  const [active, setActive] = useState<string>();
+  const videoPreview = useMemo(
+    () => ({
+      active,
+      setActive,
+      onPlay: (id: string) => {
+        setActive(id);
+        onPreviewStart();
+      },
+    }),
+    [active, onPreviewStart],
+  );
   return (
     <div className="creative-stage">
       <div
         className="creative-surface"
         aria-label="正式画布工作区"
+        tabIndex={0}
+        onDragEnter={(event) => {
+          if (editable && event.dataTransfer.types.includes('Files')) setFileDrag(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDrag(false);
+        }}
         onDragOver={(event) => {
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = editable ? 'copy' : 'none';
+            return;
+          }
           if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={(event) => {
+          setFileDrag(false);
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault();
+            if (!editable) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            onDropFiles([...event.dataTransfer.files], {
+              x: (event.clientX - rect.left - viewport.x) / viewport.zoom,
+              y: (event.clientY - rect.top - viewport.y) / viewport.zoom,
+            });
+            return;
+          }
           if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
@@ -175,38 +206,41 @@ export function BoardSurface({
           });
         }}
       >
-        <ReactFlow<CanvasNode>
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          viewport={viewport}
-          onViewportChange={onViewportChange}
-          nodesDraggable={editable}
-          nodesConnectable={editable}
-          elementsSelectable
-          nodesFocusable
-          edgesFocusable
-          deleteKeyCode={editable ? ['Delete', 'Backspace'] : null}
-          selectionOnDrag={!pan}
-          selectionMode={SelectionMode.Partial}
-          panOnDrag={pan ? true : [1, 2]}
-          panActivationKeyCode="Space"
-          minZoom={0.15}
-          maxZoom={2}
-          multiSelectionKeyCode="Shift"
-          onlyRenderVisibleElements
-          colorMode={theme}
-          defaultEdgeOptions={{
-            style: { stroke: theme === 'light' ? '#738094' : '#a7aebd', strokeWidth: 2 },
-          }}
-        >
-          <Background gap={22} size={1} color={theme === 'light' ? '#bcc7d8' : '#394454'} />
-          <MiniMap nodeColor={theme === 'light' ? '#91a3bf' : '#7187a7'} pannable zoomable />
-          <Controls showInteractive={false} />
-        </ReactFlow>
+        <BoardVideoPreview.Provider value={videoPreview}>
+          <ReactFlow<CanvasNode>
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            viewport={viewport}
+            onViewportChange={onViewportChange}
+            nodesDraggable={editable}
+            nodesConnectable={editable}
+            elementsSelectable
+            nodesFocusable
+            edgesFocusable
+            deleteKeyCode={editable ? ['Delete', 'Backspace'] : null}
+            selectionOnDrag={!pan}
+            selectionMode={SelectionMode.Partial}
+            panOnDrag={pan ? true : [1, 2]}
+            panActivationKeyCode="Space"
+            minZoom={0.15}
+            maxZoom={2}
+            multiSelectionKeyCode="Shift"
+            onlyRenderVisibleElements
+            colorMode={theme}
+            defaultEdgeOptions={{
+              style: { stroke: 'var(--edge)', strokeWidth: 2 },
+            }}
+          >
+            <Background gap={22} size={1} color="var(--dot)" />
+            <MiniMap nodeColor="var(--mini-node)" maskColor="var(--ground)" pannable zoomable />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        </BoardVideoPreview.Provider>
+        {fileDrag && <div className="v2-file-drop">松开，导入到画布</div>}
       </div>
       {overlay}
     </div>

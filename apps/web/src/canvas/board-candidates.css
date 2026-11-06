@@ -1,0 +1,99 @@
+.v2-candidate-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.v2-candidate-previews {
+  display: grid;
+  gap: 8px;
+}
+.v2-candidate-previews[data-comparing='true'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.v2-candidate-previews .v2-live-candidate {
+  min-width: 0;
+  margin: 0;
+}
+.v2-candidate-previews[data-comparing='true'] .v2-live-candidate > header small {
+  font-size: 10px;
+}
+.v2-candidate-previews[data-comparing='true'] .v2-live-inline .v2-button {
+  width: 100%;
+}
+.v2-candidate-caption {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+.v2-candidate-caption small,
+.v2-candidate-snapshot {
+  color: var(--muted);
+  font-size: 12px;
+}
+.v2-candidate-filed {
+  color: var(--success);
+}
+.v2-candidate-snapshot {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.v2-candidate-snapshot p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+}
+.v2-candidate-history {
+  display: grid;
+  gap: 6px;
+  margin-block: 6px;
+}
+.v2-candidate-history button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 7px;
+  text-align: left;
+  border-radius: var(--r-control);
+}
+.v2-candidate-history button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.v2-candidate-history button > img {
+  width: 52px;
+  height: 42px;
+  margin: 0;
+  object-fit: cover;
+}
+.v2-candidate-history span {
+  min-width: 0;
+}
+.v2-candidate-history strong,
+.v2-candidate-history small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.v2-candidate-history small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.v2-candidate-media-error {
+  min-height: 100px;
+  display: grid;
+  align-items: center;
+  text-align: center;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .v2-candidate-previews[data-comparing='true'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

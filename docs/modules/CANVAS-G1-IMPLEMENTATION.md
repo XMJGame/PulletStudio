@@ -12,7 +12,7 @@
 
 - 增量boards/board_revisions，两表项目/工作区/制作单元范围外键。Board只保当前标题/修订计数与创建信息；不可变修订保存标题、schema/layout、作者、时间、UUID请求键/请求哈希。事务先追加修订再CAS更新head，SQL保护历史、范围、连续版本和head一致。无破坏性删表/字段。
 - POST/GET /projects/:id/boards（unitId可选、20条游标），GET /boards/:id?revision=N、GET /boards/:id/revisions?before=N、POST /boards/:id/revisions（expectedRevision＋Idempotency-Key）；创建与保存需edit，读取需read。同键原内容响应丢失可重试，变内容/旧版本409；审计同事务。
-- GET /projects/:id/board-sources?kind=shots|entities|media&cursor=&q=，本项目有界20条选择器，可按名称/编号搜索。单元画布可引用本项目资源，单元是组织范围，不授予额外权限。业务版本在读取时解析为current/stale/draft/revoked/unavailable，摘要及详情只在当前权限下返回，不持久复制。
+- GET /projects/:id/board-sources?kind=shots|entities|media&cursor=&q=，本项目有界20条选择器，可按名称/编号搜索。2026-11-06 增量扩展：仅 kind=media 可选 mediaType=image|video|audio，筛选后分页；媒体列表仅含显式入库素材，试跑证据和库外候选不列出。实体名称匹配当前修订后分页。既有固定媒体引用仍可按原权限解析。单元是组织范围，不授予额外权限；读取时解析 current/stale/draft/revoked/unavailable，不持久复制摘要。
 - 100节点/200边/布局256KiB；note/brief/reference/group内置注册。UUID节点、受限位置/尺寸/zoom、唯一ID、存在的端点、类型边、分组一级/折叠、无外部媒体URL。G1不做执行DAG。保持已存在且不可访问的固定引用可移动/原样保留，不可借此新增或替换为其他无权引用。
 
 ## UI与失败

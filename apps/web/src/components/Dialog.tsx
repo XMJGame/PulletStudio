@@ -1,5 +1,7 @@
-import { ReactNode, useEffect, useId, useRef } from 'react';
+import { ReactNode, useContext, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { StudioTheme } from '../shared/ui/StudioTheme';
+import '../shared/styles/studio-dialog.css';
 
 export function Dialog({
   title,
@@ -8,6 +10,8 @@ export function Dialog({
   onClose,
   children,
   className = '',
+  hideHeader = false,
+  theme,
 }: {
   title: string;
   description: string;
@@ -15,8 +19,11 @@ export function Dialog({
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  hideHeader?: boolean;
+  theme?: 'light' | 'dark';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const appTheme = useContext(StudioTheme);
   const titleId = useId();
   const descriptionId = useId();
   useEffect(() => {
@@ -25,7 +32,9 @@ export function Dialog({
     const overflow = document.body.style.overflow;
     dialog.showModal();
     document.body.style.overflow = 'hidden';
-    dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    [...dialog.querySelectorAll<HTMLElement>('[data-autofocus]')]
+      .find((element) => element.getClientRects().length > 0 && !element.matches(':disabled'))
+      ?.focus();
     return () => {
       dialog.close();
       document.body.style.overflow = overflow;
@@ -35,7 +44,8 @@ export function Dialog({
   return createPortal(
     <dialog
       ref={ref}
-      className={`studio-dialog ${className}`.trim()}
+      className={`studio-dialog studio-v2 studio-modal ${className}`.trim()}
+      data-theme={theme ?? appTheme}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onKeyDown={(event) => {
@@ -76,21 +86,28 @@ export function Dialog({
           onClose();
       }}
     >
-      <div className="dialog-header">
-        <div>
+      {hideHeader ? (
+        <div className="v2-sr">
           <h2 id={titleId}>{title}</h2>
           <p id={descriptionId}>{description}</p>
         </div>
-        <button
-          type="button"
-          className="dialog-close"
-          aria-label="关闭对话框"
-          disabled={busy}
-          onClick={onClose}
-        >
-          ×
-        </button>
-      </div>
+      ) : (
+        <div className="dialog-header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            <p id={descriptionId}>{description}</p>
+          </div>
+          <button
+            type="button"
+            className="dialog-close"
+            aria-label="关闭对话框"
+            disabled={busy}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {children}
     </dialog>,
     document.body,

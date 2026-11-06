@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, like, ne, or } from 'drizzle-orm';
+import { and, asc, eq, gt, like, ne, or, sql } from 'drizzle-orm';
 import type { BoardReference, BoardResolved, BoardSource } from '../../../../packages/contracts/src/board';
 import { DatabaseService } from '../db/database.service';
 import { CurrentUser, fail } from '../common/http';
@@ -163,6 +163,7 @@ export class BoardReferencesService {
     kind: 'shots' | 'entities' | 'media',
     cursor?: string,
     query?: string,
+    mediaType?: 'image' | 'video' | 'audio',
   ) {
     this.authz.project(user, projectId);
     const q = query?.trim();
@@ -189,30 +190,37 @@ export class BoardReferencesService {
         }));
     else if (kind === 'entities')
       refs = this.database.db
-        .select()
+        .select({ id: assetEntities.id, revisionId: assetEntityRevisions.id })
         .from(assetEntities)
-        .where(and(eq(assetEntities.projectId, projectId), cursor ? gt(assetEntities.id, cursor) : undefined))
+        .innerJoin(
+          assetEntityRevisions,
+          and(
+            eq(assetEntityRevisions.entityId, assetEntities.id),
+            eq(assetEntityRevisions.version, assetEntities.version),
+          ),
+        )
+        .where(
+          and(
+            eq(assetEntities.projectId, projectId),
+            cursor ? gt(assetEntities.id, cursor) : undefined,
+            q ? sql`instr(lower(${assetEntityRevisions.name}), lower(${q}))>0` : undefined,
+          ),
+        )
         .orderBy(asc(assetEntities.id))
         .limit(21)
         .all()
-        .map((row) => {
-          const revision = this.database.db
-            .select()
-            .from(assetEntityRevisions)
-            .where(
-              and(eq(assetEntityRevisions.entityId, row.id), eq(assetEntityRevisions.version, row.version)),
-            )
-            .get()!;
-          return { id: row.id, ref: { kind: 'entity', id: row.id, revisionId: revision.id } };
-        });
+        .map((row) => ({ id: row.id, ref: { kind: 'entity', id: row.id, revisionId: row.revisionId } }));
     else
       refs = this.database.db
-        .select()
+        .select({ id: mediaVersions.id })
         .from(mediaVersions)
+        .innerJoin(mediaAssets, eq(mediaAssets.id, mediaVersions.assetId))
         .where(
           and(
             eq(mediaVersions.projectId, projectId),
             ne(mediaVersions.origin, 'workflow_test'),
+            eq(mediaAssets.inLibrary, true),
+            mediaType ? eq(mediaVersions.mediaType, mediaType) : undefined,
             cursor ? gt(mediaVersions.id, cursor) : undefined,
             q ? like(mediaVersions.fileName, `%${q}%`) : undefined,
           ),
@@ -223,8 +231,7 @@ export class BoardReferencesService {
         .map((row) => ({ id: row.id, ref: { kind: 'media', id: row.id } }));
     for (const item of refs.slice(0, 20)) {
       const value = this.resolve(user, projectId, item.ref);
-      if (value.status !== 'unavailable' && (!q || kind !== 'entities' || value.title.includes(q)))
-        items.push({ ref: item.ref, value, ready: true });
+      if (value.status !== 'unavailable') items.push({ ref: item.ref, value, ready: true });
       else if (kind === 'shots' && item.fallback)
         items.push({
           ref: item.ref,

@@ -1,5 +1,7 @@
 # Pullet Studio — 产品定位与模块规划 V2
 
+> 2026-11-06 最终产品方向以[正式执行合同](PRODUCT-EXECUTION-CONTRACT.md)为准，冲突处覆盖本文；现有已验证能力继续复用。P0 正式 UI、P1 业务缺口和 P2 生产增强的实际顺序见[实时状态](IMPLEMENTATION-STATUS.md)。
+
 > 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
 
 **文档性质：正式产品方向调整与架构实施指导**

@@ -1,5 +1,7 @@
 # Pullet Studio — V1.0 通用 AI 影视创作平台完整实施方案
 
+> 2026-11-06 最终产品冻结：[正式执行合同](PRODUCT-EXECUTION-CONTRACT.md)优先，定位为 Web AI 影视创作空间。先收敛正式 UI，再分包补齐资产/工作流、多参考和共享。旧文的桌面宿主、自动编剧/分镜、专业剪辑及框架替换建议不驱动当前开发。实际进度只见 [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md)。
+
 > 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
 
 > 2026-11-06 产品 V2 优先：[当前方向](PRODUCT-V2.md)、[ADR-011](ADR-011-asset-led-creation.md)、[自由创作](LIGHT-CREATION.md)。资产/画布/工作流/通用生成是主线；已解除 Shot、完整卡、编译提示词和正式发布对自由创作的强制前置。下文旧镜头/剧本合同作为兼容参考，不再驱动新增核心需求。实际顺序唯一来源为 [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md)。

@@ -29,10 +29,12 @@ const capacityLabels = { available: '负载低于阈值', busy: '已达到负载
 
 export function InstancePoolDialog({
   config,
+  theme,
   onRefresh,
   onClose,
 }: {
   config: GenerationConfig;
+  theme: 'light' | 'dark';
   onRefresh: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -73,6 +75,8 @@ export function InstancePoolDialog({
   return (
     <Dialog
       title="ComfyUI 实例池"
+      className="studio-v2 v2-library v2-library-aux"
+      theme={theme}
       description="登记工作区实例，按固定工作流修订检查依赖和负载。"
       busy={busy}
       onClose={onClose}

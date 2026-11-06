@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, CursorPage } from '../api';
 import { Dialog } from '../components/Dialog';
 import type { GenerationConfig } from '../workflows/workflow-types';
-import { LibraryRevision, LibraryView, PromptDraft } from './prompt-library-types';
+import { LibraryRevision, LibraryView, PromptDraft, LibrarySummary } from './prompt-library-types';
+import { StudioButton } from '../shared/ui/StudioUI';
+import { StudioLibraryNav, type LibraryPane } from '../shared/ui/StudioLibraryNav';
 import './prompt-library.css';
 type Body = {
   title: string;
@@ -12,8 +14,7 @@ type Body = {
   tags: string[];
   workflowId: string | null;
 };
-type Summary = { id: string; title: string; version: number; tags: string[]; preview: string };
-type Listing = CursorPage<Summary> & { canEdit: boolean };
+type Listing = CursorPage<LibrarySummary> & { canEdit: boolean };
 type History = { items: { version: number; title: string; createdAt: string }[]; nextCursor: number | null };
 const bodyFrom = (value?: PromptDraft): Body => ({
   title: value?.title ?? '',
@@ -26,11 +27,13 @@ const bodyFrom = (value?: PromptDraft): Body => ({
 export function PromptLibraryDialog({
   projectId,
   initialDraft,
+  theme,
   onApply,
   onClose,
 }: {
   projectId: string;
   initialDraft?: PromptDraft;
+  theme: 'light' | 'dark';
   onApply?: (revision: LibraryRevision) => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -38,6 +41,7 @@ export function PromptLibraryDialog({
     [selected, setSelected] = useState<LibraryView>(),
     [body, setBody] = useState<Body>(() => bodyFrom(initialDraft)),
     [history, setHistory] = useState<History>();
+  const [pane, setPane] = useState<LibraryPane>(initialDraft ? 'detail' : 'list');
   const [q, setQ] = useState(''),
     [tag, setTag] = useState(''),
     [tagText, setTagText] = useState(initialDraft?.tags?.join(', ') ?? ''),
@@ -91,6 +95,7 @@ export function PromptLibraryDialog({
     setSavingAllowed(value.canEdit);
   }
   function accept(value: LibraryView) {
+    setPane('detail');
     setSelected(value);
     setBody(bodyFrom(value.revision));
     setTagText(value.revision.tags.join(', '));
@@ -143,8 +148,10 @@ export function PromptLibraryDialog({
         if (!busy && discard()) onClose();
       }}
       busy={busy}
-      className="prompt-library-dialog"
+      className="studio-v2 v2-library prompt-library-dialog"
+      theme={theme}
     >
+      <StudioLibraryNav pane={pane} onChange={setPane} list="提示词列表" detail="提示词内容" />
       <div className="dialog-body">
         {error && (
           <p className="notice error" role="alert">
@@ -156,12 +163,19 @@ export function PromptLibraryDialog({
             {message}
           </p>
         )}
-        <div className="prompt-library-layout">
-          <aside aria-label="提示词列表">
+        <div className="v2-library-layout" data-pane={pane}>
+          <aside className="v2-library-list" aria-label="提示词列表">
+            <div className="v2-library-heading">
+              <h3>项目提示词</h3>
+              <StudioButton variant="ghost" disabled={busy} onClick={() => void run(loadList)}>
+                刷新列表
+              </StudioButton>
+            </div>
             <label>
               搜索提示词
               <input
                 aria-label="搜索提示词"
+                type="search"
                 data-autofocus
                 value={q}
                 maxLength={80}
@@ -179,12 +193,11 @@ export function PromptLibraryDialog({
                 placeholder="输入完整标签"
               />
             </label>
-            <div className="review-actions">
-              <button disabled={busy} onClick={() => void run(loadList)}>
-                刷新列表
-              </button>
+            <div className="v2-library-tools">
               {savingAllowed && (
-                <button
+                <StudioButton
+                  icon="plus"
+                  variant="primary"
                   disabled={busy}
                   onClick={() => {
                     if (!discard()) return;
@@ -197,10 +210,11 @@ export function PromptLibraryDialog({
                     attempt.current = { body: '', key: '' };
                     setError('');
                     setMessage('');
+                    setPane('detail');
                   }}
                 >
                   新建提示词
-                </button>
+                </StudioButton>
               )}
             </div>
             {list?.items.length === 0 && <p className="muted">没有匹配的提示词。</p>}
@@ -236,18 +250,40 @@ export function PromptLibraryDialog({
               </button>
             )}
           </aside>
-          <section aria-label="提示词内容">
+          <section className="v2-library-detail" aria-label="提示词内容">
             {list ? (
               <>
+                <div className="v2-library-heading">
+                  <h3>{selected ? selected.revision.title : '新建提示词'}</h3>
+                  {selected && (
+                    <span className="v2-prompt-version">
+                      v{selected.revision.version}
+                      {historical ? ' · 历史版本（只读）' : ''}
+                    </span>
+                  )}
+                </div>
                 {selected && (
-                  <p className="field-hint">
-                    {selected.revision.title} · v{selected.revision.version}
-                    {historical ? ' · 历史版本（只读）' : ''}
-                  </p>
-                )}
-                {selected && (
-                  <div className="review-actions">
-                    <button
+                  <div className="v2-library-tools v2-prompt-actions">
+                    {onApply && (
+                      <StudioButton
+                        icon="check"
+                        variant="primary"
+                        disabled={busy || edited()}
+                        onClick={() =>
+                          void run(async () => {
+                            const fresh = await api<LibraryView>(
+                              `/prompt-library/${selected.revision.entryId}/revisions/${selected.revision.version}`,
+                            );
+                            await onApply(fresh.revision);
+                          })
+                        }
+                      >
+                        应用此版本
+                      </StudioButton>
+                    )}
+                    <StudioButton
+                      variant="ghost"
+                      icon="clock"
                       disabled={busy}
                       onClick={() =>
                         void run(async () =>
@@ -258,9 +294,10 @@ export function PromptLibraryDialog({
                       }
                     >
                       修订历史
-                    </button>
+                    </StudioButton>
                     {savingAllowed && (
-                      <button
+                      <StudioButton
+                        variant="ghost"
                         disabled={busy}
                         onClick={() => {
                           setSelected(undefined);
@@ -270,7 +307,7 @@ export function PromptLibraryDialog({
                         }}
                       >
                         另存为新提示词
-                      </button>
+                      </StudioButton>
                     )}
                   </div>
                 )}
@@ -432,13 +469,19 @@ export function PromptLibraryDialog({
                         </select>
                       </label>
                     </details>
-                    <button className="primary" disabled={!body.title.trim() || !body.positivePrompt.trim()}>
+                    <StudioButton
+                      icon="check"
+                      type="submit"
+                      variant={onApply && selected ? 'default' : 'primary'}
+                      disabled={!body.title.trim() || !body.positivePrompt.trim()}
+                    >
                       {selected ? '保存为新版本' : '保存提示词'}
-                    </button>
+                    </StudioButton>
                   </fieldset>
                 </form>
-                <div className="review-actions">
-                  <button
+                <div className="v2-library-tools v2-prompt-actions">
+                  <StudioButton
+                    variant="ghost"
                     disabled={busy || !list || !body.positivePrompt.trim()}
                     onClick={() =>
                       void run(async () => {
@@ -450,9 +493,10 @@ export function PromptLibraryDialog({
                     }
                   >
                     复制正向提示词
-                  </button>
+                  </StudioButton>
                   {body.negativePrompt && (
-                    <button
+                    <StudioButton
+                      variant="ghost"
                       disabled={busy || !list}
                       onClick={() =>
                         void run(async () => {
@@ -464,22 +508,7 @@ export function PromptLibraryDialog({
                       }
                     >
                       复制负向提示词
-                    </button>
-                  )}
-                  {onApply && selected && (
-                    <button
-                      disabled={busy || !list || edited()}
-                      onClick={() =>
-                        void run(async () => {
-                          const fresh = await api<LibraryView>(
-                            `/prompt-library/${selected.revision.entryId}/revisions/${selected.revision.version}`,
-                          );
-                          await onApply(fresh.revision);
-                        })
-                      }
-                    >
-                      应用此版本
-                    </button>
+                    </StudioButton>
                   )}
                 </div>
               </>
@@ -490,14 +519,14 @@ export function PromptLibraryDialog({
         </div>
       </div>
       <div className="dialog-footer">
-        <button
+        <StudioButton
           disabled={busy}
           onClick={() => {
             if (discard()) onClose();
           }}
         >
           关闭提示词库
-        </button>
+        </StudioButton>
       </div>
     </Dialog>
   );

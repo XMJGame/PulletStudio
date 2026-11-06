@@ -85,11 +85,20 @@ export class BoardsController {
           kind: z.enum(['shots', 'entities', 'media']),
           cursor: uuid.optional(),
           q: z.string().max(80).optional(),
+          mediaType: z.enum(['image', 'video', 'audio']).optional(),
         })
-        .strict(),
+        .strict()
+        .refine((value) => !value.mediaType || value.kind === 'media', '媒体类型仅用于媒体列表'),
       query,
     );
-    return this.references.sources(req.user, parse(uuid, id), input.kind, input.cursor, input.q);
+    return this.references.sources(
+      req.user,
+      parse(uuid, id),
+      input.kind,
+      input.cursor,
+      input.q,
+      input.mediaType,
+    );
   }
   @Post('projects/:id/board-references/resolve') resolve(
     @Req() req: StudioRequest,

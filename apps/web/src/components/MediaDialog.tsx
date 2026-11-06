@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, CursorPage, uploadMediaContent } from '../api';
+import { api, CursorPage } from '../api';
 import { MediaAsset, MediaUpload, MediaVersion } from '../media-types';
 import { Dialog } from './Dialog';
-type Status = {
-  available: boolean;
-  maxBytes: number;
-  error?: {
-    message: string;
-  };
-  formats?: string;
-};
+import { uploadProjectMedia, mediaFileAccept, type MediaStatus } from '../media-upload';
 type Versions = {
   items: MediaVersion[];
   nextCursor: number | null;
@@ -27,7 +20,7 @@ export function MediaDialog({
     projectId: string;
     canEdit: boolean;
   }>();
-  const [status, setStatus] = useState<Status>();
+  const [status, setStatus] = useState<MediaStatus>();
   const [assets, setAssets] = useState<CursorPage<MediaAsset>>({ items: [], nextCursor: null });
   const [uploads, setUploads] = useState<CursorPage<MediaUpload>>({ items: [], nextCursor: null });
   const [selected, setSelected] = useState<MediaVersion>();
@@ -51,7 +44,7 @@ export function MediaDialog({
         canEdit: boolean;
       }>(`/projects/${projectId}/access`);
       const [state, library, pending] = await Promise.all([
-        api<Status>(`/projects/${projectId}/media-status`),
+        api<MediaStatus>(`/projects/${projectId}/media-status`),
         api<CursorPage<MediaAsset>>(`/projects/${projectId}/media-assets`),
         api<CursorPage<MediaUpload>>(`/projects/${projectId}/media-uploads`),
       ]);
@@ -107,71 +100,27 @@ export function MediaDialog({
     setMessage('');
     const controller = new AbortController();
     abort.current = controller;
-    let job = session;
-    const poll = setInterval(() => {
-      if (job)
-        void api<MediaUpload>(`/media-uploads/${job.id}`)
-          .then(setSession)
-          .catch(() => undefined);
-    }, 2000);
     try {
-      if (!job) {
-        const asset = assets.items.find((item) => item.id === target);
-        job = await api<MediaUpload>(
-          `/projects/${context.projectId}/media-uploads`,
-          'POST',
-          {
-            fileName: file.name,
-            byteLength: file.size,
-            contentType: file.type,
-            assetId: asset?.id ?? null,
-            expectedAssetVersion: asset?.version ?? 0,
-          },
-          { 'Idempotency-Key': key },
-        );
-        setSession(job);
-      }
-      job = await api<MediaUpload>(`/media-uploads/${job.id}`);
-      setSession(job);
-      if (job.state === 'complete') {
-        await select(job.mediaVersion!);
-        setMessage('媒体已归档，已读取现有结果');
-        await refresh();
-        return;
-      }
-      if (!['created', 'failed'].includes(job.state))
-        throw new Error(
-          job.state === 'needs_reconciliation'
-            ? '文件已归档但登记未完成，请点击“重试登记”。'
-            : '此上传仍在执行，请查看状态后重试。',
-        );
-      const result = await uploadMediaContent<MediaUpload>(job.id, file, controller.signal);
-      setSession(result);
+      const asset = assets.items.find((item) => item.id === target);
+      const result = await uploadProjectMedia({
+        projectId: context.projectId,
+        file,
+        attempt: { key, session },
+        signal: controller.signal,
+        onSession: setSession,
+        assetId: asset?.id ?? null,
+        expectedAssetVersion: asset?.version ?? 0,
+      });
       await select(result.mediaVersion!);
       setMessage('媒体已完成归档');
       await refresh();
     } catch (reason) {
-      if (job) {
-        try {
-          const latest = await api<MediaUpload>(`/media-uploads/${job.id}`);
-          setSession(latest);
-          if (latest.state === 'complete') {
-            await select(latest.mediaVersion!);
-            setMessage('媒体已完成归档，已恢复上传结果');
-            await refresh();
-            return;
-          }
-        } catch {
-          /* The user can read the durable status after reconnecting. */
-        }
-      }
       report(
         controller.signal.aborted
           ? new Error('已停止等待上传，请查看状态；未完成时可重新发送整个文件。')
           : reason,
       );
     } finally {
-      clearInterval(poll);
       setBusy(false);
       setUploading(false);
       abort.current = undefined;
@@ -233,7 +182,7 @@ export function MediaDialog({
                     <input
                       aria-label="媒体文件"
                       type="file"
-                      accept=".png,.jpg,.jpeg,.webp,.mp4,.mov,.m4a,.webm,.wav,.mp3,.ogg,.opus"
+                      accept={mediaFileAccept}
                       onChange={(event) => {
                         setFile(event.target.files?.[0]);
                         setSession(undefined);

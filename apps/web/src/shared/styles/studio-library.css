@@ -1,0 +1,157 @@
+.studio-dialog.v2-library {
+  display: flex;
+  flex-direction: column;
+  width: min(1220px, calc(100vw - 32px));
+  height: min(880px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--paper);
+  color: var(--ink);
+}
+.v2-library > .dialog-header,
+.v2-library > .dialog-footer {
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 12px 20px;
+  border-color: var(--line);
+  background: var(--paper);
+}
+.v2-library > .dialog-header p,
+.v2-library .field-hint {
+  color: var(--muted);
+}
+.v2-library > .dialog-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.v2-library > .dialog-body > :is(.notice, [role='status']) {
+  margin: 8px 16px;
+  overflow-wrap: anywhere;
+}
+.v2-library-layout {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(255px, 0.38fr) minmax(0, 1fr);
+  min-height: 0;
+}
+.v2-library-layout > :is(aside, section) {
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.v2-library-list {
+  border-inline-end: 1px solid var(--line);
+  background: var(--ground);
+}
+.v2-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.v2-library-heading h3 {
+  font-size: 16px;
+}
+.v2-library-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.v2-library :is(button, input, textarea, select, .panel) {
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+.v2-library button:not(.v2-button):hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--soft);
+  color: var(--ink);
+}
+.v2-library :is(input, textarea, select)::placeholder {
+  color: var(--subtle);
+}
+.v2-library :is(label, .notice.success) {
+  color: var(--ink);
+}
+.v2-library summary {
+  color: var(--muted);
+}
+.v2-library-list input[type='search'] {
+  margin-bottom: 8px;
+}
+.v2-library button.primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-ink);
+}
+.v2-library button.primary:hover:not(:disabled) {
+  background: var(--action);
+  color: var(--action-ink);
+}
+.v2-library .notice.success {
+  border-color: var(--line);
+  color: var(--success);
+  background: var(--success-soft);
+}
+.v2-library .notice.error {
+  background: var(--danger-soft);
+  border-color: var(--line);
+  color: var(--danger);
+}
+.v2-library-nav {
+  display: none;
+}
+.studio-dialog.v2-library-aux {
+  width: min(780px, calc(100vw - 24px));
+  height: auto;
+  max-height: calc(100dvh - 24px);
+}
+.v2-library-aux > .dialog-body {
+  display: block;
+  overflow: auto;
+  padding: 14px 20px;
+}
+@media (max-width: 760px) {
+  .studio-dialog.v2-library {
+    width: calc(100vw - 12px);
+    height: calc(100dvh - 12px);
+  }
+  .v2-library-nav {
+    display: flex;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .v2-library-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .v2-library-layout > :is(aside, section) {
+    padding: 12px;
+    scrollbar-gutter: auto;
+    border-inline-end: 0;
+  }
+  .v2-library-layout[data-pane='list'] > .v2-library-detail,
+  .v2-library-layout[data-pane='detail'] > .v2-library-list {
+    display: none;
+  }
+  .v2-library > .dialog-header,
+  .v2-library > .dialog-footer {
+    padding: 10px 12px;
+  }
+  .v2-library-aux > .dialog-body {
+    padding: 12px;
+  }
+}

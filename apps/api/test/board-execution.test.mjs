@@ -260,6 +260,7 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
         await app.get(GenerationWorker).tick();
         queued = (await owner('GET', `/generation-jobs/${queued.id}`)).data;
         assert.equal(queued.state, 'completed');
+        assert.match(queued.result.posterUrl, /\/poster$/);
         assert.equal(queued.inLibrary, false);
         const resultNode = { ...node('result', { jobId: queued.id }), id: queued.id };
         layout.nodes.push(resultNode);
@@ -278,6 +279,23 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
         board = (await save()).data;
         assert.equal(db().prepare('SELECT count(*) n FROM shots').get().n, 0);
         assert.equal(db().prepare('SELECT count(*) n FROM takes').get().n, 0);
+      },
+    );
+    await t.test(
+      'canvas media library excludes unfiled candidates until explicit archival without changing result references',
+      async () => {
+        const sources = `/projects/${project.id}/board-sources?kind=media&mediaType=video`;
+        assert.ok(
+          !(await owner('GET', sources)).data.items.some((item) => item.ref.id === queued.mediaVersionId),
+        );
+        const pinned = (await owner('GET', `/boards/${board.id}`)).data.resolved[queued.id].media.id;
+        assert.equal(pinned, queued.mediaVersionId);
+        const stored = await owner('POST', `/generation-jobs/${queued.id}/save-to-library`, {});
+        assert.equal(stored.status, 201, JSON.stringify(stored.data));
+        assert.ok(
+          (await owner('GET', sources)).data.items.some((item) => item.ref.id === queued.mediaVersionId),
+        );
+        assert.equal((await owner('GET', `/boards/${board.id}`)).data.resolved[queued.id].media.id, pinned);
       },
     );
     await t.test('foreign workflows, results and sources cannot bypass project permissions', async () => {
