@@ -127,7 +127,7 @@ export function BoardSources({
               </p>
             </div>
           )}
-          <div className="creative-source-list">
+          <div className="creative-source-list" data-kind={kind}>
             {rows.map((row) => (
               <div className="creative-source-item" key={JSON.stringify(row.ref)}>
                 <button
@@ -158,8 +158,13 @@ export function BoardSources({
                     <span>{kindLabels[row.value.kind ?? row.ref.kind] ?? '引用'}</span>
                   </div>
                   <strong>{row.value.title}</strong>
+                  {kind === 'entities' && row.value.summary && (
+                    <p className="creative-source-description">{row.value.summary}</p>
+                  )}
                   <small title={statusLabels[row.value.status]}>
-                    {row.ready ? `v${row.value.version ?? 1}` : '暂不可用'}
+                    {row.ready
+                      ? `v${row.value.version ?? 1}${kind === 'entities' ? ` · ${statusLabels[row.value.status]}` : ''}`
+                      : '暂不可用'}
                   </small>
                 </button>
                 <button

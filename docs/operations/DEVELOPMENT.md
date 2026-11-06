@@ -93,7 +93,7 @@ npm run db:backup
 
 Board 与 Workflow 套件包含实际浏览器 125%/150% 缩放场景：使用 `tests/fixtures/browser-zoom.mjs` 在独立测试 profile 中调用浏览器 [tabs.setZoom/getZoom](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-setZoom)，读回倍率并验证固定 1440×900 下的 innerWidth 和 devicePixelRatio，再操作项目、画布、候选、资源及提示词/工作流管理。临时扩展只存在于忽略的测试输出目录，不使用用户浏览器配置，也不加入应用。正式库管理另覆盖四档分辨率和深浅主题；此证据区别于等效 CSS 视口。
 
-先依次运行 Board、Workflow 套件，再运行 `npm run review:ui`，可收集 16 张代表性正式页面截图到 `docs/review/studio-ui-v2/`，来源清单记录原截图路径和分辨率。两套浏览器测试共用端口，不能并行启动。收集脚本只读取 PNG 白名单，不收集 DB、profile、运行媒体、trace 或环境文件。CI 无论成功或失败都上传有界 PNG 和错误摘要 artifact，保留 14 天，不再上传整个测试目录。完整评审矩阵见[正式界面评审包](../review/studio-ui-v2/README.md)。
+先依次运行 Board、Workflow 套件，再运行 `npm run review:ui`，可收集 18 张代表性正式页面截图到 `docs/review/studio-ui-v2/`，来源清单记录原截图路径和分辨率。两套浏览器测试共用端口，不能并行启动。收集脚本只读取 PNG 白名单，不收集 DB、profile、运行媒体、trace 或环境文件。CI 无论成功或失败都上传有界 PNG 和错误摘要 artifact，保留 14 天，不再上传整个测试目录。完整评审矩阵见[正式界面评审包](../review/studio-ui-v2/README.md)。
 
 工作流中心使用 `npm run test:workflows` 构建并运行图解析测试和浏览器验收。场景使用独立 Worker 和 Mock ComfyUI，包含实例诊断、手动路由及试跑和生成归档。已有构建时可分别运行 `npm run test:workflow-graph` 和工作流 Playwright 配置。
 

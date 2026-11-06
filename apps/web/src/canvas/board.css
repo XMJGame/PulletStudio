@@ -367,6 +367,10 @@
 .creative-inspector p {
   overflow-wrap: anywhere;
 }
+.creative-inspector > strong {
+  display: block;
+  margin-top: 12px;
+}
 .creative-summary {
   white-space: pre-wrap;
   line-height: 1.6;

@@ -14,6 +14,8 @@ const captures = [
   ['工作流中心', 'review-workflows-light-1440.png', 'workflows.png'],
   ['候选对照', 'candidates-compare-desktop.png', 'candidates.png'],
   ['只读资源预览', 'source-preview-readonly-mobile.png', 'resource-mobile.png'],
+  ['资产固定版本与参考素材', 'asset-reference-desktop-light.png', 'asset-references.png'],
+  ['资产参考素材 · 手机深色', 'asset-reference-mobile-dark.png', 'asset-references-mobile.png'],
   ['工作流中心 · 深色实际 150% 缩放', 'review-workflows-dark-zoom-150.png', 'workflow-zoom.png'],
   ['画布冲突与草稿', 'review-board-conflict.png', 'conflict.png'],
   ['提示词冲突与草稿', 'review-prompt-conflict.png', 'prompt-conflict.png'],

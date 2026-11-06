@@ -453,6 +453,277 @@ test('resource previews keep fixed media outside the canvas and let read-only us
   }
 });
 
+test('asset previews pin historical revisions and individual reference media', async ({ page }) => {
+  const value = await project('Asset revision selection');
+  const front = await uploadMedia(value.id, 'image.png');
+  const side = await uploadMedia(value.id, 'image.jpg');
+  const body = {
+    name: 'Harbor keeper',
+    description: 'A practical coat for the morning watch.',
+    attributes: {},
+    media: [
+      { role: 'front', mediaVersionId: front.id },
+      { role: 'side', mediaVersionId: side.id },
+    ],
+  };
+  const original = await call('POST', `/projects/${value.id}/entities`, { kind: 'character', body });
+  for (let version = 1; version < 22; version++)
+    await call('POST', `/entities/${original.id}/revisions`, {
+      expectedVersion: version,
+      body: { ...body, name: `Harbor keeper ${version + 1}` },
+    });
+  await open(page, value);
+  const id = await createBoard(page, 'Choose costume and reference');
+  const sources = page.getByRole('complementary', { name: '正式项目资源' });
+  const preview = sources.getByRole('region', { name: '资源预览' });
+  await sources.getByRole('button', { name: '资产', exact: true }).click();
+  await expect(sources.getByRole('button', { name: '添加 Harbor keeper 22', exact: true })).toContainText(
+    body.description,
+  );
+  await sources.getByRole('button', { name: '预览 Harbor keeper 22', exact: true }).click();
+  const versions = preview.getByLabel('资产固定版本', { exact: true });
+  await expect(versions.locator('option')).toHaveCount(20);
+  await preview.getByRole('button', { name: '更早的资产版本', exact: true }).click();
+  await expect(versions.locator('option')).toHaveCount(22);
+  await versions.selectOption(original.revision.id);
+  await expect(preview.getByRole('heading', { name: 'Harbor keeper', exact: true })).toBeVisible();
+  await versions.focus();
+  await page.keyboard.press('Home');
+  await expect(preview.getByRole('heading', { name: 'Harbor keeper 22', exact: true })).toBeVisible();
+  await page.keyboard.press('End');
+  await expect(preview.getByRole('heading', { name: 'Harbor keeper', exact: true })).toBeVisible();
+  await preview.getByRole('button', { name: '预览侧面：image.jpg', exact: true }).click();
+  await expect(preview.getByRole('img', { name: '项目资源预览' })).toHaveAttribute('src', side.contentUrl);
+  await preview.getByRole('button', { name: '添加此资产版本', exact: true }).click();
+  await preview.getByRole('button', { name: '添加此参考素材', exact: true }).click();
+  await expect(preview.getByRole('status')).toContainText('已添加参考素材');
+  const inspector = page.getByRole('complementary', { name: '画布检查器' });
+  const actionBounds = await inspector.getByRole('button', { name: '以此图生成', exact: true }).boundingBox();
+  const titleBounds = await inspector.locator(':scope > strong').boundingBox();
+  expect(actionBounds!.y + actionBounds!.height).toBeLessThanOrEqual(titleBounds!.y);
+  await save(page);
+  const saved = await call('GET', `/boards/${id}`);
+  expect(saved.layout.nodes.map((node: any) => node.data.ref)).toEqual([
+    { kind: 'entity', id: original.id, revisionId: original.revision.id },
+    { kind: 'media', id: side.id },
+  ]);
+  expect(saved.resolved[saved.layout.nodes[0].id].media.id).toBe(front.id);
+  const latest = await call('POST', `/entities/${original.id}/revisions`, { expectedVersion: 22, body });
+  await page.screenshot({ path: 'test-results/asset-reference-desktop-light.png' });
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.screenshot({ path: 'test-results/asset-reference-desktop-dark.png', animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '资源库', exact: true }).click();
+  await sources.getByRole('button', { name: '资产', exact: true }).click();
+  await sources.getByRole('button', { name: '预览 Harbor keeper', exact: true }).click();
+  await preview.getByRole('button', { name: '添加此资产版本' }).scrollIntoViewIfNeeded();
+  await expect(preview.getByRole('button', { name: '添加此资产版本' })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/asset-reference-mobile-dark.png', animations: 'disabled' });
+  await page.getByRole('button', { name: '浅色画布', exact: true }).click();
+  await page.screenshot({ path: 'test-results/asset-reference-mobile-light.png', animations: 'disabled' });
+  await page.reload();
+  const restored = await call('GET', `/boards/${id}`);
+  expect(restored.layout).toEqual(saved.layout);
+  expect(restored.resolved[saved.layout.nodes[0].id].version).toBe(1);
+  expect(restored.resolved[saved.layout.nodes[0].id].currentVersion).toBe(latest.currentVersion);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator(`.react-flow__node[data-id="${saved.layout.nodes[1].id}"]`).click();
+  await page.keyboard.press('Delete');
+  await save(page);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(1);
+  expect((await owner.get(side.contentUrl)).ok()).toBe(true);
+});
+
+test('asset preview switching rejects stale responses and preserves explicit choices on failure', async ({
+  page,
+}) => {
+  const value = await project('Asset switching boundaries');
+  const front = await uploadMedia(value.id, 'image.png');
+  const body = {
+    name: 'Harbor study',
+    description: '',
+    attributes: {},
+    media: [{ role: 'front', mediaVersionId: front.id }],
+  };
+  const original = await call('POST', `/projects/${value.id}/entities`, { kind: 'character', body });
+  const latest = await call('POST', `/entities/${original.id}/revisions`, {
+    expectedVersion: 1,
+    body: { ...body, name: 'Harbor study latest' },
+  });
+  await open(page, value);
+  await createBoard(page, 'Switching reference versions');
+  const sources = page.getByRole('complementary', { name: '正式项目资源' });
+  const preview = sources.getByRole('region', { name: '资源预览' });
+  await sources.getByRole('button', { name: '资产', exact: true }).click();
+  await page.route(`**/entities/${original.id}/revisions`, (route) =>
+    route.fulfill({ status: 503, json: { message: 'History temporarily unavailable' } }),
+  );
+  await sources.getByRole('button', { name: '预览 Harbor study latest', exact: true }).click();
+  await expect(preview.getByRole('alert')).toContainText('History temporarily unavailable');
+  await page.unroute(`**/entities/${original.id}/revisions`);
+  await preview.getByRole('button', { name: '重新读取资产历史' }).click();
+  const versions = preview.getByLabel('资产固定版本');
+  await expect(versions.locator('option')).toHaveCount(2);
+  let release!: () => void, requested!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  await page.route('**/board-references/resolve', async (route) => {
+    const references = route.request().postDataJSON().references;
+    if (references.some((item: any) => item.ref.revisionId === original.revision.id)) {
+      const response = await route.fetch();
+      requested();
+      await released;
+      await route.fulfill({ response });
+    } else await route.continue();
+  });
+  try {
+    await versions.selectOption(original.revision.id);
+    await started;
+    await expect(preview.getByRole('button', { name: '添加此资产版本' })).toHaveCount(0);
+    await versions.selectOption(latest.revision.id);
+    await expect(preview.getByRole('heading', { name: 'Harbor study latest', exact: true })).toBeVisible();
+    const oldResponse = page.waitForResponse((response) => {
+      if (!response.url().endsWith('/board-references/resolve')) return false;
+      return response
+        .request()
+        .postDataJSON()
+        .references.some((item: any) => item.ref.revisionId === original.revision.id);
+    });
+    release();
+    await oldResponse;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
+    await expect(versions).toHaveValue(latest.revision.id);
+    await expect(preview.getByRole('heading', { name: 'Harbor study', exact: true })).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+  await page.route('**/board-references/resolve', (route) =>
+    route.fulfill({ status: 503, json: { message: 'Reference temporarily unavailable' } }),
+  );
+  await versions.selectOption(original.revision.id);
+  await expect(preview.getByRole('alert')).toContainText('Reference temporarily unavailable');
+  await expect(versions).toHaveValue(original.revision.id);
+  await expect(preview.getByRole('img')).toHaveCount(0);
+  await expect(preview.getByRole('button', { name: '添加此资产版本' })).toHaveCount(0);
+  await page.unrouteAll({ behavior: 'wait' });
+  await preview.getByRole('button', { name: '重新读取预览' }).click();
+  await expect(preview.getByRole('heading', { name: 'Harbor study', exact: true })).toBeVisible();
+  await expect(versions).toHaveValue(original.revision.id);
+  const responseReady = page.waitForResponse((response) =>
+    response.url().endsWith('/board-references/resolve'),
+  );
+  await page.route('**/board-references/resolve', async (route) => {
+    const response = await route.fetch();
+    await preview.getByRole('button', { name: '返回资源列表' }).click();
+    await route.fulfill({ response });
+  });
+  await preview.getByRole('button', { name: '添加此参考素材' }).click();
+  await responseReady;
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+  await page.unrouteAll({ behavior: 'wait' });
+  await sources.getByRole('button', { name: '预览 Harbor study latest', exact: true }).click();
+  await expect(preview.getByRole('button', { name: '添加此参考素材' })).toBeVisible();
+  await page.route('**/board-references/resolve', async (route) => {
+    const response = await route.fetch();
+    await page.getByRole('button', { name: '添加便签', exact: true }).click();
+    await route.fulfill({ response });
+  });
+  await preview.getByRole('button', { name: '添加此参考素材' }).click();
+  await expect(preview.getByRole('status')).toContainText('已添加参考素材');
+  await page.unrouteAll({ behavior: 'wait' });
+  await save(page);
+  const board = await call('GET', `/boards/${(await page.url()).split('#canvas/')[1]}`);
+  expect(board.layout.nodes.map((node: any) => node.type).sort()).toEqual(['note', 'reference']);
+});
+
+test('read-only asset history keeps protected voice samples unavailable', async ({ page }) => {
+  const value = await project('Asset reader permissions');
+  const image = await uploadMedia(value.id, 'image.png');
+  const sample = await uploadMedia(value.id, 'sound.wav');
+  const original = await call('POST', `/projects/${value.id}/entities`, {
+    kind: 'environment',
+    body: {
+      name: 'Harbor',
+      description: 'Before dawn',
+      attributes: {},
+      media: [{ role: 'overview', mediaVersionId: image.id }],
+    },
+  });
+  await call('POST', `/entities/${original.id}/revisions`, {
+    expectedVersion: 1,
+    body: {
+      name: 'Harbor dawn',
+      description: 'At dawn',
+      attributes: {},
+      media: [{ role: 'overview', mediaVersionId: image.id }],
+    },
+  });
+  const voice = await call('POST', `/projects/${value.id}/entities`, {
+    kind: 'voice',
+    body: {
+      name: 'Narration',
+      description: 'PRIVATE SAMPLE DETAILS',
+      attributes: {},
+      media: [{ role: 'voice_sample', mediaVersionId: sample.id }],
+    },
+  });
+  await call('POST', `/entities/${voice.id}/revisions`, {
+    expectedVersion: 1,
+    body: { name: 'Narration settings', description: 'Metadata only', attributes: {}, media: [] },
+  });
+  await open(page, value);
+  const id = await createBoard(page, 'Reader reference choices');
+  const invite = await call('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+    email: `asset-reader-${randomUUID()}@board.test`,
+  });
+  const reader = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  try {
+    const accepted = await reader.post('/api/v1/invitations/accept', {
+      data: { token: invite.token, name: 'Asset reader', password: 'Studio8!' },
+      headers: { 'X-Studio-Request': '1' },
+    });
+    expect(accepted.ok()).toBeTruthy();
+    const joined = await accepted.json();
+    await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+    await page.goto('about:blank');
+    await open(page, value, reader, joined.user.id);
+    const sources = page.getByRole('complementary', { name: '正式项目资源' });
+    const preview = sources.getByRole('region', { name: '资源预览' });
+    await sources.getByRole('button', { name: '资产', exact: true }).click();
+    await sources.getByRole('button', { name: '预览 Harbor dawn', exact: true }).click();
+    await expect(preview.getByLabel('资产固定版本').locator('option')).toHaveCount(2);
+    await preview.getByLabel('资产固定版本').selectOption(original.revision.id);
+    await expect(preview.getByRole('heading', { name: 'Harbor', exact: true })).toBeVisible();
+    await expect(preview.getByRole('button', { name: /^添加/ })).toHaveCount(0);
+    await expect(preview.getByRole('img', { name: '项目资源预览' })).toBeVisible();
+    await preview.getByRole('button', { name: '返回资源列表' }).click();
+    await sources.getByRole('button', { name: '预览 Narration settings', exact: true }).click();
+    await expect(preview.getByLabel('资产固定版本').locator('option')).toHaveCount(2);
+    await preview.getByLabel('资产固定版本').selectOption(voice.revision.id);
+    await expect(preview.getByRole('alert')).toContainText('此资源已不可用');
+    await expect(preview).not.toContainText('PRIVATE SAMPLE DETAILS');
+    await expect(preview.locator('audio, img, a')).toHaveCount(0);
+    const denied = await reader.get(sample.contentUrl);
+    expect(denied.status()).toBe(403);
+    expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+    await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+    await preview.getByRole('button', { name: '重新读取预览' }).click();
+    await expect(page.getByRole('main', { name: '创作画布' })).toContainText('画布或项目已不可访问');
+  } finally {
+    await reader.dispose();
+  }
+});
+
 test('candidate review compares fixed results and keeps selection while new jobs arrive', async ({
   page,
   playwright,

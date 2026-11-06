@@ -30,6 +30,12 @@
 
 [只读手机预览](resource-mobile.png) · [手机项目首页](project-mobile.png) · [素材上传](media.png) · [工作流实际 150% 缩放](workflow-zoom.png)
 
+资产预览可选固定历史修订、查看不同用途的参考素材，分别添加资产修订或单份媒体。下图颜色块是测试合成图片，只验证版本与参考素材的准确选用；不代表模型产物。已有节点和资产主图不会随预览切换。
+
+![资产版本与参考素材](asset-references.png)
+
+[资产参考素材的手机深色版本](asset-references-mobile.png)
+
 ## 验收矩阵
 
 | 领域 | 自动化及真实页面证据 | 边界 |
@@ -42,7 +48,7 @@
 | 权限 | [项目撤权](denied.png)、[只读预览](resource-mobile.png) | 服务端授权、跨项目隔离、私有声音及撤权回归 |
 | 任务 | [生成中](running.png)、[结果归档](canvas.png)、[双候选](candidates.png) | 已提交任务关闭页面后继续运行；结果不自动成为输入 |
 
-更完整的尺寸/主题截图保留于忽略的 `test-results/`，CI 提供 `studio-ui-evidence` artifact。此包仅收录 16 张代表图，文件尺寸与来源见 [captures.json](captures.json)，不包含运行数据库、浏览器 profile、凭据或第三方闭源资源。
+更完整的尺寸/主题截图保留于忽略的 `test-results/`，CI 提供 `studio-ui-evidence` artifact。此包收录 18 张代表图（P0 的 16 张及 P1-A 资产选用的 2 张），文件尺寸与来源见 [captures.json](captures.json)，不包含运行数据库、浏览器 profile、凭据或第三方闭源资源。
 
 ## 范围与后续
 

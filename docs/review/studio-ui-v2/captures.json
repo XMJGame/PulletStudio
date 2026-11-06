@@ -23,7 +23,7 @@
       "file": "canvas.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 201831
+      "bytes": 201798
     },
     {
       "label": "正式创作与候选归档 · 深色",
@@ -31,7 +31,7 @@
       "file": "canvas-dark.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 203753
+      "bytes": 203717
     },
     {
       "label": "素材上传",
@@ -63,7 +63,7 @@
       "file": "candidates.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 112158
+      "bytes": 111795
     },
     {
       "label": "只读资源预览",
@@ -71,7 +71,23 @@
       "file": "resource-mobile.png",
       "width": 390,
       "height": 844,
-      "bytes": 35801
+      "bytes": 35735
+    },
+    {
+      "label": "资产固定版本与参考素材",
+      "source": "test-results/asset-reference-desktop-light.png",
+      "file": "asset-references.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 90212
+    },
+    {
+      "label": "资产参考素材 · 手机深色",
+      "source": "test-results/asset-reference-mobile-dark.png",
+      "file": "asset-references-mobile.png",
+      "width": 390,
+      "height": 844,
+      "bytes": 52697
     },
     {
       "label": "工作流中心 · 深色实际 150% 缩放",
@@ -87,7 +103,7 @@
       "file": "conflict.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 80058
+      "bytes": 80057
     },
     {
       "label": "提示词冲突与草稿",
@@ -111,7 +127,7 @@
       "file": "running.png",
       "width": 1440,
       "height": 1000,
-      "bytes": 105381
+      "bytes": 105197
     },
     {
       "label": "项目撤权",
@@ -127,7 +143,7 @@
       "file": "upload-error.png",
       "width": 390,
       "height": 844,
-      "bytes": 51396
+      "bytes": 51284
     }
   ]
 }
