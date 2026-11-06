@@ -162,6 +162,7 @@ export function BoardExecutionPanel({
   else if (!editable || !config.canEdit) blocked = '此节点为只读。';
   else if (workflow?.executable === false)
     blocked = workflow.executionBlocker ?? '此工作流的媒体执行尚未接通。';
+  else if (workflow?.mediaSchema?.inputs.length) blocked = '请从「自由生成」选择此工作流的参考图片。';
   else if (!workflow || workflow.archived || (!workflow.enabled && !config.poolConfigured))
     blocked = '选择一个可用工作流。';
   else if (needsFrame && frame?.media?.mediaType !== 'image') blocked = '图生视频需要选择一张首帧。';

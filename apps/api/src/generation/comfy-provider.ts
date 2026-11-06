@@ -29,7 +29,13 @@ export interface MediaProvider {
   queueStatus(signal?: AbortSignal): Promise<{ running: number; pending: number }>;
   validate(workflow: WorkflowInput): Promise<void>;
   inspect(workflow: WorkflowInput): Promise<DependencyReport>;
-  uploadImage(jobId: string, mime: string, image: Buffer, signal: AbortSignal): Promise<string>;
+  uploadImage(
+    jobId: string,
+    mime: string,
+    image: Buffer,
+    signal: AbortSignal,
+    slotId?: string,
+  ): Promise<string>;
   submit(jobId: string, graph: WorkflowInput['graph'], signal: AbortSignal): Promise<string>;
   observe(
     remoteId: string,
@@ -234,11 +240,11 @@ export class ComfyProvider {
           object((await json(`/object_info/${encodeURIComponent(type)}`, signal))[type]),
         );
       },
-      async uploadImage(jobId, mime, image, signal) {
+      async uploadImage(jobId, mime, image, signal, slotId) {
         const extension = referenceImageExtensions[mime];
         if (!extension || !image.length || image.length > referenceImageLimit)
           throw new GenerationError('REFERENCE_IMAGE_INVALID');
-        const name = `${uuid.parse(jobId)}.${extension}`,
+        const name = `${uuid.parse(jobId)}${slotId ? '-' + uuid.parse(slotId) : ''}.${extension}`,
           subfolder = 'pullet-studio',
           boundary = `pullet-${randomUUID()}`;
         const field = (key: string, value: string) =>

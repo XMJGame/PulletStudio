@@ -207,6 +207,9 @@ export default function WorkflowCenter({
                           : '兼容配置'}
                   </span>
                   {item.executable === false && <p className="field-hint">{item.executionBlocker}</p>}
+                  {item.executable && !!item.mediaSchema?.inputs.length && (
+                    <p className="field-hint">参考图片可在自由生成与试跑中选择。</p>
+                  )}
                   {(!!item.mediaSchema?.inputs.length || !!item.mediaSchema?.outputs.length) && (
                     <p className="field-hint">
                       扩展输入 {item.mediaSchema?.inputs.length ?? 0} 个 · 扩展输出{' '}

@@ -35,6 +35,7 @@ import {
   hasExtendedMedia,
   mediaExecutionReason,
   publicMediaSchema,
+  supportsReferenceImages,
 } from './workflow-media';
 import {
   CreateJobInput,
@@ -43,6 +44,7 @@ import {
   WorkflowInput,
   referenceImageLimit,
   referenceImageExtensions,
+  referenceImagesTotalLimit,
   ParameterValues,
   resolveParameters,
 } from './generation-contract';
@@ -55,6 +57,7 @@ export type GenerationSnapshot = {
   graph: WorkflowInput['graph'];
   approvals: { revisionId: string; decisionId: string | null }[];
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
+  referenceImages?: ({ slotId: string } & NonNullable<GenerationSnapshot['image']>)[];
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
@@ -172,13 +175,15 @@ export class GenerationService {
       : [];
     const summary = ({ definitionJson, ...workflow }: (typeof heads)[number]) => {
       const definition = JSON.parse(definitionJson) as WorkflowInput;
+      const referenceImages = supportsReferenceImages(definition.mediaSchema);
+      const executable = !hasExtendedMedia(definition.mediaSchema) || referenceImages;
       const values = resolveParameters(definition),
         fieldValues = resolveFields(definition);
       return {
         ...workflow,
         mediaSchema: publicMediaSchema(definition.mediaSchema),
-        executable: !hasExtendedMedia(definition.mediaSchema),
-        executionBlocker: hasExtendedMedia(definition.mediaSchema) ? mediaExecutionReason : null,
+        executable,
+        executionBlocker: executable ? null : mediaExecutionReason,
         reviewRequired: definition.reviewRequired === true,
         enabled: workflow.enabled && !workflow.archived,
         parameters: (definition.parameters ?? []).map((binding) => ({
@@ -433,9 +438,8 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, parameterValues, fieldValues, prompt, promptLibrary, boardExecution } = JSON.parse(
-      row.snapshotJson,
-    ) as GenerationSnapshot;
+    const { image, referenceImages, parameterValues, fieldValues, prompt, promptLibrary, boardExecution } =
+      JSON.parse(row.snapshotJson) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     const route = jobRoute(this.database, row.id);
@@ -463,6 +467,14 @@ export class GenerationService {
       shotVersion: row.shotVersion,
       promptId: row.promptId,
       image: image ? { id: image.id, fileName: image.fileName, version: image.version } : null,
+      ...(referenceImages && {
+        referenceImages: referenceImages.map(({ slotId, fileName, version }) => ({
+          slotId,
+          fileName,
+          version,
+          label: definition.mediaSchema?.inputs.find((slot) => slot.id === slotId)?.label,
+        })),
+      }),
       parameterValues: parameterValues ?? {},
       fieldValues: fieldValues ?? {},
       creativeParameters: (definition.fields ?? []).map((field) => ({
@@ -517,6 +529,26 @@ export class GenerationService {
   ) {
     return this.enqueue(user, { projectId }, input, key, 'production', execution);
   }
+  referenceImage(user: CurrentUser, projectId: string, id: string): NonNullable<GenerationSnapshot['image']> {
+    const source = this.media.version(user, id);
+    if (source.projectId !== projectId) fail(404, 'NOT_FOUND', '参考图片不属于当前项目');
+    if (
+      source.origin === 'workflow_test' ||
+      source.mediaType !== 'image' ||
+      !Object.hasOwn(referenceImageExtensions, source.mime) ||
+      source.byteLength <= 0 ||
+      source.byteLength > referenceImageLimit
+    )
+      fail(400, 'REFERENCE_IMAGE_INVALID', '参考图片须为不超过 16 MiB 的 PNG、JPEG 或 WebP');
+    return {
+      id: source.id,
+      fileName: source.fileName,
+      version: source.version,
+      mime: source.mime,
+      bytes: source.byteLength,
+      sha256: source.sha256,
+    };
+  }
   private enqueue(
     user: CurrentUser,
     context: { shotId: string; projectId?: never } | { projectId: string; shotId?: never },
@@ -527,6 +559,7 @@ export class GenerationService {
       source?: string;
       boardId?: string;
       promptLibraryRevisionId?: string;
+      referenceImageVersions?: CreateProjectJobInput['referenceImageVersions'];
     },
     key: string,
     purpose: Job['purpose'],
@@ -576,6 +609,13 @@ export class GenerationService {
           const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
           const requested = resolveParameters(definition, input.parameterValues);
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
+          const supplied = input.referenceImageVersions ?? {};
+          const frozen = snapshot.referenceImages ?? [];
+          if (
+            Object.keys(supplied).length !== frozen.length ||
+            frozen.some((item) => supplied[item.slotId] !== item.id)
+          )
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他参考图片');
           if (snapshot.boardExecution?.requestHash !== boardExecution?.requestHash)
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他画布执行');
           if (snapshot.promptLibrary?.revisionId !== input.promptLibraryRevisionId)
@@ -615,7 +655,19 @@ export class GenerationService {
         const catalog = catalogState(this.database, workflow.id);
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
-        assertMediaExecutable(definition.mediaSchema);
+        const projectReferences = !shot && !boardExecution;
+        assertMediaExecutable(definition.mediaSchema, projectReferences);
+        const slots = definition.mediaSchema?.inputs ?? [];
+        const supplied = input.referenceImageVersions ?? {};
+        if (Object.keys(supplied).some((id) => !slots.some((slot) => slot.id === id)))
+          fail(400, 'REFERENCE_SLOT_UNKNOWN', '此工作流没有所选参考槽位');
+        const referenceImages = slots.length
+          ? slots.map((slot) => {
+              const id = supplied[slot.id];
+              if (!id) fail(400, 'REFERENCE_SLOT_REQUIRED', `请选择参考图片：${slot.label}`);
+              return { slotId: slot.id, ...this.referenceImage(user, project.id, id) };
+            })
+          : undefined;
         if (shot && purpose === 'production') {
           const release = catalog && latestRelease(this.database, catalog.familyId);
           if (
@@ -660,26 +712,15 @@ export class GenerationService {
         const approvals = shot ? this.approvals(user, shot.id) : [];
         if ((workflow.capability === 'video.image_to_video') !== Boolean(input.imageVersionId))
           fail(400, 'REFERENCE_IMAGE_REQUIRED', '图生视频须选择一个项目图片版本');
-        let image: GenerationSnapshot['image'];
-        if (input.imageVersionId) {
-          const source = this.media.version(user, input.imageVersionId);
-          if (source.projectId !== project.id) fail(404, 'NOT_FOUND', '首帧不属于当前项目');
-          if (
-            source.origin === 'workflow_test' ||
-            source.mediaType !== 'image' ||
-            !referenceImageExtensions[source.mime] ||
-            source.byteLength > referenceImageLimit
-          )
-            fail(400, 'REFERENCE_IMAGE_INVALID', '首帧须为不超过 16 MiB 的 PNG、JPEG 或 WebP');
-          image = {
-            id: source.id,
-            fileName: source.fileName,
-            version: source.version,
-            mime: source.mime,
-            bytes: source.byteLength,
-            sha256: source.sha256,
-          };
-        }
+        const image = input.imageVersionId
+          ? this.referenceImage(user, project.id, input.imageVersionId)
+          : undefined;
+        if (
+          referenceImages &&
+          referenceImages.reduce((total, item) => total + item.bytes, image?.bytes ?? 0) >
+            referenceImagesTotalLimit
+        )
+          fail(400, 'REFERENCE_IMAGE_LIMIT', '参考图片与首帧总大小不能超过 64 MiB');
         const rendered = (
           prompt
             ? JSON.parse(prompt.renderedJson)
@@ -696,6 +737,7 @@ export class GenerationService {
           rendered.negativePrompt,
           parameterValues,
           fieldValues,
+          projectReferences,
         );
         const id = randomUUID(),
           createdAt = now();
@@ -723,6 +765,7 @@ export class GenerationService {
               graph,
               approvals,
               image,
+              referenceImages,
               parameterValues,
               fieldValues,
               ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),

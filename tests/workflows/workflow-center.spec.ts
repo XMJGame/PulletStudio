@@ -7,6 +7,7 @@ import {
   fixtureWorkflow,
   fixtureCreativeFields,
   fixtureMediaSchema,
+  fixtureReferenceImages,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
@@ -609,6 +610,61 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeDisabled();
   expect(remote.mock.submissions).toHaveLength(0);
   expect((await api('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
+});
+
+test('free generation runs two selected image versions and displays the frozen references', async ({
+  page,
+}) => {
+  const value = await project('Two reference creation');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Reference execution mock',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const definition = fixtureReferenceImages(connection.id);
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
+  const mediaIds = [];
+  for (const name of ['image.png', 'image.jpg']) {
+    const bytes = await readFile(resolve('test-results/workflow-fixtures', name));
+    const intent = await api('POST', `/projects/${value.id}/media-uploads`, {
+      fileName: name,
+      byteLength: bytes.length,
+    });
+    const session = await (await owner.get('/api/v1/auth/me')).json();
+    const result = await owner.put(`/api/v1/media-uploads/${intent.id}/content`, {
+      data: bytes,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Studio-Request': '1',
+        'X-CSRF-Token': session.csrfToken,
+      },
+    });
+    expect(result.ok()).toBe(true);
+    mediaIds.push((await result.json()).mediaVersion.id);
+  }
+  await open(page, value);
+  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Two image slots');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+  await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+  await generation.getByLabel('正向提示词', { exact: true }).fill('A quiet coastal station');
+  const submit = generation.getByRole('button', { name: '加入生成队列', exact: true });
+  await generation.getByLabel('参考图片 1：Character', { exact: true }).selectOption(mediaIds[0]);
+  await expect(submit).toBeDisabled();
+  await generation.getByLabel('参考图片 2：Scene', { exact: true }).selectOption(mediaIds[1]);
+  await submit.click();
+  await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+  await generation.getByText('查看此次参考图片', { exact: true }).click();
+  await expect(generation.getByText('Character · image.png · v1', { exact: true })).toBeVisible();
+  await expect(generation.getByText('Scene · image.jpg · v1', { exact: true })).toBeVisible();
+  expect(remote.mock.submissions).toHaveLength(1);
+  const prompt = remote.mock.submissions[0].prompt;
+  expect(prompt['6'].inputs.image).toContain(`-${definition.mediaSchema.inputs[0].id}.png`);
+  expect(prompt['7'].inputs.image).toContain(`-${definition.mediaSchema.inputs[1].id}.jpg`);
+  await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
+  await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
 });
 
 test('readonly users see existing workflow summaries without connection credentials or configuration controls', async ({

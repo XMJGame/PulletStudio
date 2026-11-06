@@ -11,6 +11,7 @@ import { AppConfig } from '../config';
 import { GenerationError } from './comfy-provider';
 import { GenerationService, GenerationSnapshot, Job } from './generation.service';
 import { resultDescriptor, WorkflowInput } from './generation-contract';
+import { supportsReferenceImages } from './workflow-media';
 import { checkReservedInstance, instanceLoad, jobRoute, type JobRoute } from './generation-routing';
 
 const leaseMs = 45_000;
@@ -77,11 +78,16 @@ export class GenerationWorker {
             return null;
           }
         }
-        const leaseId = route
-          ? `${row.shotId ? 'pool:' : 'pool:free:'}${randomUUID()}`
-          : row.shotId
-            ? randomUUID()
-            : `free:${randomUUID()}`;
+        const referenceImages = Array.isArray(
+          (JSON.parse(row.snapshotJson) as GenerationSnapshot).referenceImages,
+        );
+        const leaseId = referenceImages
+          ? `${route ? 'pool:' : ''}free:media-v1:${randomUUID()}`
+          : route
+            ? `${row.shotId ? 'pool:' : 'pool:free:'}${randomUUID()}`
+            : row.shotId
+              ? randomUUID()
+              : `free:${randomUUID()}`;
         return this.database.db
           .update(generationJobs)
           .set({
@@ -143,6 +149,13 @@ export class GenerationWorker {
     if (route && !checkReservedInstance(this.database, connection, job.workflowId, route))
       throw new GenerationError('INSTANCE_CHECK_EXPIRED');
     this.jobs.authorizeCreation(user, job.projectId);
+    if (snapshot.referenceImages) {
+      for (const image of [...snapshot.referenceImages, ...(snapshot.image ? [snapshot.image] : [])]) {
+        const current = this.jobs.referenceImage(user, job.projectId, image.id);
+        if (current.sha256 !== image.sha256 || current.bytes !== image.bytes || current.mime !== image.mime)
+          throw new GenerationError('REFERENCE_IMAGE_INVALID');
+      }
+    }
     if (
       job.shotId &&
       JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals)
@@ -227,6 +240,15 @@ export class GenerationWorker {
     if (!connection.enabled) throw new GenerationError('CONNECTION_DISABLED');
     if (job.state === 'preparing') {
       const snapshot = JSON.parse(job.snapshotJson) as GenerationSnapshot;
+      const slots = definition.mediaSchema?.inputs ?? [];
+      const references = snapshot.referenceImages ?? [];
+      if (
+        (slots.length > 0 || (definition.mediaSchema?.outputs.length ?? 0) > 0 || references.length > 0) &&
+        (!supportsReferenceImages(definition.mediaSchema) ||
+          slots.length !== references.length ||
+          slots.some((slot, index) => slot.id !== references[index].slotId))
+      )
+        throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
       if (route)
         this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
       const storage = await this.media.status(user, job.projectId);
@@ -248,6 +270,18 @@ export class GenerationWorker {
         this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
         const path = await provider.uploadImage(job.id, snapshot.image.mime, image, signal);
         snapshot.graph[definition.image.node].inputs[definition.image.input] = path;
+      }
+      for (const [index, slot] of slots.entries()) {
+        const image = references[index];
+        const bytes = await this.readImage(user, image, signal);
+        this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
+        snapshot.graph[slot.node].inputs[slot.input] = await provider.uploadImage(
+          job.id,
+          image.mime,
+          bytes,
+          signal,
+          slot.id,
+        );
       }
       this.database.db.transaction(
         () => {

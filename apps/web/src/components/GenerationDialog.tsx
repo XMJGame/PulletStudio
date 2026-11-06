@@ -39,6 +39,7 @@ export type GenerationJob = {
   remoteId: string | null;
   mediaVersionId: string | null;
   canControl: boolean;
+  referenceImages?: { slotId: string; label?: string; fileName: string; version: number }[];
   image: {
     id: string;
     fileName: string;
@@ -101,7 +102,7 @@ const errors: Record<string, string> = {
   MEDIA_NOT_READY: '本机媒体存储或检测工具未就绪。',
   REMOTE_JOB_UNVERIFIED: '历史记录无法确认属于此任务。',
   TRACKING_STOPPED: '已结束本地跟踪。请在 ComfyUI 核对远端状态。',
-  REFERENCE_IMAGE_INVALID: '首帧图片无法读取或校验，请核对项目素材。',
+  REFERENCE_IMAGE_INVALID: '参考图片无法读取或校验，请核对项目素材。',
   COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
   WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
   INSTANCE_WAITING: '所选实例达到负载阈值，任务将继续等待此实例。',
@@ -138,6 +139,7 @@ export function GenerationDialog({
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, string | boolean>>({});
   const [images, setImages] = useState<CursorPage<ReferenceImage>>();
   const [imageVersionId, setImageVersionId] = useState('');
+  const [referenceImageVersions, setReferenceImageVersions] = useState<Record<string, string>>({});
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -166,6 +168,9 @@ export function GenerationDialog({
       : []),
   ];
   const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
+  const imageSlots =
+    selectedWorkflow?.executable === false ? [] : (selectedWorkflow?.mediaSchema?.inputs ?? []);
+  const missingReference = imageSlots.some((slot) => !referenceImageVersions[slot.id]);
   const selectableWorkflows = workflows.filter((item) => (poolRouting ? !item.archived : item.enabled));
   const manualChoiceRequired = poolRouting && routingMode === 'manual' && !instanceId;
   const selectedParameters: ParameterValues = Object.fromEntries(
@@ -255,6 +260,13 @@ export function GenerationDialog({
   function resetRequest() {
     setKey(crypto.randomUUID());
   }
+  async function loadImages() {
+    const cursor = images?.nextCursor;
+    const more = await api<CursorPage<ReferenceImage>>(
+      `${projectPath}/generation-images${cursor ? `?cursor=${cursor}` : ''}`,
+    );
+    setImages({ ...more, items: [...(images?.items ?? []), ...more.items] });
+  }
   async function control(job: Job, action: 'cancel' | 'reconcile' | 'stop') {
     const remoteId = remoteIds[job.id]?.trim();
     const value = await api<Job>(
@@ -291,7 +303,7 @@ export function GenerationDialog({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (manualChoiceRequired || selectedWorkflow?.executable === false) return;
+              if (manualChoiceRequired || missingReference || selectedWorkflow?.executable === false) return;
               void run(async () => {
                 const value = await api<Job>(
                   `${projectPath}/${testWorkflow ? 'workflow-trials' : 'generation-jobs'}`,
@@ -314,6 +326,7 @@ export function GenerationDialog({
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
                     ...(needsImage ? { imageVersionId } : {}),
+                    ...(imageSlots.length ? { referenceImageVersions } : {}),
                     confirmed: true,
                   },
                   { 'Idempotency-Key': key },
@@ -356,17 +369,19 @@ export function GenerationDialog({
                       setParameterOverrides({});
                       setFieldOverrides({});
                       setImageVersionId('');
+                      setReferenceImageVersions({});
                       setInstanceId('');
                       resetRequest();
                       if (
-                        workflows.find((item) => item.id === id)?.capability === 'video.image_to_video' &&
+                        workflows.some(
+                          (item) =>
+                            item.id === id &&
+                            (item.capability === 'video.image_to_video' ||
+                              (item.executable !== false && item.mediaSchema?.inputs.length)),
+                        ) &&
                         !images
                       )
-                        void run(async () =>
-                          setImages(
-                            await api<CursorPage<ReferenceImage>>(`${projectPath}/generation-images`),
-                          ),
-                        );
+                        void run(loadImages);
                     }}
                   >
                     <option value="">选择工作流</option>
@@ -513,18 +528,7 @@ export function GenerationDialog({
                     </select>
                   </label>
                   {(!images || images.nextCursor) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void run(async () => {
-                          const cursor = images?.nextCursor;
-                          const more = await api<CursorPage<ReferenceImage>>(
-                            `${projectPath}/generation-images${cursor ? `?cursor=${cursor}` : ''}`,
-                          );
-                          setImages({ ...more, items: [...(images?.items ?? []), ...more.items] });
-                        })
-                      }
-                    >
+                    <button type="button" onClick={() => void run(loadImages)}>
                       {images ? '更多图片版本' : '读取项目图片'}
                     </button>
                   )}
@@ -540,6 +544,42 @@ export function GenerationDialog({
                     </div>
                   )}
                 </>
+              )}
+              {imageSlots.length > 0 && (
+                <section aria-label="工作流参考图片">
+                  <h4>参考图片</h4>
+                  <p className="field-hint">按工作流顺序选择图片。每张最多 16 MiB，含首帧合计最多 64 MiB。</p>
+                  {imageSlots.map((slot, index) => (
+                    <label key={slot.id}>
+                      {index + 1} · {slot.label}
+                      <select
+                        aria-label={`参考图片 ${index + 1}：${slot.label}`}
+                        required
+                        value={referenceImageVersions[slot.id] ?? ''}
+                        onChange={(event) => {
+                          const id = event.target.value;
+                          setReferenceImageVersions((current) => ({ ...current, [slot.id]: id }));
+                          resetRequest();
+                        }}
+                      >
+                        <option value="">选择项目图片版本</option>
+                        {images?.items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.fileName} · v{item.version}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                  {!needsImage && (!images || images.nextCursor) && (
+                    <button type="button" onClick={() => void run(loadImages)}>
+                      {images ? '更多图片版本' : '读取项目图片'}
+                    </button>
+                  )}
+                  {!needsImage && images?.items.length === 0 && (
+                    <p className="field-hint">请先导入符合要求的项目图片。</p>
+                  )}
+                </section>
               )}
               {
                 <>
@@ -602,6 +642,7 @@ export function GenerationDialog({
                 className="primary"
                 disabled={
                   selectedWorkflow?.executable === false ||
+                  missingReference ||
                   !workflowId ||
                   !positivePrompt.trim() ||
                   (needsImage && !imageVersionId) ||
@@ -685,6 +726,18 @@ export function GenerationDialog({
                 <p className="field-hint">
                   提示词库 · {job.promptLibrary.title} · v{job.promptLibrary.version}
                 </p>
+              )}
+              {!!job.referenceImages?.length && (
+                <details>
+                  <summary>查看此次参考图片</summary>
+                  <ul>
+                    {job.referenceImages.map((item) => (
+                      <li key={item.slotId}>
+                        {item.label} · {item.fileName} · v{item.version}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
               {job.prompt && (
                 <details>
@@ -885,6 +938,7 @@ export function GenerationDialog({
               setParameterOverrides({});
               setFieldOverrides({});
               setImageVersionId('');
+              setReferenceImageVersions({});
               setInstanceId('');
             }
             resetRequest();

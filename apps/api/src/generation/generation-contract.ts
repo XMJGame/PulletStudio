@@ -173,6 +173,10 @@ export const reconcileInput = z.object({ remoteId: z.uuid().optional() }).strict
 export type WorkflowInput = z.infer<typeof workflowInput>;
 export type CreateJobInput = z.infer<typeof createJobInput>;
 export const createProjectJobInput = createJobInput.omit({ promptId: true, canvasShotVersion: true }).extend({
+  referenceImageVersions: z
+    .record(z.uuid(), z.uuid())
+    .refine((value) => Object.keys(value).length <= 32)
+    .optional(),
   promptLibraryRevisionId: z.uuid().optional(),
   positivePrompt: z.string().trim().min(1).max(16000),
   negativePrompt: z.string().max(16000).default(''),
@@ -181,6 +185,7 @@ export const createProjectJobInput = createJobInput.omit({ promptId: true, canva
 });
 export type CreateProjectJobInput = z.infer<typeof createProjectJobInput>;
 export const referenceImageLimit = 16 * 1024 * 1024;
+export const referenceImagesTotalLimit = 64 * 1024 * 1024;
 export const referenceImageExtensions: Readonly<Record<string, string>> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -241,11 +246,14 @@ export function renderWorkflow(
   negative: string,
   parameters: ParameterValues = {},
   fields: FieldValues = {},
+  projectReferences = false,
 ) {
-  assertMediaExecutable(workflow.mediaSchema);
+  assertMediaExecutable(workflow.mediaSchema, projectReferences);
   if (negative && !workflow.negative)
     fail(409, 'WORKFLOW_NEGATIVE_UNBOUND', '此提示词包含负向词，请选择配置了负向绑定的工作流');
   const graph = structuredClone(workflow.graph);
+  if (projectReferences)
+    for (const slot of workflow.mediaSchema?.inputs ?? []) graph[slot.node].inputs[slot.input] = '';
   graph[workflow.positive.node].inputs[workflow.positive.input] = positive;
   if (workflow.negative) graph[workflow.negative.node].inputs[workflow.negative.input] = negative;
   const resolved = resolveParameters(workflow, parameters);

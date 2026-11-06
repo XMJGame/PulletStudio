@@ -263,7 +263,7 @@ test('formal boards persist immutable references with project permissions and co
             `/projects/${project.id}/entities`,
             {
               kind: 'prop',
-              body: { name: `Shelf item ${i}`, description: 'Search fixture' },
+              body: { name: `Shelf item ${i} / reference`, description: 'Search fixture' },
             },
             { 'Idempotency-Key': randomUUID() },
           );

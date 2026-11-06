@@ -101,10 +101,18 @@ export function mediaInputMatchesMetadata(mediaType: string, definition: unknown
 export function hasExtendedMedia(schema?: WorkflowMediaSchema) {
   return Boolean(schema?.inputs.length || schema?.outputs.length);
 }
-export const mediaExecutionReason =
-  '此工作流已声明扩展媒体输入或输出，当前执行尚未接通；请选择单首帧、单产物工作流。';
-export function assertMediaExecutable(schema?: WorkflowMediaSchema) {
-  if (hasExtendedMedia(schema)) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', mediaExecutionReason);
+export const mediaExecutionReason = '此工作流包含可选媒体、视频、音频或扩展输出，当前执行尚未接通。';
+export function supportsReferenceImages(schema?: WorkflowMediaSchema) {
+  return Boolean(
+    schema?.inputs.length &&
+    !schema.outputs.length &&
+    schema.inputs.every((slot) => slot.mediaType === 'image' && slot.required),
+  );
+}
+export function assertMediaExecutable(schema?: WorkflowMediaSchema, projectReferences = false) {
+  if (!hasExtendedMedia(schema)) return;
+  if (!supportsReferenceImages(schema)) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', mediaExecutionReason);
+  if (!projectReferences) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', '请从「自由生成」选择此工作流的参考图片。');
 }
 export function publicMediaSchema(schema?: WorkflowMediaSchema) {
   return {

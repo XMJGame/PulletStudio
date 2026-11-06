@@ -1,6 +1,11 @@
 import type { WorkflowInput } from './generation-contract';
 import type { ExposedField } from './workflow-fields';
-import { mediaInputMatchesMetadata, hasExtendedMedia, mediaExecutionReason } from './workflow-media';
+import {
+  mediaInputMatchesMetadata,
+  hasExtendedMedia,
+  mediaExecutionReason,
+  supportsReferenceImages,
+} from './workflow-media';
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
 export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
@@ -198,6 +203,6 @@ export async function inspectWorkflow(
       : nodes.some((node) => node.status === 'unverified')
         ? 'unverified'
         : 'compatible',
-    note: `${hasExtendedMedia(workflow.mediaSchema) ? `${mediaExecutionReason} ` : ''}仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。`,
+    note: `${hasExtendedMedia(workflow.mediaSchema) && !supportsReferenceImages(workflow.mediaSchema) ? `${mediaExecutionReason} ` : ''}仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。`,
   };
 }

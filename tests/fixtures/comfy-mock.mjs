@@ -79,6 +79,7 @@ export async function startComfyMock(files) {
           overwrite: data.get('overwrite'),
         };
         mock.uploads.push(entry);
+        await mock.afterUpload?.(entry);
         return send(res, {
           name: mock.mode === 'unsafe-upload' ? '../wrong.png' : entry.name,
           subfolder: entry.subfolder,
@@ -213,6 +214,30 @@ export function fixtureI2V(connectionId) {
       3: { class_type: 'SaveVideo', inputs: { video: ['5', 0] } },
       4: { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
       5: { class_type: 'ImageToVideo', inputs: { first_frame: ['4', 0], prompt: ['1', 0] } },
+    },
+  };
+}
+
+export function fixtureReferenceImages(connectionId) {
+  const workflow = fixtureWorkflow(connectionId);
+  for (const node of ['6', '7'])
+    workflow.graph[node] = { class_type: 'LoadImage', inputs: { image: 'local-placeholder.png' } };
+  return {
+    ...workflow,
+    name: 'Two reference images',
+    mediaSchema: {
+      version: 'studio.workflow-media.v1',
+      inputs: ['6', '7'].map((node, index) => ({
+        id: randomUUID(),
+        label: ['Character', 'Scene'][index],
+        mediaType: 'image',
+        role: 'reference',
+        node,
+        input: 'image',
+        required: true,
+        onMissing: 'error',
+      })),
+      outputs: [],
     },
   };
 }

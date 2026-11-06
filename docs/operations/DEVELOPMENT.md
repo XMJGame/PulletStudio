@@ -6,6 +6,8 @@
 
 更新：2026-11-06。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
 
+多参考图片执行使用增量迁移 0042。升级前运行 `npm run db:backup`，停止旧 Generation Worker，构建新版后再启动 API 与全部 Worker。数据库会拒绝旧 Worker 领取多图任务。
+
 ## 安装与启动
 
 首次或依赖锁文件变化时，在仓库根执行；正常开发不反复安装依赖。

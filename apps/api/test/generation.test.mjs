@@ -13,6 +13,7 @@ import {
   fixtureWorkflow,
   fixtureI2V,
   fixtureParameterized,
+  fixtureReferenceImages,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
@@ -398,6 +399,145 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         await tick();
         await tick();
         assert.equal((await read(customJob.data.id)).state, 'completed');
+      },
+    );
+    await t.test(
+      'multiple fixed reference images survive preparation recovery and archive one result',
+      async () => {
+        const definition = fixtureReferenceImages(connectionId);
+        const projectPath = `/projects/${project.id}`;
+        const saved = await owner('POST', `${projectPath}/generation-workflows`, definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const [character, scene] = definition.mediaSchema.inputs;
+        const first = (await owner('GET', `${projectPath}/generation-images`)).data.items[0];
+        const bytes = fixtures['image.jpg'].bytes;
+        async function upload(projectId) {
+          const intent = await owner(
+            'POST',
+            `/projects/${projectId}/media-uploads`,
+            { fileName: 'reference.jpg', byteLength: bytes.length },
+            { 'Idempotency-Key': randomUUID() },
+          );
+          const result = await owner('PUT', `/media-uploads/${intent.data.id}/content`, bytes);
+          assert.equal(result.status, 200, JSON.stringify(result.data));
+          return result.data.mediaVersion;
+        }
+        const second = await upload(project.id);
+        const foreignProject = (
+          await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Reference isolation' })
+        ).data;
+        const foreign = await upload(foreignProject.id);
+        const videoId = db()
+          .prepare("SELECT id FROM media_versions WHERE project_id=? AND media_type='video'")
+          .get(project.id).id;
+        const body = { workflowId: saved.data.id, positivePrompt: 'Two references', confirmed: true };
+        const submit = (refs, key = randomUUID(), actor = owner, endpoint = 'generation-jobs') =>
+          actor(
+            'POST',
+            `${projectPath}/${endpoint}`,
+            { ...body, referenceImageVersions: refs },
+            { 'Idempotency-Key': key },
+          );
+        assert.equal((await submit({ [character.id]: first.id })).data.code, 'REFERENCE_SLOT_REQUIRED');
+        assert.equal((await submit({ [randomUUID()]: first.id })).data.code, 'REFERENCE_SLOT_UNKNOWN');
+        assert.equal((await submit({ [character.id]: first.id, [scene.id]: foreign.id })).status, 404);
+        assert.equal(
+          (await submit({ [character.id]: first.id, [scene.id]: videoId })).data.code,
+          'REFERENCE_IMAGE_INVALID',
+        );
+        const refs = { [scene.id]: second.id, [character.id]: first.id };
+        const key = randomUUID();
+        const queued = await submit(refs, key);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        const id = queued.data.id;
+        assert.equal((await submit({ [character.id]: first.id, [scene.id]: second.id }, key)).data.id, id);
+        assert.equal(
+          (await submit({ [character.id]: second.id, [scene.id]: first.id }, key)).data.code,
+          'IDEMPOTENCY_CONFLICT',
+        );
+        assert.deepEqual(
+          queued.data.referenceImages.map((item) => item.slotId),
+          [character.id, scene.id],
+        );
+        assert.ok(!JSON.stringify(queued.data).includes('sha256'));
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET lease_id='free:old' WHERE id=?").run(id),
+          /updated generation worker/,
+        );
+        const snapshot = () =>
+          db().prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?').get(id).snapshot_json;
+        const frozen = snapshot();
+        assert.deepEqual(
+          JSON.parse(frozen).referenceImages.map((item) => item.id),
+          [first.id, second.id],
+        );
+        assert.equal(JSON.parse(frozen).graph['6'].inputs.image, '');
+        db()
+          .prepare(
+            "UPDATE generation_jobs SET state='preparing', lease_id='free:media-v1:expired', lease_until=0 WHERE id=?",
+          )
+          .run(id);
+        const before = remote.mock.submissions.length;
+        remote.mock.mode = 'lost';
+        await tick();
+        assert.equal((await read(id)).state, 'needs_reconciliation');
+        assert.equal(remote.mock.submissions.length, before + 1);
+        const graph = remote.mock.submissions.at(-1).prompt;
+        assert.equal(graph['6'].inputs.image, `pullet-studio/${id}-${character.id}.png`);
+        assert.equal(graph['7'].inputs.image, `pullet-studio/${id}-${scene.id}.jpg`);
+        assert.deepEqual(remote.mock.uploads.at(-2).bytes, fixtures['image.png'].bytes);
+        assert.deepEqual(remote.mock.uploads.at(-1).bytes, bytes);
+        remote.mock.mode = 'normal';
+        assert.equal((await owner('POST', `/generation-jobs/${id}/reconcile`, {})).status, 201);
+        await tick();
+        await tick();
+        assert.equal((await read(id)).state, 'completed');
+        assert.equal(remote.mock.submissions.length, before + 1);
+        assert.equal(snapshot(), frozen);
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${id}/save-to-library`, {})).data.inLibrary,
+          true,
+        );
+
+        const trial = await submit(refs, randomUUID(), owner, 'workflow-trials');
+        assert.equal(trial.status, 201, JSON.stringify(trial.data));
+        await tick();
+        await tick();
+        await tick();
+        assert.equal((await read(trial.data.id)).state, 'test_completed');
+        const evidence = (await read(trial.data.id)).mediaVersionId;
+        assert.equal((await submit({ ...refs, [scene.id]: evidence })).data.code, 'REFERENCE_IMAGE_INVALID');
+
+        const artist = client();
+        const invitation = (
+          await owner('POST', `/workspaces/${workspace.id}/invitations`, {
+            email: 'reference-artist@generation.test',
+          })
+        ).data;
+        const joined = await artist('POST', '/invitations/accept', {
+          token: invitation.token,
+          name: 'Reference artist',
+          password: 'Studio8!',
+        });
+        const memberId = joined.data.user.id;
+        const membership = `${projectPath}/members`;
+        assert.equal((await owner('POST', membership, { userId: memberId, role: 'EDITOR' })).status, 201);
+        const revoked = await submit(refs, randomUUID(), artist);
+        assert.equal(revoked.status, 201, JSON.stringify(revoked.data));
+        const uploadsBefore = remote.mock.uploads.length;
+        const submitsBefore = remote.mock.submissions.length;
+        remote.mock.afterUpload = async () => {
+          const removal = await owner('DELETE', `${membership}/${memberId}`, { expectedRole: 'EDITOR' });
+          assert.equal(removal.status, 200);
+        };
+        try {
+          await tick();
+        } finally {
+          remote.mock.afterUpload = undefined;
+        }
+        assert.equal((await read(revoked.data.id)).state, 'failed');
+        assert.equal(remote.mock.uploads.length, uploadsBefore + 1);
+        assert.equal(remote.mock.submissions.length, submitsBefore);
       },
     );
     await t.test(
