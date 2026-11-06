@@ -2,7 +2,7 @@
 
 > 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
 
-2026-11-06 V2：当前新增 `components/CreationWorkspace.tsx` 作为默认项目入口，共用 `GenerationDialog.tsx` 支持通用/旧镜头输入；API仍复用 `generation/`、`assets/` 和同一队列。原 `scripts/analysis/prompt/timeline` 进入兼容/冻结，G0 主入口已移除。不批量移动源码、运行数据或历史迁移；当前分类和下一阶段见 [V2审计](PRODUCT-V2-AUDIT.md)。后续按实际边界拆分通用结果组件和画布执行节点，不增第二套 Generation/Storage。
+2026-11-06 V2：`components/CreationWorkspace.tsx` 为默认项目入口，`GenerationDialog.tsx` 仅保留项目通用生成/试跑；API仍复用 `generation/`、`assets/` 和同一队列。新增 API `prompt-library/` 与 Web `prompts/`，普通文本库独立于旧 `prompt/` 编译器。原 `scripts/analysis/prompt/timeline` 只保留后台历史依赖，G0与旧创作UI已删除。不批量移动源码、运行数据或历史迁移。后续按实际边界拆分执行节点，不增第二套Generation/Storage。
 
 审计：2026-11-05，整理时基线e828d8c为82个API源文件、43个Web源文件、18个API测试文件、13个E2E文件；统计不含node_modules/dist/data。G0随后增加独立canvas-lab及tests/canvas，详见下方增量。文件数量仅供定位，不作为持续进度指标。
 
@@ -16,6 +16,7 @@ PulletStudio/
 │  │  ├─ production/ scripts/          项目、层级、完整卡、原文
 │  │  ├─ providers/ analysis/          文本连接、分析任务、草案人工门禁
 │  │  ├─ prompt/                       Profile、编译与固定Artifact
+│  │  ├─ prompt-library/               项目普通文本库、不可变修订和来源校验
 │  │  ├─ storage/ assets/              Local、媒体、语义资产、Take审核/选片
 │  │  ├─ generation/                   ComfyUI/Job、工作流目录修订、字段Schema/依赖报告
 │  │  ├─ timeline/                     已有可选轻量预演
@@ -28,13 +29,12 @@ PulletStudio/
 ├─ apps/web/src/
 │  ├─ main.tsx / style.css             现有应用入口/布局/样式
 │  ├─ components/                     当前工作台、表单与Dialog
-│  ├─ canvas-lab/                     G0独立交互实验，不读取正式项目/资产
+│  ├─ prompts/                        共用项目提示词库窗口与类型
 │  ├─ canvas/                         G1正式React Flow/来源/Inspector/冲突/历史，懒加载
 │  ├─ workflows/                      中心/历史/报告、共享配置、只读图、公开字段编辑/创作者表单
 │  └─ *-types.ts / api.ts              前端类型与HTTP调用
 ├─ packages/contracts/                Storage接口已使用；通用Provider接口仍是草案
 ├─ tests/e2e/ / tests/fixtures/        浏览器业务flow、Mock及合成媒体工具
-├─ tests/canvas/                      G0独立浏览器验收，另用playwright.canvas.config.ts
 ├─ tests/boards/                      G1真实隔离API/媒体验收，playwright.boards.config.ts
 ├─ tests/workflows/                   解析/边界单测与中心浏览器验收，复用隔离启动配置
 ├─ tools/                             setup、API监视启动、媒体校验

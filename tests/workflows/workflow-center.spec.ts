@@ -146,6 +146,176 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
   await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
 });
 
+test('prompt library revises with conflict recovery, clipboard and revoked read access', async ({
+  page,
+  browser,
+}) => {
+  const value = await project('Reusable prompts');
+  await open(page, value);
+  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '打开提示词库', exact: true }).click();
+  const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+  await library.getByLabel('提示词标题', { exact: true }).fill('Station lighting');
+  await library.getByLabel('库正向提示词').fill('A station in evening light');
+  await library.getByLabel('库负向提示词').fill('No lettering');
+  await library.getByText('标签、来源和推荐工作流（可选）', { exact: true }).click();
+  await library.getByLabel('提示词标签', { exact: true }).fill('scene, evening');
+  await library.getByLabel('库来源说明').fill('External prompt notes');
+  await library.getByRole('button', { name: '保存提示词', exact: true }).click();
+  await expect(library.getByRole('status')).toContainText('已保存为 v1');
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await library.getByRole('button', { name: '复制正向提示词', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('A station in evening light');
+  const {
+    items: [entry],
+  } = await api('GET', `/projects/${value.id}/prompt-library`);
+  const original = (await api('GET', `/prompt-library/${entry.id}`)).revision;
+  await api('POST', `/prompt-library/${entry.id}/revisions`, {
+    ...original,
+    id: undefined,
+    entryId: undefined,
+    projectId: undefined,
+    version: undefined,
+    createdAt: undefined,
+    expectedVersion: 1,
+    positivePrompt: 'Remote newer text',
+  });
+  await library.getByLabel('库正向提示词').fill('My local draft survives');
+  await library.getByRole('button', { name: '保存为新版本', exact: true }).click();
+  await expect(library.getByRole('alert')).toContainText('新版本');
+  await expect(library.getByLabel('库正向提示词')).toHaveValue('My local draft survives');
+  page.once('dialog', (dialog) => dialog.accept());
+  await library.getByRole('button', { name: '载入最新提示词版本' }).click();
+  await expect(library.getByLabel('库正向提示词')).toHaveValue('Remote newer text');
+  await library.getByRole('button', { name: '修订历史', exact: true }).click();
+  await library.getByRole('button', { name: '查看 v1 · Station lighting', exact: true }).click();
+  await expect(library.getByLabel('库正向提示词')).toHaveValue('A station in evening light');
+  await expect(library.getByLabel('库正向提示词')).toBeDisabled();
+  await page.screenshot({ path: 'test-results/prompt-library-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/prompt-library-mobile.png' });
+  expect(await library.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await library.getByLabel('搜索提示词').fill('Remote newer');
+  await library.getByLabel('筛选标签').fill('scene');
+  await expect(library.getByRole('button', { name: /Station lighting · v2/ })).toHaveCount(1);
+
+  const reader = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  try {
+    const invite = await api('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+      email: 'prompt-reader@workflow.test',
+    });
+    const response = await reader.post('/api/v1/invitations/accept', {
+      data: { token: invite.token, name: 'Prompt reader', password: 'Studio8!' },
+      headers: { 'X-Studio-Request': '1' },
+    });
+    expect(response.ok()).toBeTruthy();
+    const joined = await response.json();
+    await api('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+    const viewer = await context.newPage();
+    await open(viewer, value, reader, joined.user.id);
+    await viewer.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await viewer.getByRole('button', { name: '打开提示词库', exact: true }).click();
+    const readonly = viewer.getByRole('dialog', { name: '项目提示词库', exact: true });
+    await readonly.getByRole('button', { name: /Station lighting · v2/ }).click();
+    await expect(readonly.getByLabel('库正向提示词')).toBeDisabled();
+    await expect(readonly.getByRole('button', { name: '复制正向提示词', exact: true })).toBeEnabled();
+    await api('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+    await readonly.getByRole('button', { name: '刷新列表', exact: true }).click();
+    await expect(readonly.getByRole('alert')).toBeVisible();
+    await expect(readonly.getByLabel('库正向提示词')).toHaveCount(0);
+    await expect(readonly.getByRole('button', { name: '复制正向提示词', exact: true })).toHaveCount(0);
+  } finally {
+    await reader.dispose();
+    await context.close();
+  }
+});
+
+test('full prompt versions travel through generation and separate canvases without truncation', async ({
+  page,
+}) => {
+  const value = await project('Prompt creation loop');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Prompt fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const workflow = await api(
+    'POST',
+    `/projects/${value.id}/generation-workflows`,
+    fixtureWorkflow(connection.id),
+  );
+  const text = 'A softly lit station. '.repeat(250).trim();
+  await open(page, value);
+  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '开始生成', exact: true }).click();
+  const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+  await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+  await generation.getByLabel('正向提示词', { exact: true }).fill(text);
+  await generation.getByText('负向提示词与来源（可选）', { exact: true }).click();
+  await generation.getByLabel('负向提示词', { exact: true }).fill('No lettering');
+  await generation.getByRole('button', { name: '保存到提示词库', exact: true }).click();
+  const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+  await expect(library.getByLabel('库正向提示词')).toHaveValue(text);
+  await library.getByLabel('提示词标题', { exact: true }).fill('Full station prompt');
+  await library.getByRole('button', { name: '保存提示词', exact: true }).click();
+  await expect(library.getByRole('status')).toContainText('已保存为 v1');
+  await library.getByRole('button', { name: '应用此版本', exact: true }).click();
+  await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+  await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+  const {
+    items: [job],
+  } = await api('GET', `/projects/${value.id}/generation-jobs`);
+  expect(job.promptLibrary.version).toBe(1);
+  expect(job.prompt.positivePrompt).toBe(text);
+  expect(remote.mock.submissions[0].prompt['1'].inputs.text).toBe(text);
+  const revision = (await api('GET', `/prompt-library-revisions/${job.promptLibrary.revisionId}`)).revision;
+  const { id, entryId, projectId, version, createdAt, ...body } = revision;
+  await api('POST', `/prompt-library/${entryId}/revisions`, {
+    ...body,
+    positivePrompt: 'Latest station text',
+    expectedVersion: 1,
+  });
+  expect((await api('GET', `/generation-jobs/${job.id}`)).prompt.positivePrompt).toBe(text);
+  await generation.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '创作画布', exact: true }).click();
+  await page.getByLabel('画布名称', { exact: true }).fill('Original prompt study');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '提示词库', exact: true }).click();
+  await library.getByRole('button', { name: /Full station prompt · v2/ }).click();
+  await library.getByRole('button', { name: '修订历史', exact: true }).click();
+  await library.getByRole('button', { name: '查看 v1 · Full station prompt', exact: true }).click();
+  await library.getByRole('button', { name: '应用此版本', exact: true }).click();
+  await expect(page.getByLabel('画布文字内容', { exact: true })).toHaveValue(text);
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  const {
+    items: [board],
+  } = await api('GET', `/projects/${value.id}/boards`);
+  const saved = await api('GET', `/boards/${board.id}`);
+  expect(saved.layout.nodes[0].data).toEqual({
+    text,
+    prompt: { negativePrompt: 'No lettering', source: '', promptLibraryRevisionId: id },
+  });
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  await expect(generation.getByLabel('正向提示词', { exact: true })).toHaveValue(text);
+  await generation.getByText('负向提示词与来源（可选）', { exact: true }).click();
+  await expect(generation.getByLabel('负向提示词', { exact: true })).toHaveValue('No lettering');
+  await generation.getByLabel('正向提示词', { exact: true }).fill('My independent variation');
+  await expect(
+    generation.getByText('已引用提示词库的固定版本；修改文字后将作为自定义提示词。', { exact: true }),
+  ).toHaveCount(0);
+  await generation.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+  await page.getByLabel('画布名称', { exact: true }).fill('Latest prompt study');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '提示词库', exact: true }).click();
+  await library.getByRole('button', { name: /Full station prompt · v2/ }).click();
+  await library.getByRole('button', { name: '应用此版本', exact: true }).click();
+  await expect(page.getByLabel('画布文字内容', { exact: true })).toHaveValue('Latest station text');
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  expect((await api('GET', `/boards/${board.id}`)).layout.nodes[0].data.text).toBe(text);
+});
+
 test('project workflow center imports, visualizes and maps existing API fields without submitting generation', async ({
   page,
 }) => {

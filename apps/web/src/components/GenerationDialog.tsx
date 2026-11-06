@@ -5,6 +5,8 @@ import { ParameterValues, parameterLabels, describeParameters } from './Generati
 import type { GenerationConfig as Config, Workflow } from '../workflows/workflow-types';
 import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
 import type { MediaVersion } from '../media-types';
+import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
+import type { PromptDraft } from '../prompts/prompt-library-types';
 export type GenerationJob = {
   id: string;
   shotId: string | null;
@@ -15,6 +17,7 @@ export type GenerationJob = {
     negativePrompt: string;
     source: string;
   };
+  promptLibrary?: { entryId: string; revisionId: string; version: number; title: string };
   createdAt: string;
   shotCode?: string;
   evidenceCurrent?: boolean;
@@ -112,15 +115,17 @@ export function GenerationDialog({
   creation: {
     projectId: string;
     boardId?: string;
-    initialPrompt?: string;
+    initialDraft?: PromptDraft;
     onPin?: (media: MediaVersion) => Promise<void>;
   };
 }) {
   const [config, setConfig] = useState<Config>();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [positivePrompt, setPositivePrompt] = useState(creation?.initialPrompt ?? '');
-  const [negativePrompt, setNegativePrompt] = useState('');
-  const [source, setSource] = useState('');
+  const [positivePrompt, setPositivePrompt] = useState(creation.initialDraft?.positivePrompt ?? '');
+  const [negativePrompt, setNegativePrompt] = useState(creation.initialDraft?.negativePrompt ?? '');
+  const [source, setSource] = useState(creation.initialDraft?.source ?? '');
+  const [libraryRevisionId, setLibraryRevisionId] = useState(creation.initialDraft?.promptLibraryRevisionId);
+  const [library, setLibrary] = useState<'choose' | 'save'>();
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const expandedHistory = useRef(false);
   const [workflowId, setWorkflowId] = useState(testWorkflow?.id ?? '');
@@ -292,6 +297,7 @@ export function GenerationDialog({
                     positivePrompt,
                     negativePrompt,
                     source,
+                    ...(libraryRevisionId ? { promptLibraryRevisionId: libraryRevisionId } : {}),
                     ...(creation.boardId && !testWorkflow ? { boardId: creation.boardId } : {}),
                     ...(poolRouting
                       ? {
@@ -315,6 +321,17 @@ export function GenerationDialog({
             }}
           >
             <fieldset className="plain-fieldset" disabled={busy}>
+              <div className="review-actions">
+                <button type="button" onClick={() => setLibrary('choose')}>
+                  从提示词库选择
+                </button>
+                <button type="button" disabled={!positivePrompt.trim()} onClick={() => setLibrary('save')}>
+                  保存到提示词库
+                </button>
+              </div>
+              {libraryRevisionId && (
+                <p className="field-hint">已引用提示词库的固定版本；修改文字后将作为自定义提示词。</p>
+              )}
               <h3>
                 {testWorkflow ? `${testWorkflow.name} · v${testWorkflow.revision ?? 1}` : '新建生成任务'}
               </h3>
@@ -531,6 +548,7 @@ export function GenerationDialog({
                       required
                       maxLength={16000}
                       onChange={(event) => {
+                        setLibraryRevisionId(undefined);
                         setPositivePrompt(event.target.value);
                         resetRequest();
                       }}
@@ -547,6 +565,7 @@ export function GenerationDialog({
                         value={negativePrompt}
                         maxLength={16000}
                         onChange={(event) => {
+                          setLibraryRevisionId(undefined);
                           setNegativePrompt(event.target.value);
                           resetRequest();
                         }}
@@ -559,6 +578,7 @@ export function GenerationDialog({
                         value={source}
                         maxLength={300}
                         onChange={(event) => {
+                          setLibraryRevisionId(undefined);
                           setSource(event.target.value);
                           resetRequest();
                         }}
@@ -651,6 +671,11 @@ export function GenerationDialog({
                     playsInline
                   />
                 ))}
+              {job.promptLibrary && (
+                <p className="field-hint">
+                  提示词库 · {job.promptLibrary.title} · v{job.promptLibrary.version}
+                </p>
+              )}
               {job.prompt && (
                 <details>
                   <summary>查看此次提示词</summary>
@@ -685,6 +710,7 @@ export function GenerationDialog({
                     <button
                       disabled={busy}
                       onClick={() => {
+                        setLibraryRevisionId(job.promptLibrary?.revisionId);
                         setPositivePrompt(job.prompt!.positivePrompt);
                         setNegativePrompt(job.prompt!.negativePrompt);
                         setSource(job.prompt!.source);
@@ -823,6 +849,39 @@ export function GenerationDialog({
           关闭
         </button>
       </div>
+      {library && (
+        <PromptLibraryDialog
+          projectId={creation.projectId}
+          initialDraft={
+            library === 'save'
+              ? { positivePrompt, negativePrompt, source, workflowId: workflowId || null }
+              : undefined
+          }
+          onClose={() => setLibrary(undefined)}
+          onApply={(revision) => {
+            setPositivePrompt(revision.positivePrompt);
+            setNegativePrompt(revision.negativePrompt);
+            setSource(revision.source);
+            setLibraryRevisionId(revision.id);
+            if (
+              revision.workflowId &&
+              workflows.some((item) => item.id === revision.workflowId) &&
+              !testWorkflow
+            ) {
+              const item = workflows.find((item) => item.id === revision.workflowId)!;
+              setWorkflowId(item.id);
+              setPinnedWorkflow(item);
+              setParameterOverrides({});
+              setFieldOverrides({});
+              setImageVersionId('');
+              setInstanceId('');
+            }
+            resetRequest();
+            setLibrary(undefined);
+            setMessage(`已应用 ${revision.title} · v${revision.version}`);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

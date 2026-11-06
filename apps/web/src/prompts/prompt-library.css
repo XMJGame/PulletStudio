@@ -1,0 +1,47 @@
+.studio-dialog.prompt-library-dialog {
+  width: min(1080px, calc(100vw - 32px));
+}
+.prompt-library-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.5fr);
+  gap: 24px;
+}
+.prompt-library-layout aside,
+.prompt-library-layout section {
+  min-width: 0;
+}
+.prompt-library-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  gap: 6px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.prompt-library-item small,
+.prompt-library-item span {
+  color: var(--muted);
+}
+.prompt-library-item span {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prompt-library-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+@media (max-width: 650px) {
+  .prompt-library-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .prompt-library-layout aside {
+    max-height: 250px;
+    overflow: auto;
+  }
+}

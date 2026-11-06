@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { PromptLibraryController } from './prompt-library/prompt-library.controller';
+import { PromptLibraryService } from './prompt-library/prompt-library.service';
 import { HealthController } from './health.controller';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -61,6 +63,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
   controllers: [
+    PromptLibraryController,
     HealthController,
     AuthController,
     ProductionController,
@@ -83,6 +86,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     GenerationInstancesController,
   ],
   providers: [
+    PromptLibraryService,
     AppConfig,
     DatabaseService,
     AuthService,

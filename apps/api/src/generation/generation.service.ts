@@ -1,4 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
+import { PromptLibraryService } from '../prompt-library/prompt-library.service';
 import { and, desc, eq, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
@@ -49,6 +50,7 @@ export type GenerationSnapshot = {
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
+  promptLibrary?: { entryId: string; revisionId: string; version: number; title: string };
 };
 const now = () => new Date().toISOString();
 
@@ -62,6 +64,7 @@ export class GenerationService {
     private readonly secrets: ProviderSecrets,
     private readonly comfy: ComfyProvider,
     private readonly media: MediaService,
+    private readonly promptLibrary: PromptLibraryService,
   ) {}
 
   audit(user: CurrentUser, workspaceId: string, action: string, targetId: string) {
@@ -417,7 +420,7 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, parameterValues, fieldValues, prompt } = JSON.parse(
+    const { image, parameterValues, fieldValues, prompt, promptLibrary } = JSON.parse(
       row.snapshotJson,
     ) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
@@ -430,6 +433,7 @@ export class GenerationService {
       shotId: row.shotId,
       boardId: row.boardId,
       prompt,
+      promptLibrary,
       inLibrary: result
         ? (this.database.db
             .select({ value: mediaAssets.inLibrary })
@@ -489,6 +493,7 @@ export class GenerationService {
       negativePrompt?: string;
       source?: string;
       boardId?: string;
+      promptLibraryRevisionId?: string;
     },
     key: string,
     purpose: Job['purpose'],
@@ -537,6 +542,8 @@ export class GenerationService {
           const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
           const requested = resolveParameters(definition, input.parameterValues);
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
+          if (snapshot.promptLibrary?.revisionId !== input.promptLibraryRevisionId)
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他提示词库版本');
           if (
             !shot &&
             JSON.stringify(snapshot.prompt) !==
@@ -559,6 +566,15 @@ export class GenerationService {
         if (input.canvasShotVersion !== undefined && shot?.version !== input.canvasShotVersion)
           fail(409, 'CANVAS_SHOT_OUTDATED', '制作卡已有新版本，请更新画布镜头引用后再生成');
         const workflow = this.workflow(input.workflowId);
+        const promptLibrary = input.promptLibraryRevisionId
+          ? this.promptLibrary.reference(
+              user,
+              project.id,
+              input.promptLibraryRevisionId,
+              input.positivePrompt!,
+              input.negativePrompt ?? '',
+            )
+          : undefined;
         if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
         const catalog = catalogState(this.database, workflow.id);
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
@@ -665,6 +681,7 @@ export class GenerationService {
             creatorId: user.id,
             requestKey: key,
             snapshotJson: JSON.stringify({
+              promptLibrary,
               graph,
               approvals,
               image,

@@ -15,7 +15,23 @@ const base = {
 };
 const node = z.discriminatedUnion('type', [
   z
-    .object({ ...base, type: z.literal('note'), data: z.object({ text: z.string().max(4000) }).strict() })
+    .object({
+      ...base,
+      type: z.literal('note'),
+      data: z
+        .object({
+          text: z.string().max(16000),
+          prompt: z
+            .object({
+              negativePrompt: z.string().max(16000).default(''),
+              source: z.string().max(300).default(''),
+              promptLibraryRevisionId: z.uuid().optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    })
     .strict(),
   z
     .object({ ...base, type: z.literal('brief'), data: z.object({ text: z.string().max(4000) }).strict() })

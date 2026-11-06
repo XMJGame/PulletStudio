@@ -40,7 +40,7 @@ test('asset-led studio initializes, imports media, preserves conflicts and resto
     .getByLabel('媒体文件', { exact: true })
     .setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
   await media.getByRole('button', { name: '上传并归档', exact: true }).click();
-  await expect(media.getByRole('status')).toContainText('媒体已完成归档');
+  await expect(media.getByRole('status').filter({ hasText: '媒体已完成归档' })).toBeVisible();
   await expect(media.getByAltText('导入媒体预览')).toBeVisible();
   await expect(media.getByRole('button', { name: '添加为当前镜头候选', exact: true })).toHaveCount(0);
   await media.getByRole('button', { name: '关闭', exact: true }).click();

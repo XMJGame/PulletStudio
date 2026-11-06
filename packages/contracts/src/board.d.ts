@@ -9,7 +9,13 @@ export type BoardNode = {
   width: number;
   height: number;
   parentId?: string;
-  data: { text?: string; label?: string; collapsed?: boolean; ref?: BoardReference };
+  data: {
+    text?: string;
+    label?: string;
+    collapsed?: boolean;
+    ref?: BoardReference;
+    prompt?: { negativePrompt: string; source: string; promptLibraryRevisionId?: string };
+  };
 };
 export type BoardLayout = {
   schemaVersion: 'studio.board.v1';

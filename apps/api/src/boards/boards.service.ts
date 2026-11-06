@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PromptLibraryService } from '../prompt-library/prompt-library.service';
 import { and, desc, eq, lt, or } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import type { BoardLayout, BoardView } from '../../../../packages/contracts/src/board';
@@ -17,6 +18,7 @@ export class BoardsService {
     private readonly authz: AuthorizationService,
     private readonly production: ProductionService,
     private readonly references: BoardReferencesService,
+    private readonly promptLibrary: PromptLibraryService,
   ) {}
   private row(user: CurrentUser, id: string, action: 'read' | 'edit' = 'read') {
     const row = this.database.db.select().from(boards).where(eq(boards.id, id)).get();
@@ -236,6 +238,15 @@ export class BoardsService {
           .where(and(eq(boardRevisions.boardId, id), eq(boardRevisions.version, row.version)))
           .get()!;
         const previous = JSON.parse(current.layoutJson) as BoardLayout;
+        for (const node of input.layout.nodes)
+          if (node.type === 'note' && node.data.prompt?.promptLibraryRevisionId)
+            this.promptLibrary.reference(
+              user,
+              row.projectId,
+              node.data.prompt.promptLibraryRevisionId,
+              node.data.text ?? '',
+              node.data.prompt.negativePrompt,
+            );
         for (const node of input.layout.nodes)
           if (node.type === 'reference' && node.data.ref) {
             const old = previous.nodes.find((item) => item.id === node.id && item.type === 'reference');

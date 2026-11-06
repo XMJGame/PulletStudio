@@ -200,12 +200,73 @@ export function BoardInspector({
               <textarea
                 aria-label="画布文字内容"
                 rows={7}
-                maxLength={4000}
+                maxLength={node.type === 'note' ? 16000 : 4000}
                 disabled={!editable}
                 value={node.data.text}
-                onChange={(e) => update({ ...node, data: { text: e.target.value } })}
+                onChange={(e) =>
+                  update({
+                    ...node,
+                    data: {
+                      ...node.data,
+                      text: e.target.value,
+                      ...(node.data.prompt
+                        ? { prompt: { ...node.data.prompt, promptLibraryRevisionId: undefined } }
+                        : {}),
+                    },
+                  })
+                }
               />
             </label>
+          )}
+          {node.type === 'note' && node.data.prompt && (
+            <details>
+              <summary>提示词附加信息</summary>
+              <label>
+                负向提示词
+                <textarea
+                  aria-label="便签负向提示词"
+                  rows={2}
+                  maxLength={16000}
+                  disabled={!editable}
+                  value={node.data.prompt.negativePrompt}
+                  onChange={(event) =>
+                    update({
+                      ...node,
+                      data: {
+                        ...node.data,
+                        prompt: {
+                          ...node.data.prompt!,
+                          negativePrompt: event.target.value,
+                          promptLibraryRevisionId: undefined,
+                        },
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label>
+                来源说明
+                <input
+                  aria-label="便签提示词来源"
+                  maxLength={300}
+                  disabled={!editable}
+                  value={node.data.prompt.source}
+                  onChange={(event) =>
+                    update({
+                      ...node,
+                      data: {
+                        ...node.data,
+                        prompt: {
+                          ...node.data.prompt!,
+                          source: event.target.value,
+                          promptLibraryRevisionId: undefined,
+                        },
+                      },
+                    })
+                  }
+                />
+              </label>
+            </details>
           )}
           {node.type !== 'group' && (
             <label>

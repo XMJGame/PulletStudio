@@ -12,6 +12,76 @@ import {
   AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
 
+export const promptLibraryEntries = sqliteTable(
+  'prompt_library_entries',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('prompt_library_scope').on(t.id, t.projectId, t.workspaceId),
+    index('prompt_library_page').on(t.projectId, t.createdAt, t.id),
+    check('prompt_library_version', sql`${t.version}>=1`),
+  ],
+);
+export const promptLibraryRevisions = sqliteTable(
+  'prompt_library_revisions',
+  {
+    id: text('id').primaryKey(),
+    entryId: text('entry_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    positivePrompt: text('positive_prompt').notNull(),
+    negativePrompt: text('negative_prompt').notNull(),
+    tagsJson: text('tags_json').notNull(),
+    source: text('source').notNull(),
+    workflowId: text('workflow_id'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.entryId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        promptLibraryEntries.id,
+        promptLibraryEntries.projectId,
+        promptLibraryEntries.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.workflowId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        generationWorkflows.id,
+        generationWorkflows.projectId,
+        generationWorkflows.workspaceId,
+      ],
+    }),
+    uniqueIndex('prompt_library_revision').on(t.entryId, t.version),
+    uniqueIndex('prompt_library_request').on(t.projectId, t.createdBy, t.requestKey),
+    check(
+      'prompt_library_text',
+      sql`${t.version}>=1 AND length(${t.title}) BETWEEN 1 AND 200 AND length(${t.positivePrompt}) BETWEEN 1 AND 16000 AND length(${t.negativePrompt})<=16000 AND length(${t.source})<=300 AND json_valid(${t.tagsJson})`,
+    ),
+  ],
+);
+
 export const visualStylePresets = [
   'unspecified',
   'cinematic_realism',

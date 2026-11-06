@@ -12,6 +12,8 @@ import { api, ApiError, CursorPage } from '../api';
 import { forgetBoard, lastBoard, rememberBoard } from './board-preferences';
 import { Dialog } from '../components/Dialog';
 import { GenerationDialog } from '../components/GenerationDialog';
+import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
+import type { PromptDraft } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
 import { BoardInspector } from './BoardInspector';
@@ -57,6 +59,7 @@ export default function BoardWorkspace({
   const [history, setHistory] = useState<History>();
   const [detail, setDetail] = useState<BoardResolved>();
   const [freeGeneration, setFreeGeneration] = useState(false);
+  const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft }>();
   const [newTitle, setNewTitle] = useState('创作探索');
   const [refresh, setRefresh] = useState(0);
   const [pan, setPan] = useState(false);
@@ -284,7 +287,7 @@ export default function BoardWorkspace({
     });
     setSelected((current) => current.filter((id) => !ids.includes(id)));
   }
-  function add(type: BoardNode['type'], source?: BoardSource) {
+  function add(type: BoardNode['type'], source?: BoardSource, noteData?: BoardNode['data']) {
     if (!editable || !layout) return;
     if (layout.nodes.length >= 100) {
       setError('每个画布最多100个节点，请创建另一画布。');
@@ -333,7 +336,7 @@ export default function BoardWorkspace({
         ? { ref: source.ref }
         : type === 'group'
           ? { label: '创作分组', collapsed: false }
-          : { text: '' },
+          : (noteData ?? { text: '' }),
     };
     setLayout({ ...layout, nodes: [...layout.nodes, node] });
     setSelected([id]);
@@ -611,6 +614,19 @@ export default function BoardWorkspace({
             <button disabled={busy} onClick={() => setFreeGeneration(true)}>
               {base.canEdit ? '自由生成' : '生成与结果'}
             </button>
+            <button disabled={busy} onClick={() => setPromptLibrary({})}>
+              提示词库
+            </button>
+            {editable && node?.type === 'note' && node.data.text?.trim() && (
+              <button
+                disabled={busy}
+                onClick={() =>
+                  setPromptLibrary({ draft: { positivePrompt: node.data.text ?? '', ...node.data.prompt } })
+                }
+              >
+                将便签存入提示词库
+              </button>
+            )}
             <input
               aria-label="当前画布名称"
               value={title}
@@ -771,10 +787,36 @@ export default function BoardWorkspace({
           creation={{
             projectId,
             boardId: base.id,
-            initialPrompt: node?.data.text,
+            initialDraft: { positivePrompt: node?.data.text ?? '', ...node?.data.prompt },
             onPin: editable ? pinCandidate : undefined,
           }}
           onClose={() => setFreeGeneration(false)}
+        />
+      )}
+      {promptLibrary && base && !denied && (
+        <PromptLibraryDialog
+          projectId={projectId}
+          initialDraft={promptLibrary.draft}
+          onClose={() => setPromptLibrary(undefined)}
+          onApply={
+            editable
+              ? (revision) => {
+                  if (
+                    !add('note', undefined, {
+                      text: revision.positivePrompt,
+                      prompt: {
+                        negativePrompt: revision.negativePrompt,
+                        source: revision.source,
+                        promptLibraryRevisionId: revision.id,
+                      },
+                    })
+                  )
+                    throw new Error('无法插入提示词，请检查画布容量与编辑权限');
+                  setPromptLibrary(undefined);
+                  setMessage('已插入固定版本提示词，请保存画布。');
+                }
+              : undefined
+          }
         />
       )}
       {leave && (

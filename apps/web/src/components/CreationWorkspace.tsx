@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { GenerationDialog } from './GenerationDialog';
 import { MediaDialog } from './MediaDialog';
 import { EntityLibraryDialog } from './EntityLibraryDialog';
+import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 
 export function CreationWorkspace({
   projectId,
@@ -14,7 +15,7 @@ export function CreationWorkspace({
   onCanvas: () => void;
   onWorkflows: () => void;
 }) {
-  const [tool, setTool] = useState<'generation' | 'media' | 'entities'>();
+  const [tool, setTool] = useState<'generation' | 'media' | 'entities' | 'prompts'>();
   return (
     <section className="creation-home" aria-label="项目创作">
       <div className="panel creation-intro">
@@ -26,6 +27,11 @@ export function CreationWorkspace({
         </button>
       </div>
       <div className="creation-actions">
+        <article className="panel">
+          <h3>提示词库</h3>
+          <p className="muted">保存、检索和复制常用提示词，在不同画布继续使用。</p>
+          <button onClick={() => setTool('prompts')}>打开提示词库</button>
+        </article>
         <article className="panel">
           <h3>项目素材</h3>
           <p className="muted">导入参考文件，浏览保存的生成结果与素材版本。</p>
@@ -47,6 +53,7 @@ export function CreationWorkspace({
         <GenerationDialog creation={{ projectId }} onClose={() => setTool(undefined)} />
       )}
       {tool === 'media' && <MediaDialog projectId={projectId} onClose={() => setTool(undefined)} />}
+      {tool === 'prompts' && <PromptLibraryDialog projectId={projectId} onClose={() => setTool(undefined)} />}
       {tool === 'entities' && (
         <EntityLibraryDialog projectId={projectId} onClose={() => setTool(undefined)} />
       )}
