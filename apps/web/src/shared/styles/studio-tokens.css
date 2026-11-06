@@ -1,0 +1,180 @@
+.studio-v2 {
+  --ink: #17221e;
+  --muted: #53615b;
+  --subtle: #65726b;
+  --ground: #f6f7f5;
+  --paper: #ffffff;
+  --soft: #eef1ed;
+  --line: #dce2dc;
+  --dot: #cbd4cc;
+  --accent: #176449;
+  --accent-soft: #e6f3eb;
+  --action: #183d31;
+  --action-ink: #ffffff;
+  --danger: #9e3428;
+  --danger-soft: #faeee9;
+  --shadow: 0 3px 10px #10291b0a, 0 12px 35px #10291b0c;
+  --lift: 0 5px 14px #10291b10, 0 24px 56px #10291b1a;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+  --r-control: 8px;
+  --r-card: 14px;
+  --r-panel: 18px;
+  --h-control: 38px;
+  --text: 14px;
+  --caption: 12px;
+  --speed: 140ms;
+  --z-overlay: 10;
+  --z-menu: 20;
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--ground);
+  font:
+    var(--text)/1.5 'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    sans-serif;
+}
+.studio-v2[data-theme='dark'] {
+  --ink: #e8f0eb;
+  --muted: #b5c2ba;
+  --subtle: #a7b5ac;
+  --ground: #161d1a;
+  --paper: #202a25;
+  --soft: #2a362f;
+  --line: #39483e;
+  --dot: #38483e;
+  --accent: #90d5af;
+  --accent-soft: #273e32;
+  --action: #a0daba;
+  --action-ink: #182b21;
+  --danger: #ffb2a6;
+  --danger-soft: #493029;
+  --shadow: 0 3px 10px #0003, 0 12px 35px #0002;
+  --lift: 0 5px 14px #0003, 0 24px 56px #0005;
+  color-scheme: dark;
+}
+.studio-v2 * {
+  box-sizing: border-box;
+}
+.studio-v2 :is(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+.studio-v2 :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+:where(.studio-v2) :is(h1, h2, h3, p) {
+  margin: 0;
+}
+.studio-v2 .v2-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: var(--h-control);
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--speed);
+}
+.studio-v2 .v2-button:hover:not(:disabled) {
+  background: var(--soft);
+}
+.studio-v2 .v2-button:disabled {
+  opacity: 0.56;
+  cursor: default;
+}
+.studio-v2 .v2-button[data-variant='primary'] {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-ink);
+}
+.studio-v2 .v2-button[data-variant='primary']:hover:not(:disabled) {
+  background: var(--action);
+  filter: brightness(1.12);
+}
+.studio-v2 .v2-button[data-variant='ghost'] {
+  background: transparent;
+  border-color: transparent;
+}
+.studio-v2 .v2-button[data-variant='ghost']:hover:not(:disabled),
+.studio-v2 .v2-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.studio-v2 .v2-button[data-icon] {
+  width: var(--h-control);
+  padding: 0;
+  flex: 0 0 auto;
+}
+:where(.studio-v2) .v2-input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-control);
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--paper);
+}
+.studio-v2 .v2-input::placeholder {
+  color: var(--subtle);
+}
+.studio-v2 .v2-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--action);
+  color: var(--action-ink);
+}
+.studio-v2 .v2-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.studio-v2 .v2-caption {
+  color: var(--muted);
+  font-size: var(--caption);
+}
+.studio-v2 .v2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.studio-v2 .v2-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-v2 *,
+  .studio-v2 *::before,
+  .studio-v2 *::after {
+    transition-duration: 0ms !important;
+  }
+}

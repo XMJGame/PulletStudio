@@ -30,6 +30,7 @@
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 历史轻量预演 | [ANIMATICS](ANIMATICS.md) | 前端已删除；API/旧归档数据及媒体处理依赖保留 |
 | 创作画布 | [资源拖放、浮动生成与结果复用](CREATIVE-CANVAS.md) | [体验改版合同](modules/BOARD-CREATION-UX.md)、[L2-C 合同](modules/BOARD-EXECUTION-L2C.md) |
+| UI 重建分支 | [重建审计与阶段门禁](modules/STUDIO-UI-V2.md)、[设计规范](modules/STUDIO-DESIGN-SYSTEM.md) | 评审原型使用隔离示例数据，生产入口随视觉验收后迁移 |
 
 ## 技术规格与参考
 
