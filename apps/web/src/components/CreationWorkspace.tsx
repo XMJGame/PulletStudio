@@ -30,6 +30,7 @@ export function CreationWorkspace({
           <h3>项目素材</h3>
           <p className="muted">导入参考文件，浏览保存的生成结果与素材版本。</p>
           <button onClick={() => setTool('media')}>打开素材库</button>
+          <button onClick={() => setTool('entities')}>角色与场景</button>
         </article>
         <article className="panel">
           <h3>创作画布</h3>
@@ -42,11 +43,6 @@ export function CreationWorkspace({
           <button onClick={onWorkflows}>管理工作流</button>
         </article>
       </div>
-      <details>
-        <summary>角色、场景与其他语义资产</summary>
-        <p className="muted">需要跨画面保持设定时，可按需整理命名、描述和参考素材。</p>
-        <button onClick={() => setTool('entities')}>管理语义资产</button>
-      </details>
       {tool === 'generation' && (
         <GenerationDialog creation={{ projectId }} onClose={() => setTool(undefined)} />
       )}

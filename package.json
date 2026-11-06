@@ -2,8 +2,13 @@
   "name": "pullet-studio",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "setup": "node tools/setup.mjs",
     "dev:api": "npm run start:dev --workspace @pullet-studio/api",
@@ -19,16 +24,22 @@
     "db:backup": "npm run db:backup --workspace @pullet-studio/api",
     "test": "npm run build --workspace @pullet-studio/api && npm run test --workspace @pullet-studio/api",
     "test:e2e": "npm run build && playwright test",
-    "test:canvas": "npm run build --workspace @pullet-studio/web && playwright test --config playwright.canvas.config.ts",
     "test:boards": "npm run build && playwright test --config playwright.boards.config.ts",
     "test:workflow-graph": "node --import tsx --test tests/workflows/graph.test.mjs",
     "test:workflows": "npm run build && npm run test:workflow-graph && playwright test --config playwright.workflows.config.ts",
-    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.canvas.config.ts playwright.boards.config.ts playwright.workflows.config.ts",
-    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts playwright.canvas.config.ts playwright.boards.config.ts playwright.workflows.config.ts"
+    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts",
+    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts"
   },
-  "devDependencies": { "@playwright/test": "^1.64.1", "prettier": "3.9.10" },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "prettier": "3.9.10"
+  },
   "overrides": {
-    "@nestjs/platform-express": { "multer": "2.5.0" },
-    "@esbuild-kit/core-utils": { "esbuild": "^0.25.12" }
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    }
   }
 }

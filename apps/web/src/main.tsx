@@ -1,22 +1,19 @@
 import React, { FormEvent, lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { api, ApiError, Episode, Project, ProductionUnit, Shot, User, Workspace } from './api';
+import { api, ApiError, Project, User, Workspace } from './api';
 import { Dialog } from './components/Dialog';
 import { WorkspaceMenu } from './components/WorkspaceMenu';
 import { AspectRatioField } from './components/AspectRatioField';
 import { MetadataDialog } from './components/MetadataDialog';
-import { ScriptWorkbench } from './components/ScriptWorkbench';
 import { VisualStyleField } from './components/VisualStyleField';
 import { visualStyleLabel } from './visual-style';
 import { TeamDialog } from './components/TeamDialog';
 import { TrashDialog } from './components/TrashDialog';
 import { ProjectTrashDialog } from './components/ProjectTrashDialog';
-import { ShotEditor } from './components/ShotEditor';
 import { ProjectSetupFields } from './components/ProjectSetupFields';
-import { StructureWorkbench } from './components/StructureWorkbench';
-import { AnalysisWorkbench } from './components/AnalysisWorkbench';
 import { projectFormData } from './project-settings';
 import { CreationWorkspace } from './components/CreationWorkspace';
+import { lastBoard } from './canvas/board-preferences';
 import './style.css';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
 const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
@@ -57,21 +54,21 @@ function AuthScreen({
         <div className="brand">
           <span className="mark">P</span>PULLET STUDIO
         </div>
-        <span className="eyebrow">从故事，到每一个镜头</span>
+        <span className="eyebrow">从灵感，到每一次创作</span>
         <h1>
           让想象
           <br />
           有序成为影像<span>。</span>
         </h1>
         <p>
-          把故事、分集与镜头组织在同一个创作空间。
+          把参考素材、提示词和生成结果放进同一个创作空间。
           <br />
-          从第一个故事开始，和团队一起推进。
+          在画布上探索，让满意的结果成为下一次创作的起点。
         </p>
         <div className="story-lines">
-          <span>01 / 故事构思</span>
-          <span>02 / 镜头创作</span>
-          <span>03 / 生产交付</span>
+          <span>01 / 项目资产</span>
+          <span>02 / 画布创作</span>
+          <span>03 / 生成与复用</span>
         </div>
         <small>PRIVATE WORKSPACE · YOUR STORIES, YOUR SPACE</small>
       </section>
@@ -83,7 +80,7 @@ function AuthScreen({
             ? '设置管理员账户，开启第一个工作区。'
             : invite
               ? '使用管理员提供的邀请令牌加入工作区。'
-              : '登录 Pullet Studio，回到你的故事。'}
+              : '登录 Pullet Studio，继续你的创作。'}
         </p>
         {error && (
           <div role="alert" className="notice error">
@@ -175,21 +172,11 @@ function App() {
   const [workspaceId, setWorkspaceId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState('');
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [episodeId, setEpisodeId] = useState('');
-  const [shots, setShots] = useState<Shot[]>([]);
-  const [selectedShot, setSelectedShot] = useState<Shot>();
   const [projectForm, setProjectForm] = useState(false);
   const [editProject, setEditProject] = useState<Project>();
-  const [editEpisode, setEditEpisode] = useState<Episode>();
-  const [projectView, setProjectView] = useState<
-    'create' | 'shots' | 'script' | 'structure' | 'analysis' | 'canvas'
-  >('create');
-  const [canvasUnit, setCanvasUnit] = useState<ProductionUnit>();
+  const [projectView, setProjectView] = useState<'create' | 'canvas'>('create');
   const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState(false);
-  const [episodeForm, setEpisodeForm] = useState(false);
-  const [shotForm, setShotForm] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [trashProject, setTrashProject] = useState<Project>();
@@ -197,17 +184,9 @@ function App() {
   const [access, setAccess] = useState<Access>({ canEdit: false, canManage: false });
   const workspace = workspaces.find((x) => x.id === workspaceId);
   const project = projects.find((x) => x.id === projectId);
-  const episode = episodes.find((x) => x.id === episodeId);
   const workspaceManager = !!workspace && workspace.role !== 'MEMBER';
   const dialogOpen =
-    projectForm ||
-    workspaceForm ||
-    showTeam ||
-    showJoin ||
-    !!editProject ||
-    !!editEpisode ||
-    !!trashProject ||
-    showTrash;
+    projectForm || workspaceForm || showTeam || showJoin || !!editProject || !!trashProject || showTrash;
   async function refreshMemberships() {
     const available = await api<Workspace[]>('/workspaces');
     setWorkspaces(available);
@@ -328,52 +307,27 @@ function App() {
     }
   }, [projectId, workspaceId, user?.id, projects]);
   useEffect(() => {
-    setEpisodes([]);
-    setProjectView(window.location.hash.startsWith('#canvas') ? 'canvas' : 'create');
-    setEpisodeId('');
+    setProjectView(
+      window.location.hash.startsWith('#canvas') || (user && lastBoard(user.id, projectId))
+        ? 'canvas'
+        : 'create',
+    );
     setAccess({ canEdit: false, canManage: false });
-    setEpisodeForm(false);
-    setShotForm(false);
     setShowWorkflowCenter(false);
     setEditProject(undefined);
-    setEditEpisode(undefined);
     if (!projectId) return;
-    let live = true;
-    void Promise.all([
-      api<Episode[]>(`/projects/${projectId}/episodes`),
-      api<Access>(`/projects/${projectId}/access`),
-    ])
-      .then(([data, capabilities]) => {
-        if (live) {
-          setEpisodes(data);
-          setEpisodeId(data[0]?.id || '');
-          setAccess(capabilities);
-        }
+    let active = true;
+    void api<Access>(`/projects/${projectId}/access`)
+      .then((value) => {
+        if (active) setAccess(value);
       })
       .catch((reason) => {
-        if (live) report(reason);
+        if (active) report(reason);
       });
     return () => {
-      live = false;
+      active = false;
     };
   }, [projectId]);
-  useEffect(() => {
-    setShots([]);
-    setSelectedShot(undefined);
-    setShotForm(false);
-    if (!episodeId) return;
-    let live = true;
-    void api<Shot[]>(`/episodes/${episodeId}/shots`)
-      .then((data) => {
-        if (live) setShots(data);
-      })
-      .catch((reason) => {
-        if (live) report(reason);
-      });
-    return () => {
-      live = false;
-    };
-  }, [episodeId]);
   if (!status)
     return (
       <div className="loading">
@@ -490,7 +444,6 @@ function App() {
               void act(async () => {
                 await api('/auth/logout', 'POST');
                 setUser(undefined);
-                setSelectedShot(undefined);
               })
             }
           >
@@ -587,7 +540,6 @@ function App() {
           )}
           {editProject && (
             <MetadataDialog
-              kind="project"
               item={editProject}
               onClose={() => setEditProject(undefined)}
               onUnauthorized={() => setUser(undefined)}
@@ -599,23 +551,6 @@ function App() {
                 setProjects((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
                 setEditProject(undefined);
                 setMessage('项目资料已保存');
-              }}
-            />
-          )}
-          {editEpisode && (
-            <MetadataDialog
-              kind="episode"
-              item={editEpisode}
-              onClose={() => setEditEpisode(undefined)}
-              onUnauthorized={() => setUser(undefined)}
-              onSaved={(updated) => {
-                setEpisodes((previous) =>
-                  previous
-                    .map((item) => (item.id === updated.id ? updated : item))
-                    .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id)),
-                );
-                setEditEpisode(undefined);
-                setMessage('分集资料已保存');
               }}
             />
           )}
@@ -819,53 +754,9 @@ function App() {
                 >
                   项目创作
                 </button>
-                <details className="legacy-tools">
-                  <summary>兼容制作工具</summary>
-                  <button
-                    aria-pressed={projectView === 'script'}
-                    onClick={() => {
-                      setProjectView('script');
-                      setMessage('');
-                      setError('');
-                    }}
-                  >
-                    项目剧本
-                  </button>
-                  <button
-                    aria-pressed={projectView === 'shots'}
-                    onClick={() => {
-                      setProjectView('shots');
-                      setMessage('');
-                      setError('');
-                    }}
-                  >
-                    分集与镜头
-                  </button>
-                  <button
-                    aria-pressed={projectView === 'structure'}
-                    onClick={() => {
-                      setProjectView('structure');
-                      setMessage('');
-                      setError('');
-                    }}
-                  >
-                    制作结构
-                  </button>
-                  <button
-                    aria-pressed={projectView === 'analysis'}
-                    onClick={() => {
-                      setProjectView('analysis');
-                      setMessage('');
-                      setError('');
-                    }}
-                  >
-                    AI 分镜
-                  </button>
-                </details>
                 <button
                   aria-pressed={projectView === 'canvas'}
                   onClick={() => {
-                    setCanvasUnit(undefined);
                     setProjectView('canvas');
                     window.history.replaceState(null, '', '#canvas');
                   }}
@@ -889,10 +780,10 @@ function App() {
               {projectView === 'canvas' ? (
                 <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
                   <BoardWorkspace
-                    key={`${projectId}.${canvasUnit?.id ?? ''}`}
+                    key={projectId}
                     projectId={projectId}
                     projectTitle={project.title}
-                    unit={canvasUnit}
+                    userId={user.id}
                     canEdit={access.canEdit}
                     onUnauthorized={() => setUser(undefined)}
                     onClose={() => {
@@ -901,246 +792,21 @@ function App() {
                         '',
                         window.location.pathname + window.location.search,
                       );
-                      setCanvasUnit(undefined);
                       setProjectView('create');
                     }}
                   />
                 </Suspense>
-              ) : projectView === 'create' ? (
+              ) : (
                 <CreationWorkspace
                   key={projectId}
                   projectId={projectId}
                   canEdit={access.canEdit}
                   onCanvas={() => {
-                    setCanvasUnit(undefined);
                     setProjectView('canvas');
                     window.history.replaceState(null, '', '#canvas');
                   }}
                   onWorkflows={() => setShowWorkflowCenter(true)}
                 />
-              ) : projectView === 'script' ? (
-                <ScriptWorkbench
-                  key={projectId}
-                  projectId={projectId}
-                  userId={user.id}
-                  canEdit={access.canEdit}
-                  canManage={access.canManage}
-                  onUnauthorized={() => setUser(undefined)}
-                />
-              ) : projectView === 'analysis' ? (
-                <AnalysisWorkbench
-                  key={projectId}
-                  project={project}
-                  workspaceId={workspaceId}
-                  canEdit={access.canEdit}
-                  canManageConnections={workspaceManager}
-                  instanceAdmin={user.instanceAdmin}
-                  onUnauthorized={() => setUser(undefined)}
-                />
-              ) : projectView === 'structure' ? (
-                <StructureWorkbench
-                  key={projectId}
-                  projectId={projectId}
-                  canEdit={access.canEdit}
-                  onUnauthorized={() => setUser(undefined)}
-                  onOpenCanvas={(unit) => {
-                    setCanvasUnit(unit);
-                    setProjectView('canvas');
-                    window.history.replaceState(null, '', '#canvas');
-                  }}
-                />
-              ) : (
-                <>
-                  <div className="episode-bar">
-                    <div className="episode-tabs" role="tablist" aria-label="分集">
-                      {episodes.map((x) => (
-                        <button
-                          role="tab"
-                          aria-selected={episodeId === x.id}
-                          key={x.id}
-                          disabled={busy}
-                          className={episodeId === x.id ? 'selected' : ''}
-                          onClick={() => setEpisodeId(x.id)}
-                        >
-                          <small>{x.code}</small>
-                          {x.title}
-                        </button>
-                      ))}
-                    </div>
-                    {access.canEdit && (
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        onClick={() => setEpisodeForm(!episodeForm)}
-                      >
-                        ＋ 新建分集
-                      </button>
-                    )}
-                  </div>
-                  {episodeForm && (
-                    <section className="panel compact">
-                      <form
-                        onSubmit={(e) => {
-                          const data = values(e);
-                          void act(async () => {
-                            const created = await api<Episode>(`/projects/${projectId}/episodes`, 'POST', {
-                              ...data,
-                              orderIndex: episodes.length,
-                            });
-                            setEpisodes((previous) => [...previous, created]);
-                            setEpisodeId(created.id);
-                            setEpisodeForm(false);
-                          });
-                        }}
-                      >
-                        <div className="form-row">
-                          <label>
-                            分集名称
-                            <input name="title" required maxLength={200} />
-                          </label>
-                          <button className="primary" disabled={busy}>
-                            创建分集
-                          </button>
-                        </div>
-                      </form>
-                    </section>
-                  )}
-                  {episode && (
-                    <>
-                      <div className="episode-summary">
-                        <div>
-                          <span className="eyebrow">当前分集</span>
-                          <h3>{episode.title}</h3>
-                        </div>
-                        {access.canEdit && (
-                          <button
-                            disabled={busy}
-                            onClick={() => {
-                              setMessage('');
-                              setError('');
-                              setEditEpisode(episode);
-                            }}
-                          >
-                            编辑当前分集
-                          </button>
-                        )}
-                      </div>
-                      <div className="section-heading">
-                        <div>
-                          <span className="eyebrow">STORYBOARD</span>
-                          <h2>
-                            镜头板 <span className="count">{shots.length}</span>
-                          </h2>
-                        </div>
-                        {access.canEdit && (
-                          <button disabled={busy} onClick={() => setShotForm(!shotForm)}>
-                            ＋ 新建镜头
-                          </button>
-                        )}
-                      </div>
-                      {shotForm && (
-                        <section className="panel compact">
-                          <form
-                            onSubmit={(e) => {
-                              const data = values(e);
-                              void act(async () => {
-                                const created = await api<Shot>(`/episodes/${episodeId}/shots`, 'POST', {
-                                  ...data,
-                                  sequence: shots.length + 1,
-                                });
-                                setShots((previous) => [...previous, created]);
-                                setSelectedShot(created);
-                                setShotForm(false);
-                              });
-                            }}
-                          >
-                            <div className="form-row">
-                              <label>
-                                画面描述
-                                <input name="description" maxLength={20000} placeholder="描述这一镜的画面" />
-                              </label>
-                              <button className="primary" disabled={busy}>
-                                创建镜头
-                              </button>
-                            </div>
-                          </form>
-                        </section>
-                      )}
-                      <div className={`board-layout ${selectedShot ? 'with-editor' : ''}`}>
-                        <div className="shot-grid">
-                          {shots.map((x, index) => (
-                            <button
-                              className={`shot-card ${selectedShot?.id === x.id ? 'chosen' : ''}`}
-                              key={x.id}
-                              disabled={busy}
-                              onClick={() => setSelectedShot(x)}
-                            >
-                              <div className="shot-visual">
-                                <span className="shot-index">{String(index + 1).padStart(2, '0')}</span>
-                                <span className="frame-corners">＋</span>
-                                <span className="duration">{x.durationHint}s</span>
-                              </div>
-                              <div className="shot-copy">
-                                <div>
-                                  <strong>{x.code}</strong>
-                                  <span className="badge">创作中</span>
-                                </div>
-                                <p>{x.description || '为这个镜头写下第一笔。'}</p>
-                                <small>
-                                  {x.camera || '运镜待定'}
-                                  <span>v{x.version}</span>
-                                </small>
-                              </div>
-                            </button>
-                          ))}
-                          {!shots.length && (
-                            <div className="empty-state">
-                              <span className="empty-symbol">▧</span>
-                              <h3>为故事安排第一个镜头</h3>
-                              <p>从画面、运镜和对白开始，让故事逐镜展开。</p>
-                            </div>
-                          )}
-                        </div>
-                        {selectedShot && (
-                          <ShotEditor
-                            key={`${selectedShot.id}-${selectedShot.version}`}
-                            shot={selectedShot}
-                            disabled={busy || !access.canEdit}
-                            save={(data) =>
-                              void act(async () => {
-                                const updated = await api<Shot>(`/shots/${selectedShot.id}`, 'PATCH', data);
-                                setSelectedShot(updated);
-                                setShots((previous) =>
-                                  previous
-                                    .map((x) => (x.id === updated.id ? updated : x))
-                                    .sort((a, b) => a.sequence - b.sequence),
-                                );
-                                setMessage('镜头已保存');
-                              })
-                            }
-                            reload={() =>
-                              void act(async () => {
-                                const latest = await api<Shot>(`/shots/${selectedShot.id}`);
-                                setSelectedShot(latest);
-                                setShots((previous) =>
-                                  previous.map((x) => (x.id === latest.id ? latest : x)),
-                                );
-                                setMessage('已载入最新版本');
-                              })
-                            }
-                          />
-                        )}
-                      </div>
-                    </>
-                  )}
-                  {!episode && (
-                    <div className="empty-state">
-                      <span className="empty-symbol">▤</span>
-                      <h3>故事的第一集，还在等你</h3>
-                      <p>创建分集后，就可以开始规划镜头。</p>
-                    </div>
-                  )}
-                </>
               )}
             </>
           ) : (

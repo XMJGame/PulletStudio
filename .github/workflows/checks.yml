@@ -19,9 +19,6 @@ jobs:
       - run: npm run test:e2e
         env:
           PLAYWRIGHT_CHANNEL: chromium
-      - run: npx playwright test --config playwright.canvas.config.ts
-        env:
-          PLAYWRIGHT_CHANNEL: chromium
       - run: npx playwright test --config playwright.boards.config.ts
         env:
           PLAYWRIGHT_CHANNEL: chromium

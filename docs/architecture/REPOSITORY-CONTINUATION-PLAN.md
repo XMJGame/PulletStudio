@@ -1,5 +1,7 @@
 # Pullet Studio — 现有仓库审计与团队级 V1.0 续开发实施方案
 
+> 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 > 2026-11-06 产品 V2 优先：[当前方向](../PRODUCT-V2.md)、[ADR-011](../ADR-011-asset-led-creation.md)、[自由创作](../LIGHT-CREATION.md)。资产/画布/工作流/通用生成是主线；已解除 Shot、完整卡、编译提示词和正式发布对自由创作的强制前置。下文旧镜头/剧本合同作为兼容参考，不再驱动新增核心需求。实际顺序唯一来源为 [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)。
 
 > 2026-11-05范围修订：[ADR-009](../ADR-009-production-and-postproduction-handoff.md)。生产工作台与创作画布为核心入口，专业后期交给外部软件。保留已交付顺序预演/媒体处理，不新增多轨剪辑、转场、关键帧、调色、合成或专业混音；声音与字幕作为素材来源/交付管理。原件、CSV/JSON/制作说明优先，SRT有可靠来源后接入，OTIO/FCPXML后置验证。

@@ -18,64 +18,8 @@ export type Project = {
   deletedAt: string | null;
   deletedBy: string | null;
 };
-export type Episode = { id: string; code: string; title: string; orderIndex: number; version: number };
-export type Shot = {
-  id: string;
-  code: string;
-  sequence: number;
-  description: string;
-  camera: string;
-  dialogue: string;
-  durationHint: number;
-  technique: string;
-  version: number;
-};
-export type ProductionUnit = {
-  id: string;
-  projectId: string;
-  kind: string;
-  parentId: string | null;
-  code: string;
-  title: string;
-  orderIndex: number;
-  outline: string;
-  targetDurationSeconds: number | null;
-  version: number;
-};
 export type CursorPage<T> = { items: T[]; nextCursor: string | null };
 export type Member = { id: string; name: string; email: string; role: string; workspaceRole?: string };
-export type ScriptVersion = {
-  id: string | null;
-  projectId: string;
-  version: number;
-  title: string;
-  content: string;
-  summary: string;
-  createdAt: string | null;
-  authorName: string | null;
-  restoredFromVersion: number | null;
-  checksum: string;
-  locked: boolean;
-  lockVersion: number;
-  lockedAt: string | null;
-  lockedBy: string | null;
-  source: {
-    id: string;
-    fileName: string;
-    kind: string;
-    origin: string;
-    encoding: string;
-    sha256: string;
-    byteLength: number;
-  } | null;
-};
-export type ScriptHistory = {
-  items: Pick<
-    ScriptVersion,
-    'id' | 'version' | 'title' | 'summary' | 'createdAt' | 'authorName' | 'restoredFromVersion'
-  >[];
-  nextCursor: number | null;
-};
 export class ApiError extends Error {
   constructor(
     public status: number,

@@ -129,7 +129,23 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
     );
   await open(page, value);
   const id = await createBoard(page, 'Harbor visual exploration');
-  await page.getByRole('button', { name: new RegExp(`^添加 ${shot.code} · `) }).click();
+  const historical = await call('GET', `/boards/${id}`);
+  const refId = randomUUID();
+  historical.layout.nodes.push({
+    id: refId,
+    type: 'reference',
+    position: { x: 30, y: 30 },
+    width: 250,
+    height: 280,
+    data: { ref: { kind: 'shot', id: shot.id, version: shot.version } },
+  });
+  await call('POST', `/boards/${id}/revisions`, {
+    title: historical.title,
+    expectedRevision: 1,
+    layout: historical.layout,
+  });
+  await page.reload();
+  await page.locator(`.react-flow__node[data-id="${refId}"]`).click();
   await expect(page.locator('.creative-inspector')).toContainText('Harbor in soft morning light.');
   await page.getByRole('button', { name: '查看固定版本详情', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '固定业务版本详情' })).toContainText(
@@ -208,11 +224,14 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await page.getByRole('button', { name: '回到保留的草稿' }).click();
   await page.getByRole('dialog', { name: '画布修订历史' }).getByLabel('关闭对话框').click();
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await page.getByText('兼容制作工具', { exact: true }).click();
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
-  await page.getByRole('button', { name: new RegExp(unit.title) }).click();
-  await page.getByRole('button', { name: '打开单元画布', exact: true }).click();
-  const scopedId = await createBoard(page, 'Harbor unit board');
+  const scoped = await call('POST', `/projects/${value.id}/boards`, {
+    title: 'Harbor unit board',
+    unitId: unit.id,
+  });
+  const scopedId = scoped.id;
+  await page.goto(`/#canvas/${scopedId}`);
+  await page.reload();
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Harbor unit board');
   expect((await call('GET', `/boards/${scopedId}`)).unitId).toBe(unit.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
@@ -412,167 +431,88 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   ).toBe(media.id);
 });
 
-test('published canvas generation survives closing and feeds fixed candidate comparison', async ({
-  page,
-}) => {
+test('three canvases share project assets and an I2V result without shots or compiler', async ({ page }) => {
   const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
   try {
-    const value = await project('Canvas generation and review');
-    const initial = await call('POST', `/projects/${value.id}/shots`, {
-      description: 'A lamp lights a window.',
-    });
-    const editor = await call('GET', `/shots/${initial.id}/card/editor`);
-    const shot = (
-      await call('PATCH', `/shots/${initial.id}/card`, {
-        expectedVersion: initial.version,
-        body: editor.body,
-      })
-    ).shot;
-    const prompt = await call('POST', `/shots/${shot.id}/prompts/compile`, {
-      mode: 'commit',
-      expectedShotVersion: shot.version,
-      expectedProjectVersion: value.version,
-      profileRevisionId: null,
-    });
-    const firstFrame = await uploadMedia(value.id, 'image.png');
-    const manual = await call('POST', `/shots/${shot.id}/takes`, {
-      mediaVersionId: firstFrame.id,
-      expectedShotVersion: shot.version,
+    const value = await project('Shared asset canvases'),
+      image = await uploadMedia(value.id, 'image.png');
+    const entity = await call('POST', `/projects/${value.id}/entities`, {
+      kind: 'character',
+      body: {
+        name: 'Traveler',
+        description: 'A traveler',
+        attributes: {},
+        media: [{ role: 'reference', mediaVersionId: image.id }],
+      },
     });
     const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
-      name: 'Board fixture',
+      name: 'Canvas fixture',
       baseUrl: remote.baseUrl,
       trustedPrivate: true,
     });
-    const legacy = await call(
+    const workflow = await call(
       'POST',
       `/projects/${value.id}/generation-workflows`,
-      fixtureWorkflow(connection.id),
+      fixtureI2V(connection.id),
     );
-    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, {
-      ...fixtureI2V(connection.id),
-      reviewRequired: true,
-    });
-    const trial = await call('POST', `/generation-workflows/${workflow.id}/test-jobs`, {
-      shotId: shot.id,
-      promptId: prompt.id,
-      imageVersionId: firstFrame.id,
-      confirmed: true,
-    });
-    await expect
-      .poll(async () => (await call('GET', `/generation-jobs/${trial.id}`)).state, { timeout: 15000 })
-      .toBe('test_completed');
-    await call('POST', `/workflow-catalogs/${workflow.familyId}/releases`, {
-      action: 'publish',
-      expectedVersion: 1,
-      workflowId: workflow.id,
-      testJobId: trial.id,
-      reason: 'Trial checked',
-    });
     await open(page, value);
-    const boardId = await createBoard(page, 'Shot production board');
-    await page.getByRole('button', { name: new RegExp(`^添加 ${shot.code} · `) }).click();
-    await page.getByRole('button', { name: '媒体', exact: true }).click();
-    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    const a = await createBoard(page, 'Character study');
+    await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
     await save(page);
-    const before = await call('GET', `/boards/${boardId}`);
-    const shotNode = () => page.locator('.react-flow__node').filter({ hasText: shot.code });
-    await shotNode().click();
-    await page.getByRole('button', { name: '生成镜头素材', exact: true }).click();
-    const generation = page.getByRole('dialog', { name: '画布镜头生成', exact: true });
-    const workflowSelect = generation.getByLabel('生成工作流', { exact: true });
-    await expect(workflowSelect.locator(`option[value="${legacy.id}"]`)).toHaveCount(0);
-    await workflowSelect.selectOption(workflow.id);
-    const imageSelect = generation.getByLabel('首帧图片', { exact: true });
-    await expect(imageSelect.locator('optgroup[label="画布固定图片"] option')).toHaveCount(1);
-    await imageSelect.selectOption(firstFrame.id);
-    await generation.getByLabel('已保存提示词', { exact: true }).selectOption(prompt.id);
-    await generation.getByLabel('确认发送所选提示词和首帧图片到该工作流并消耗生成资源').check();
-    const submit = generation.getByRole('button', { name: '加入生成队列', exact: true });
-    await expect(submit).toBeDisabled();
-    await generation.getByRole('button', { name: '核对提示词', exact: true }).click();
-    await expect(submit).toBeEnabled();
+    await page.getByRole('button', { name: '自由生成', exact: true }).click();
+    const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+    await generation.getByLabel('首帧图片', { exact: true }).selectOption(image.id);
+    await generation.getByLabel('正向提示词', { exact: true }).fill('The traveler walks along the platform');
     remote.mock.mode = 'hold';
-    await submit.click();
+    await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
     await expect(generation.getByRole('status')).toContainText('生成任务已加入队列');
     await generation.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toHaveCount(0);
-    const [job] = await call('GET', `/shots/${shot.id}/generation-jobs`);
-    expect(job.state).not.toBe('completed');
-    expect(job.shotVersion).toBe(shot.version);
-    expect(job.promptId).toBe(prompt.id);
-    expect(job.image.id).toBe(firstFrame.id);
+    const job = (await call('GET', `/projects/${value.id}/generation-jobs`)).items[0];
+    expect(job.shotId).toBeNull();
+    expect(job.boardId).toBe(a);
+    expect(job.promptId).toBeNull();
     remote.mock.mode = 'normal';
     await expect
       .poll(async () => (await call('GET', `/generation-jobs/${job.id}`)).state, { timeout: 15000 })
       .toBe('completed');
-    const result = await call('GET', `/generation-jobs/${job.id}`);
-    expect(remote.mock.submissions).toHaveLength(2);
-    expect(remote.mock.uploads[1].bytes).toEqual(fixtures['image.png'].bytes);
-    expect((await call('GET', `/boards/${boardId}`)).layout).toEqual(before.layout);
     await page.getByRole('button', { name: '创作画布', exact: true }).click();
-    await page.getByRole('button', { name: /^Shot production board/ }).click();
-    await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue('Shot production board');
-    await shotNode().click();
-    await page.getByRole('button', { name: '比较镜头候选', exact: true }).click();
-    const compare = page.getByRole('dialog', { name: '比较镜头候选', exact: true });
-    const sideA = compare.getByRole('region', { name: '候选 A', exact: true });
-    const sideB = compare.getByRole('region', { name: '候选 B', exact: true });
-    await expect(sideA.getByLabel('候选 A', { exact: true })).toHaveValue(result.takeId);
-    await expect(sideB.getByLabel('候选 B', { exact: true })).toHaveValue(manual.id);
-    await expect
-      .poll(() => sideA.locator('video').evaluate((el: HTMLVideoElement) => el.videoWidth))
-      .toBe(96);
-    await expect
-      .poll(() => sideB.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth))
-      .toBe(96);
-    await page.screenshot({ path: 'test-results/board-take-compare-desktop.png' });
-    await compare.getByRole('button', { name: '交换 A / B', exact: true }).click();
-    await expect(sideB.getByLabel('候选 B', { exact: true })).toHaveValue(result.takeId);
-    await sideB.getByRole('button', { name: '查看候选审核', exact: true }).click();
-    const review = compare.getByRole('region', { name: '候选审核', exact: true });
-    for (const [action, reason] of [
-      ['提交审核', 'Ready for review'],
-      ['批准候选', 'Motion and composition checked'],
-      ['选用此候选', 'Use the approved take'],
-    ]) {
-      const button = review.getByRole('button', { name: action, exact: true });
-      await expect(button).toBeEnabled();
-      await review.getByLabel('审核或选片理由').fill(reason);
-      await button.click();
-    }
-    await expect(compare).toContainText('当前选片 Take 02 · 有效');
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(() => compare.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    await page.screenshot({ path: 'test-results/board-take-compare-mobile.png' });
-    await sideB.getByRole('button', { name: '加入画布', exact: true }).click();
-    await expect(compare.getByText('已将固定媒体加入画布草稿。', { exact: true })).toBeVisible();
-    await compare.getByRole('button', { name: '关闭比较', exact: true }).click();
-    await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Character study');
+    await page.getByRole('button', { name: '自由生成', exact: true }).click();
+    await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await generation.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+    const b = await createBoard(page, 'Scene study');
+    await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
+    await page.getByRole('button', { name: '媒体', exact: true }).click();
+    await page.getByRole('button', { name: '添加 clip.mp4', exact: true }).click();
+    await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+    const warning = page.getByRole('dialog', { name: '保留当前创作', exact: true });
+    await expect(warning).toBeVisible();
+    await warning.getByRole('button', { name: '继续编辑', exact: true }).click();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Scene study');
     await save(page);
-    expect(
-      (await call('GET', `/boards/${boardId}`)).layout.nodes.some(
-        (node: any) => node.data.ref?.kind === 'media' && node.data.ref.id === result.mediaVersionId,
-      ),
-    ).toBe(true);
-    expect((await call('GET', `/shots/${shot.id}/take-selection`)).takeId).toBe(result.takeId);
-    await shotNode().click();
-    const next = await call('GET', `/shots/${shot.id}/card/editor`);
-    next.body.description = 'Window light after the revision.';
-    const updated = (
-      await call('PATCH', `/shots/${shot.id}/card`, { expectedVersion: shot.version, body: next.body })
-    ).shot;
-    await page.getByRole('button', { name: '刷新引用', exact: true }).click();
-    await expect(page.getByRole('button', { name: '生成镜头素材', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: '引用当前制作卡', exact: true }).click();
-    await expect(page.getByRole('button', { name: '生成镜头素材', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+    const c = await createBoard(page, 'Video study');
+    await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
     await save(page);
-    expect(
-      (await call('GET', `/boards/${boardId}`)).layout.nodes.find(
-        (node: any) => node.data.ref?.kind === 'shot',
-      ).data.ref.version,
-    ).toBe(updated.version);
+    await page.reload();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Video study');
+    await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+    await page.goto('/');
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Video study');
+    const boards = await Promise.all([a, b, c].map((id) => call('GET', `/boards/${id}`)));
+    for (const board of boards)
+      expect(board.layout.nodes.find((node: any) => node.data.ref?.kind === 'entity').data.ref.id).toBe(
+        entity.id,
+      );
+    expect(boards[0].layout.nodes).toHaveLength(1);
+    expect(boards[1].layout.nodes).toHaveLength(2);
+    expect(boards[2].layout.nodes).toHaveLength(1);
+    expect(remote.mock.submissions).toHaveLength(1);
+    expect(remote.mock.uploads[0].bytes).toEqual(fixtures['image.png'].bytes);
   } finally {
     await remote.close();
   }

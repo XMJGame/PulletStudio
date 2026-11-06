@@ -2,13 +2,13 @@
 
 Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Drizzle和SQLite。Provider与Storage保留独立边界，工作区/项目权限从第一版实施。
 
-当前主线是资产、创作画布、工作流、生成候选与素材复用。空项目可以直接粘贴提示词生成，候选预览、下载、复用、存入素材库或引用回画布；不要求剧本、镜头或已编译提示词。原生产链和数据保留在兼容制作工具中。[产品 V2](docs/PRODUCT-V2.md) · [自由创作](docs/LIGHT-CREATION.md)
+当前主线是资产、创作画布、工作流、生成候选与素材复用。空项目可以直接粘贴提示词生成，候选预览、下载、复用、存入素材库或引用回画布；不要求剧本、镜头或已编译提示词。旧创作页面与兼容菜单已删除，历史数据继续受后台授权保护。[产品 V2](docs/PRODUCT-V2.md) · [删除决策](docs/ADR-012-remove-retired-creation-ui.md)
 
 正式剪辑/调色/转场/合成/混音交外部软件；不开发专业剪辑器。工作区权限、媒体版本、Provider/Storage 和实例调度保留。[V2 取舍审计与顺序](docs/architecture/PRODUCT-V2-AUDIT.md)
 
-G0 原型仅在 `/canvas-lab.html` 保留为隔离研究样例，主产品入口已移除。正式创作使用项目画布，不读取原型浏览器数据。[CANVAS-LAB](docs/CANVAS-LAB.md)
+正式产品只使用一套 React Flow/Board。G0 原型源码、页面、测试、构建与 CI 入口已删除。
 
-正式项目点击「创作画布」，创建/打开画布后点击「自由生成」，选中便签时带入文字。生成关闭窗口后继续执行。旧镜头节点仍可使用原正式工作流、候选比较与审核。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
+正式项目点击「创作画布」，用「切换 / 新建画布」管理多张画布；它们共用项目资产，按用户记住上次打开。点击「自由生成」，选中便签时带入文字；关闭窗口后任务继续。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
 
 项目工作流中心支持 API 图导入、版本管理、创作参数和依赖诊断。管理员可直接粘贴提示词试跑；自由创作可用已保存固定版本，正式镜头保留团队发布机制。[工作流中心](docs/WORKFLOW-CENTER.md)
 
@@ -39,9 +39,7 @@ npm run dev:api
 
 | 命令 | 用途 |
 |---|---|
-| `npm run worker:text` | 兼容原文分析/AI分镜，日常自由创作无需启动 |
 | `npm run worker:generation` | ComfyUI生成、结果核对与归档 |
-| `npm run worker:animatic` | 兼容轻量预演，按需启动 |
 
 未配置模型也可以手工创作、导入素材、审核与交付。ComfyUI使用管理员受信连接及固定API图，不移动、不重装用户的ComfyUI或模型。工作流绑定与参数见[使用说明](docs/COMFYUI-GENERATION.md)。
 
@@ -59,7 +57,7 @@ npm run test:e2e
 npm run db:backup
 ```
 
-V2 L1 本机通过 203 项 API 测试、4 项图解析、9 项工作流场景、5 项正式画布场景和 1 项旧生产全流程。新增链路使用隔离 Mock；早期官方 MiniMax H3 单首帧 I2V 已独立实机验收。[实施状态](docs/IMPLEMENTATION-STATUS.md)
+L2-A 本机通过 203 项 API、4 项图解析、9 项工作流、5 项画布场景和 1 项新主入口场景。旧 UI 专用流程已删除，数据与后台不变量继续回归；新增模型链路用隔离 Mock。早期官方 MiniMax H3 单首帧 I2V 已独立实机验收。[实施状态](docs/IMPLEMENTATION-STATUS.md)
 
 SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 
@@ -73,6 +71,6 @@ SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SM
 | tests/e2e、tests/fixtures | 隔离浏览器验收、Mock和合成媒体工具 |
 | tools | 环境初始化、API监视、媒体校验 |
 | docs | 当前基线/状态/ADR/指南，及architecture/modules/operations/history/archive分类 |
-| infra、examples | 历史Compose示例与通用绑定示意，非本机配置或正式部署方案 |
+| examples | 通用工作流绑定示意；已删除与当前运行无关的 PostgreSQL/Redis Compose 示例 |
 
 当前不提供PostgreSQL驱动、自动双库切换或SaaS；未来扩展须独立兼容、权限和迁移验收。

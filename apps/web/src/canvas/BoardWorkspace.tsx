@@ -8,14 +8,14 @@ import type {
   BoardSource,
   BoardView,
 } from '../../../../packages/contracts/src/board';
-import { api, ApiError, CursorPage, ProductionUnit } from '../api';
+import { api, ApiError, CursorPage } from '../api';
+import { forgetBoard, lastBoard, rememberBoard } from './board-preferences';
 import { Dialog } from '../components/Dialog';
 import { GenerationDialog } from '../components/GenerationDialog';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
 import { BoardInspector } from './BoardInspector';
 import { BoardSources } from './BoardSources';
-import { ShotTakeCompareDialog } from './ShotTakeCompareDialog';
 import type { CanvasNode } from './board-types';
 import './board.css';
 type History = {
@@ -29,14 +29,14 @@ const unavailable = { status: 'unavailable', title: '引用不可用' } as const
 export default function BoardWorkspace({
   projectId,
   projectTitle,
-  unit,
+  userId,
   canEdit,
   onClose,
   onUnauthorized,
 }: {
   projectId: string;
   projectTitle: string;
-  unit?: ProductionUnit;
+  userId: string;
   canEdit: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
@@ -56,17 +56,12 @@ export default function BoardWorkspace({
   const [compare, setCompare] = useState<BoardView>();
   const [history, setHistory] = useState<History>();
   const [detail, setDetail] = useState<BoardResolved>();
-  const [shotTool, setShotTool] = useState<{
-    type: 'generation' | 'candidates';
-    id: string;
-    version: number;
-    title: string;
-  }>();
   const [freeGeneration, setFreeGeneration] = useState(false);
   const [newTitle, setNewTitle] = useState('创作探索');
   const [refresh, setRefresh] = useState(0);
   const [pan, setPan] = useState(false);
   const [leave, setLeave] = useState(false);
+  const [leaveTarget, setLeaveTarget] = useState<'project' | 'boards'>('project');
   const [discard, setDiscard] = useState(false);
   const createAttempt = useRef({ body: '', key: '' });
   const saveAttempt = useRef({ body: '', key: '' });
@@ -79,13 +74,13 @@ export default function BoardWorkspace({
     signature(title, base.canEdit ? layout : { ...layout, viewport: base.layout.viewport }) !==
       signature(base.title, base.layout);
   const editable = !!base?.canEdit && !busy && !denied;
-  const listPath = `/projects/${projectId}/boards${unit ? `?unitId=${unit.id}` : ''}`;
+  const listPath = `/projects/${projectId}/boards`;
   const report = useCallback(
     (reason: unknown) => {
       if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
         setResolved({});
         setDetail(undefined);
-        setShotTool(undefined);
+
         setCompare(undefined);
         setHistory(undefined);
         if (reason.status === 401) onUnauthorized();
@@ -107,12 +102,24 @@ export default function BoardWorkspace({
     );
     setRemote(undefined);
     setDetail(undefined);
-    setShotTool(undefined);
+
     setDenied(false);
     setHistory(undefined);
     setError('');
     saveAttempt.current = { body: '', key: '' };
     window.history.replaceState(null, '', `#canvas/${value.id}`);
+    rememberBoard(userId, projectId, value.id);
+    setBoards((previous) => [
+      {
+        id: value.id,
+        title: value.title,
+        unitId: value.unitId,
+        revision: value.revision,
+        createdAt: value.createdAt,
+        updatedAt: value.createdAt,
+      },
+      ...previous.filter((item) => item.id !== value.id),
+    ]);
   }
   async function load(id: string) {
     setBusy(true);
@@ -122,6 +129,7 @@ export default function BoardWorkspace({
       if (value.projectId !== projectId) throw new Error('此画布属于其他项目，请先切换对应项目');
       accept(value);
     } catch (reason) {
+      if (reason instanceof ApiError && [403, 404].includes(reason.status)) forgetBoard(userId, projectId);
       report(reason);
     } finally {
       setBusy(false);
@@ -139,13 +147,13 @@ export default function BoardWorkspace({
       .catch((reason) => {
         if (live) report(reason);
       });
-    const id = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1];
+    const id = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1] ?? lastBoard(userId, projectId);
     if (id) void load(id);
     return () => {
       live = false;
       epoch.current++;
     };
-  }, [projectId, unit?.id]);
+  }, [projectId, userId]);
   useEffect(() => {
     if (!dirty) return;
     const handler = (event: BeforeUnloadEvent) => {
@@ -460,68 +468,48 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
-  const shotRef = node?.data.ref?.kind === 'shot' ? node.data.ref : undefined;
-  const shotValue = shotRef && node ? resolved[node.id] : undefined;
-  function openShotTool(type: 'generation' | 'candidates') {
-    if (shotRef && shotValue && shotValue.status !== 'unavailable') {
-      setShotTool({ type, id: shotRef.id, version: shotRef.version, title: shotValue.title });
+  function leaveBoard(target: 'project' | 'boards') {
+    setLeave(false);
+    if (target === 'project') {
+      onClose();
+      return;
     }
-  }
-  async function updateShotReference() {
-    if (!node || !shotRef || !shotValue?.currentVersion || !editable) return;
-    const ref = { ...shotRef, version: shotValue.currentVersion };
-    setBusy(true);
+    epoch.current++;
+    setBase(undefined);
+    setLayout(undefined);
+    setSelected([]);
+    setResolved({});
+    setDetail(undefined);
+    setHistory(undefined);
+    setCompare(undefined);
+    setFreeGeneration(false);
+    setRemote(undefined);
     setError('');
-    try {
-      const values = await api<Record<string, BoardResolved>>(
-        `/projects/${projectId}/board-references/resolve`,
-        'POST',
-        {
-          references: [{ nodeId: node.id, ref }],
-        },
-      );
-      if (values[node.id]?.status !== 'current') {
-        setError('当前制作卡不可引用或已再次更新，请刷新后重试。');
-        return;
-      }
-      update({ ...node, data: { ref } });
-      setResolved((previous) => ({ ...previous, ...values }));
-      setMessage(`已引用制作卡 v${ref.version}，请保存画布。`);
-    } catch (failure) {
-      report(failure);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const canvasImages = useMemo(() => {
-    const images = new Map<string, { id: string; fileName: string; version: number }>();
-    for (const node of layout?.nodes ?? []) {
-      const value = resolved[node.id];
-      if (
-        node.data.ref?.kind !== 'media' ||
-        value?.status === 'unavailable' ||
-        !value?.version ||
-        value.media?.mediaType !== 'image'
-      )
-        continue;
-      images.set(value.media.id, {
-        id: value.media.id,
-        fileName: value.media.fileName,
-        version: value.version,
+    setMessage('');
+    window.history.replaceState(null, '', '#canvas');
+    const ticket = epoch.current;
+    void api<CursorPage<BoardListItem>>(listPath)
+      .then((value) => {
+        if (ticket === epoch.current) {
+          setBoards(value.items);
+          setCursor(value.nextCursor);
+        }
+      })
+      .catch((reason) => {
+        if (ticket === epoch.current) report(reason);
       });
-    }
-    return [...images.values()];
-  }, [layout?.nodes, resolved]);
-  function close() {
+  }
+  function close(target: 'project' | 'boards' = 'project') {
+    setLeaveTarget(target);
     if (dirty) setLeave(true);
-    else onClose();
+    else leaveBoard(target);
   }
   return (
     <Dialog
       title="创作画布"
-      description={`${projectTitle}${base?.unitTitle ? ` / ${base.unitTitle}` : unit ? ` / ${unit.title}` : ''} · 正式项目资源 · 创作连线不修改业务数据`}
+      description={`${projectTitle} · 画布共用项目资产 · 普通连线不执行生成`}
       busy={busy}
-      onClose={close}
+      onClose={() => close()}
       className="creative-board-dialog"
     >
       {denied ? (
@@ -538,15 +526,15 @@ export default function BoardWorkspace({
               {error}
             </p>
           )}
-          <h3>{unit ? '制作单元画布' : '项目画布'}</h3>
-          <p>用便签和固定业务版本整理创作思路。正式镜头、资产和媒体继续由生产工作台管理。</p>
+          <h3>项目画布</h3>
+          <p>每张画布独立保存布局与历史，共用此项目的资产和媒体。</p>
           {canEdit && (
             <form
               className="creative-create"
               onSubmit={(event) => {
                 event.preventDefault();
                 void (async () => {
-                  const body = { title: newTitle, unitId: unit?.id ?? null },
+                  const body = { title: newTitle, unitId: null },
                     serialized = JSON.stringify(body);
                   if (createAttempt.current.body !== serialized)
                     createAttempt.current = { body: serialized, key: crypto.randomUUID() };
@@ -600,9 +588,7 @@ export default function BoardWorkspace({
               onClick={async () => {
                 setBusy(true);
                 try {
-                  const value = await api<CursorPage<BoardListItem>>(
-                    `${listPath}${unit ? '&' : '?'}cursor=${cursor}`,
-                  );
+                  const value = await api<CursorPage<BoardListItem>>(`${listPath}?cursor=${cursor}`);
                   setBoards((current) => [...current, ...value.items]);
                   setCursor(value.nextCursor);
                 } catch (reason) {
@@ -619,6 +605,9 @@ export default function BoardWorkspace({
       ) : (
         <>
           <div className="creative-toolbar">
+            <button disabled={busy} onClick={() => close('boards')}>
+              切换 / 新建画布
+            </button>
             <button disabled={busy} onClick={() => setFreeGeneration(true)}>
               {base.canEdit ? '自由生成' : '生成与结果'}
             </button>
@@ -672,7 +661,7 @@ export default function BoardWorkspace({
             >
               修订历史
             </button>
-            <button disabled={busy} onClick={close}>
+            <button disabled={busy} onClick={() => close()}>
               返回工作台
             </button>
           </div>
@@ -756,24 +745,6 @@ export default function BoardWorkspace({
               remove={() => node && remove([node.id])}
               detail={detail}
               closeDetail={() => setDetail(undefined)}
-              shotActions={
-                shotValue &&
-                shotValue.status !== 'unavailable' && (
-                  <div className="creative-shot-actions">
-                    {editable && shotValue.status === 'stale' && (
-                      <button disabled={busy} onClick={() => void updateShotReference()}>
-                        引用当前制作卡
-                      </button>
-                    )}
-                    <button disabled={busy} onClick={() => openShotTool('generation')}>
-                      {editable && shotValue.status === 'current' ? '生成镜头素材' : '查看生成任务'}
-                    </button>
-                    <button disabled={busy} onClick={() => openShotTool('candidates')}>
-                      比较镜头候选
-                    </button>
-                  </div>
-                )
-              }
               onDetail={() => {
                 if (!node?.data.ref) return;
                 void api<Record<string, BoardResolved>>(
@@ -806,28 +777,6 @@ export default function BoardWorkspace({
           onClose={() => setFreeGeneration(false)}
         />
       )}
-      {shotTool?.type === 'generation' && (
-        <GenerationDialog
-          key={shotTool.id}
-          shotId={shotTool.id}
-          canvas={{
-            shotVersion: shotTool.version,
-            title: shotTool.title,
-            canEdit: editable,
-            images: canvasImages,
-          }}
-          onClose={() => setShotTool(undefined)}
-        />
-      )}
-      {shotTool?.type === 'candidates' && (
-        <ShotTakeCompareDialog
-          key={shotTool.id}
-          shotId={shotTool.id}
-          title={shotTool.title}
-          onPin={editable ? pinCandidate : undefined}
-          onClose={() => setShotTool(undefined)}
-        />
-      )}
       {leave && (
         <Dialog
           title="保留当前创作"
@@ -836,7 +785,7 @@ export default function BoardWorkspace({
         >
           <div className="dialog-footer">
             <button onClick={() => setLeave(false)}>继续编辑</button>
-            <button onClick={onClose}>丢弃草稿并离开</button>
+            <button onClick={() => leaveBoard(leaveTarget)}>丢弃草稿并离开</button>
           </div>
         </Dialog>
       )}

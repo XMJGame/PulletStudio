@@ -1,5 +1,7 @@
 # 工作流中心
 
+> 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 > 2026-11-06 产品 V2 优先：[当前方向](PRODUCT-V2.md)、[ADR-011](ADR-011-asset-led-creation.md)、[自由创作](LIGHT-CREATION.md)。资产/画布/工作流/通用生成是主线；已解除 Shot、完整卡、编译提示词和正式发布对自由创作的强制前置。下文旧镜头/剧本合同作为兼容参考，不再驱动新增核心需求。实际顺序唯一来源为 [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md)。
 
 在正式项目工作台点“工作流中心”，无需先创建镜头。管理员封装技术工作流，创作者在镜头“媒体生成”使用公开参数。两处共用GenerationSettings、Generation API、原队列和Storage。

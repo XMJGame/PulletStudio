@@ -352,71 +352,48 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
 });
 
-test('creator form renders declared scalar controls and freezes overrides into a normal generation job', async ({
+test('creator fields freeze selected revisions in project generation without legacy forms', async ({
   page,
 }) => {
-  const value = await project('Creative parameter job');
+  const value = await project('Creative fields');
   const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
-    name: 'Scalar fixture',
+    name: 'Fields fixture',
     baseUrl: remote.baseUrl,
     trustedPrivate: true,
   });
   const definition = fixtureCreativeFields(connection.id),
     workflow = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
-  const basic = await api('POST', `/projects/${value.id}/shots`, {
-    description: 'A train enters a covered platform.',
-  });
-  const editor = await api('GET', `/shots/${basic.id}/card/editor`);
-  const shot = (
-    await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
-  ).shot;
-  await api('POST', `/shots/${shot.id}/prompts/compile`, {
-    mode: 'commit',
-    expectedShotVersion: shot.version,
-    expectedProjectVersion: value.version,
-    profileRevisionId: null,
-  });
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心' }).click();
-  await page.getByText('兼容制作工具', { exact: true }).click();
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
-  await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
-  await page.getByRole('button', { name: '媒体生成', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '镜头媒体生成', exact: true });
+  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '开始生成', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
   await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
-  await dialog.getByLabel('已保存提示词', { exact: true }).selectOption({ index: 1 });
+  await dialog.getByLabel('正向提示词', { exact: true }).fill('A station in soft light');
   await dialog.getByLabel('创作参数：补充描述', { exact: true }).fill('Soft rain across the platform');
   await dialog.getByLabel('创作参数：迭代次数', { exact: true }).fill('8');
   await dialog.getByLabel('创作参数：细节增强', { exact: true }).uncheck();
   await dialog.getByLabel('创作参数：质量档位', { exact: true }).selectOption('high');
-  // A refreshed catalog must not silently replace a selected fixed revision or its form schema.
-  const latest = await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`);
-  const updated = structuredClone(latest.definition);
+  const latest = await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`),
+    updated = structuredClone(latest.definition);
   updated.name = 'Newer controls';
   updated.fields[0].label = '新版本说明';
   await api('POST', `/workflow-catalogs/${workflow.familyId}/revisions`, {
     expectedVersion: latest.catalog.version,
-    summary: 'New head while creator is editing',
+    summary: 'Changed while creator edits',
     definition: updated,
   });
-  await dialog.getByText('配置 ComfyUI 连接与工作流', { exact: true }).click();
-  await dialog.getByLabel('连接名称', { exact: true }).fill('Refresh configuration fixture');
-  await dialog.getByLabel('ComfyUI 基础地址', { exact: true }).fill(remote.baseUrl);
-  await dialog.getByLabel('批准自部署 HTTP 或私有网络地址').check();
-  await dialog.getByRole('button', { name: '添加连接', exact: true }).click();
   await expect(dialog.getByLabel('创作参数：补充描述', { exact: true })).toHaveValue(
     'Soft rain across the platform',
   );
   await expect(dialog.getByLabel('创作参数：新版本说明', { exact: true })).toHaveCount(0);
-  await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
   await dialog.getByRole('button', { name: '加入生成队列', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('生成任务已加入队列');
-  await expect(dialog.getByText('补充描述：Soft rain across the platform', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('细节增强：关闭', { exact: true })).toBeVisible();
-  await expect(dialog.getByText(/工作流 v1 · 制作卡/)).toBeVisible();
-  const jobs = await api('GET', `/shots/${shot.id}/generation-jobs`);
-  const job = jobs.items ? jobs.items[0] : jobs[0];
+  await expect(dialog.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+  const {
+    items: [job],
+  } = await api('GET', `/projects/${value.id}/generation-jobs`);
   expect(job.workflowRevision).toBe(1);
+  expect(job.shotId).toBeNull();
+  expect(job.takeId).toBeNull();
   expect(job.fieldValues).toEqual(
     Object.fromEntries(
       definition.fields.map((field: any, index: number) => [
@@ -425,7 +402,6 @@ test('creator form renders declared scalar controls and freezes overrides into a
       ]),
     ),
   );
-  await expect.poll(async () => (await api('GET', `/generation-jobs/${job.id}`)).state).toBe('completed');
   expect(remote.mock.submissions).toHaveLength(1);
 });
 
@@ -441,36 +417,16 @@ test('manager runs a fixed draft and releases only the reviewed evidence', async
     name: 'Workflow under review',
     reviewRequired: true,
   });
-  const basic = await api('POST', `/projects/${value.id}/shots`, {
-    description: 'A worker enters a studio.',
-  });
-  const editor = await api('GET', `/shots/${basic.id}/card/editor`);
-  const shot = (
-    await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
-  ).shot;
-  await api('POST', `/shots/${shot.id}/prompts/compile`, {
-    mode: 'commit',
-    expectedShotVersion: shot.version,
-    expectedProjectVersion: value.version,
-    profileRevisionId: null,
-  });
   await open(page, value);
   const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
   await expect(center.getByText('待审核发布', { exact: true })).toBeVisible();
   await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
   const review = page.getByRole('dialog', { name: '试跑与发布', exact: true });
-  await review.getByText('使用旧镜头试跑（兼容）', { exact: true }).click();
-  await review.getByRole('button', { name: '读取项目镜头', exact: true }).click();
-  await review.getByLabel('试跑镜头', { exact: true }).selectOption(shot.id);
-  await review.getByRole('button', { name: '打开试跑表单', exact: true }).click();
+  await review.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
   const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
-  await trial.getByLabel('已保存提示词', { exact: true }).selectOption({ index: 1 });
+  await trial.getByLabel('正向提示词', { exact: true }).fill('A studio under overhead light');
   await trial.getByLabel('创作参数：补充描述', { exact: true }).fill('Overhead light');
   const submit = trial.getByRole('button', { name: '加入试跑队列', exact: true });
-  await expect(submit).toBeDisabled();
-  await trial.getByRole('button', { name: '核对提示词', exact: true }).click();
-  await expect(trial.getByLabel('正向提示词', { exact: true })).toBeVisible();
-  await trial.getByLabel('确认将所选输入发送到 ComfyUI 并消耗试跑资源', { exact: true }).check();
   await submit.click();
   await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
   await trial.getByRole('button', { name: '关闭', exact: true }).click();
@@ -505,7 +461,7 @@ test('manager runs a fixed draft and releases only the reviewed evidence', async
   await published.getByText('预览试跑结果', { exact: true }).click();
   await expect(published.getByText('补充描述 · Overhead light', { exact: true })).toBeVisible();
   expect((await api('GET', `/projects/${value.id}/generation-config`)).productionWorkflows).toEqual([]);
-  expect((await api('GET', `/shots/${shot.id}/takes`)).items).toEqual([]);
+  expect((await api('GET', `/generation-workflows/${workflow.id}/test-jobs`))[0].takeId).toBeNull();
 });
 
 test('workspace pool enrolls two instances and displays different workflow checks', async ({ page }) => {
@@ -572,14 +528,12 @@ test('workspace pool enrolls two instances and displays different workflow check
   }
 });
 
-test('generation defaults to automatic routing and records the manually selected instance', async ({
-  page,
-}) => {
+test('project generation defaults to automatic routing and records the manual instance', async ({ page }) => {
   const image = await readFile(resolve('test-results/workflow-fixtures/image.png'));
-  const first = await startComfyMock({ 'image.png': image });
-  const second = await startComfyMock({ 'image.png': image });
+  const first = await startComfyMock({ 'image.png': image }),
+    second = await startComfyMock({ 'image.png': image });
   try {
-    const value = await project('Pool generation controls');
+    const value = await project('Project routing');
     const register = async (name: string, baseUrl: string) => {
       const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
         name,
@@ -594,47 +548,31 @@ test('generation defaults to automatic routing and records the manually selected
       });
       return connection.id;
     };
-    const aId = await register('Render A', first.baseUrl);
-    const bId = await register('Render B', second.baseUrl);
+    const aId = await register('Render A', first.baseUrl),
+      bId = await register('Render B', second.baseUrl);
     const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, fixtureWorkflow(aId));
     for (const id of [aId, bId])
       await api('POST', `/generation-workflows/${workflow.id}/instance-checks/${id}`, {});
-    const basic = await api('POST', `/projects/${value.id}/shots`, { description: 'A lamp lights a hall.' });
-    const editor = await api('GET', `/shots/${basic.id}/card/editor`);
-    const shot = (
-      await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
-    ).shot;
-    const prompt = await api('POST', `/shots/${shot.id}/prompts/compile`, {
-      mode: 'commit',
-      expectedShotVersion: shot.version,
-      expectedProjectVersion: value.version,
-      profileRevisionId: null,
-    });
     await open(page, value);
-    await page.getByRole('button', { name: '关闭工作流中心' }).click();
-    await page.getByText('兼容制作工具', { exact: true }).click();
-    await page.getByRole('button', { name: '制作结构', exact: true }).click();
-    await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
-    await page.getByRole('button', { name: '媒体生成', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: '镜头媒体生成', exact: true });
+    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
     await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
     const mode = dialog.getByLabel('实例调度方式', { exact: true });
     await expect(mode).toHaveValue('auto');
     await expect(dialog.getByText('2 个匹配实例当前可预留')).toBeVisible();
     await mode.selectOption('manual');
-    await dialog.getByLabel('已保存提示词', { exact: true }).selectOption(prompt.id);
-    await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
+    await dialog.getByLabel('正向提示词', { exact: true }).fill('A lamp lights a hall');
     const submit = dialog.getByRole('button', { name: '加入生成队列', exact: true });
     await expect(submit).toBeDisabled();
     await dialog.getByLabel('生成实例', { exact: true }).selectOption(bId);
-    await expect(submit).toBeDisabled();
-    await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
+    await expect(submit).toBeEnabled();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: 'test-results/generation-instance-routing-mobile.png' });
     await submit.click();
     await expect(dialog.getByText('实例 Render B · 手动指定', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('已归档为镜头候选', { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(dialog.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
     expect(first.mock.submissions).toHaveLength(0);
     expect(second.mock.submissions).toHaveLength(1);
   } finally {

@@ -1,31 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, CursorPage, uploadMediaContent } from '../api';
-import { CardEditor } from '../prompt-types';
-import { MediaAsset, MediaUpload, MediaVersion, Take, TakeSelection, takeReviewLabels } from '../media-types';
+import { MediaAsset, MediaUpload, MediaVersion } from '../media-types';
 import { Dialog } from './Dialog';
-import { TakeReviewPanel } from './TakeReviewPanel';
-type Status = { available: boolean; maxBytes: number; error?: { message: string }; formats?: string };
-type Versions = { items: MediaVersion[]; nextCursor: number | null };
-export function MediaDialog({
-  projectId,
-  shotId,
-  onClose,
-}: {
-  projectId?: string;
-  shotId?: string;
-  onClose: () => void;
-}) {
-  const [context, setContext] = useState<{ projectId: string; canEdit: boolean; shotVersion?: number }>();
+type Status = {
+  available: boolean;
+  maxBytes: number;
+  error?: {
+    message: string;
+  };
+  formats?: string;
+};
+type Versions = {
+  items: MediaVersion[];
+  nextCursor: number | null;
+};
+export function MediaDialog({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const [context, setContext] = useState<{
+    projectId: string;
+    canEdit: boolean;
+  }>();
   const [status, setStatus] = useState<Status>();
   const [assets, setAssets] = useState<CursorPage<MediaAsset>>({ items: [], nextCursor: null });
   const [uploads, setUploads] = useState<CursorPage<MediaUpload>>({ items: [], nextCursor: null });
-  const [takes, setTakes] = useState<{ items: Take[]; nextCursor: number | null }>({
-    items: [],
-    nextCursor: null,
-  });
   const [selected, setSelected] = useState<MediaVersion>();
-  const [selectedTake, setSelectedTake] = useState<Take>();
-  const [selection, setSelection] = useState<TakeSelection>();
   const [versions, setVersions] = useState<Versions>();
   const [file, setFile] = useState<File>();
   const [target, setTarget] = useState('');
@@ -42,34 +39,19 @@ export function MediaDialog({
   useEffect(() => {
     let active = true;
     void (async () => {
-      let pid = projectId,
-        canEdit = false,
-        shotVersion: number | undefined;
-      if (shotId) {
-        const value = await api<CardEditor>(`/shots/${shotId}/card/editor`);
-        pid = value.shot.projectId;
-        canEdit = value.canEdit;
-        shotVersion = value.shot.version;
-      } else {
-        const access = await api<{ canEdit: boolean }>(`/projects/${pid}/access`);
-        canEdit = access.canEdit;
-      }
-      const [state, library, pending, linked, selectedCandidate] = await Promise.all([
-        api<Status>(`/projects/${pid}/media-status`),
-        api<CursorPage<MediaAsset>>(`/projects/${pid}/media-assets`),
-        api<CursorPage<MediaUpload>>(`/projects/${pid}/media-uploads`),
-        shotId
-          ? api<{ items: Take[]; nextCursor: number | null }>(`/shots/${shotId}/takes`)
-          : Promise.resolve({ items: [], nextCursor: null }),
-        shotId ? api<TakeSelection>(`/shots/${shotId}/take-selection`) : Promise.resolve(undefined),
+      const access = await api<{
+        canEdit: boolean;
+      }>(`/projects/${projectId}/access`);
+      const [state, library, pending] = await Promise.all([
+        api<Status>(`/projects/${projectId}/media-status`),
+        api<CursorPage<MediaAsset>>(`/projects/${projectId}/media-assets`),
+        api<CursorPage<MediaUpload>>(`/projects/${projectId}/media-uploads`),
       ]);
       if (active) {
-        setContext({ projectId: pid!, canEdit, shotVersion });
+        setContext({ projectId, canEdit: access.canEdit });
         setStatus(state);
         setAssets(library);
         setUploads(pending);
-        setTakes(linked);
-        setSelection(selectedCandidate);
       }
     })().catch((reason) => {
       if (active) report(reason);
@@ -78,7 +60,7 @@ export function MediaDialog({
       active = false;
       abort.current?.abort();
     };
-  }, [projectId, shotId]);
+  }, [projectId]);
   async function refresh() {
     if (!context) return;
     const [library, pending] = await Promise.all([
@@ -88,18 +70,8 @@ export function MediaDialog({
     setAssets(library);
     setUploads(pending);
   }
-  async function refreshTakes() {
-    if (!shotId) return;
-    const [linked, selectedCandidate] = await Promise.all([
-      api<typeof takes>(`/shots/${shotId}/takes`),
-      api<TakeSelection>(`/shots/${shotId}/take-selection`),
-    ]);
-    setTakes(linked);
-    setSelection(selectedCandidate);
-  }
-  async function select(version: MediaVersion, take?: Take) {
+  async function select(version: MediaVersion) {
     setSelected(version);
-    setSelectedTake(take);
     setVersions(undefined);
     setMessage('');
     setError('');
@@ -199,8 +171,8 @@ export function MediaDialog({
   }
   return (
     <Dialog
-      title={shotId ? '镜头素材与候选' : '项目素材'}
-      description="导入和预览媒体，查看候选审核记录，选用已批准的版本。"
+      title={'项目素材'}
+      description="导入参考素材，预览和下载项目图片、视频与声音，查看保存的媒体版本。"
       busy={busy}
       onClose={onClose}
     >
@@ -379,28 +351,6 @@ export function MediaDialog({
                   <a href={selected.downloadUrl} download>
                     下载原件
                   </a>
-                  {shotId && context.canEdit && (
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setBusy(true);
-                        setError('');
-                        void api<Take>(`/shots/${shotId}/takes`, 'POST', {
-                          mediaVersionId: selected.id,
-                          expectedShotVersion: context.shotVersion,
-                        })
-                          .then(async (take) => {
-                            setSelectedTake(take);
-                            await refreshTakes();
-                            setMessage('候选已关联，可查看审核记录。');
-                          })
-                          .catch(report)
-                          .finally(() => setBusy(false));
-                      }}
-                    >
-                      添加为当前镜头候选
-                    </button>
-                  )}
                 </div>
                 {versions && (
                   <div className="review-actions">
@@ -410,7 +360,6 @@ export function MediaDialog({
                         disabled={busy}
                         onClick={() => {
                           setSelected(item);
-                          setSelectedTake(undefined);
                         }}
                       >
                         查看媒体 v{item.version}
@@ -441,55 +390,7 @@ export function MediaDialog({
                 )}
               </section>
             )}
-            {shotId && selectedTake && selected?.id === selectedTake.media.id && (
-              <TakeReviewPanel
-                key={selectedTake.id}
-                takeId={selectedTake.id}
-                shotId={shotId}
-                onChanged={refreshTakes}
-                onBusyChange={setBusy}
-              />
-            )}
-            {shotId && (
-              <section>
-                <h3>镜头候选</h3>
-                <p className="field-hint">
-                  当前选片 ·{' '}
-                  {selection?.takeId
-                    ? `Take ${String(selection.takeNo).padStart(2, '0')}${selection.valid ? '（有效）' : '（已失效）'}`
-                    : '尚未选用'}
-                </p>
-                {!takes.items.length && <p className="muted">尚无候选媒体。</p>}
-                {takes.items.map((take) => (
-                  <button
-                    className="revision-item"
-                    key={take.id}
-                    disabled={busy}
-                    onClick={() => void select(take.media, take)}
-                  >
-                    查看候选 Take {String(take.takeNo).padStart(2, '0')} · {take.media.fileName} v
-                    {take.media.version} · {takeReviewLabels[take.review?.status ?? 'draft']}
-                    {take.review?.stale ? ' · 审核依据已变化' : ''}
-                  </button>
-                ))}
-                {takes.nextCursor && (
-                  <button
-                    disabled={busy}
-                    onClick={() => {
-                      setBusy(true);
-                      void api<typeof takes>(`/shots/${shotId}/takes?before=${takes.nextCursor}`)
-                        .then((value) =>
-                          setTakes((previous) => ({ ...value, items: [...previous.items, ...value.items] })),
-                        )
-                        .catch(report)
-                        .finally(() => setBusy(false));
-                    }}
-                  >
-                    更多镜头候选
-                  </button>
-                )}
-              </section>
-            )}
+
             <h3>项目素材</h3>
             <button
               disabled={busy}

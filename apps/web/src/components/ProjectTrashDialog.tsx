@@ -33,7 +33,7 @@ export function ProjectTrashDialog({
   return (
     <Dialog
       title="移入项目回收站"
-      description="已保存的剧本、分集、镜头与版本历史会保留。"
+      description="已保存的画布、素材、生成任务与版本历史会保留。"
       busy={busy}
       onClose={onClose}
     >

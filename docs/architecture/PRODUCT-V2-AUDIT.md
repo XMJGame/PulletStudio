@@ -1,5 +1,7 @@
 # 产品 V2：保留、减重与实施顺序
 
+> 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 2026-11-06，对照用户提供的完整 [PRODUCT-V2](../PRODUCT-V2.md)、8a130d2 的实际 schema/Controller/UI/测试及本轮改动。V2 是当前方向；旧 MASTER、团队蓝图和 G2 编号保留为历史设计依据，不再推导强制剧本路线。
 
 ## 产品取舍

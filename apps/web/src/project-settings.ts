@@ -15,23 +15,6 @@ export const narrativeLabels: Record<string, string> = {
   hybrid: '旁白与对白',
   music_driven: '音乐驱动',
 };
-export const unitLabels: Record<string, string> = {
-  episode: '分集',
-  act: '幕',
-  chapter: '章节',
-  sequence: '段落组',
-  scene: '场次',
-  section: '段落',
-};
-export const techniqueLabels: Record<string, string> = {
-  unspecified: '暂不设定',
-  static: '静态画面',
-  animated_still: '静帧动效',
-  text_to_video: '文生视频',
-  image_to_video: '图生视频',
-  video_edit: '视频编辑',
-  external: '外部工具制作',
-};
 export function projectFormData(input: Record<string, unknown>) {
   return {
     ...input,

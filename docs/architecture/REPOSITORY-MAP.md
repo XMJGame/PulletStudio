@@ -1,5 +1,7 @@
 # 工程目录与整理规则
 
+> 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 2026-11-06 V2：当前新增 `components/CreationWorkspace.tsx` 作为默认项目入口，共用 `GenerationDialog.tsx` 支持通用/旧镜头输入；API仍复用 `generation/`、`assets/` 和同一队列。原 `scripts/analysis/prompt/timeline` 进入兼容/冻结，G0 主入口已移除。不批量移动源码、运行数据或历史迁移；当前分类和下一阶段见 [V2审计](PRODUCT-V2-AUDIT.md)。后续按实际边界拆分通用结果组件和画布执行节点，不增第二套 Generation/Storage。
 
 审计：2026-11-05，整理时基线e828d8c为82个API源文件、43个Web源文件、18个API测试文件、13个E2E文件；统计不含node_modules/dist/data。G0随后增加独立canvas-lab及tests/canvas，详见下方增量。文件数量仅供定位，不作为持续进度指标。

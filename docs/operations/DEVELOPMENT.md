@@ -1,5 +1,7 @@
 # 开发运行与验证
 
+> 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](../architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 2026-11-06 V2：日常自由创作仅需 API/Web 与 Generation Worker。文本分析和预演 Worker 属于旧兼容能力，按需启动。L1 升级前备份，构建后重新启动全部 Generation Worker；新上下文的租约保护会拒绝旧二进制领取任务。入口和实际范围见 [自由创作](../LIGHT-CREATION.md)。
 
 更新：2026-11-05。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。

@@ -39,24 +39,6 @@ export default defineConfig({
       env: testEnvironment,
     },
     {
-      command: 'node apps/api/dist/animatic-worker.js',
-      wait: { stdout: /Animatic worker ready/ },
-      reuseExistingServer: false,
-      env: testEnvironment,
-    },
-    {
-      command: 'node tests/fixtures/text-mock.mjs',
-      url: 'http://127.0.0.1:3118/health',
-      reuseExistingServer: false,
-      env: { TEXT_MOCK_PORT: '3118' },
-    },
-    {
-      command: 'node apps/api/dist/text-worker.js',
-      wait: { stdout: /Text analysis worker ready/ },
-      reuseExistingServer: false,
-      env: testEnvironment,
-    },
-    {
       command: 'node node_modules/vite/bin/vite.js apps/web --host 127.0.0.1 --port 5189 --strictPort',
       url: 'http://127.0.0.1:5189',
       reuseExistingServer: false,

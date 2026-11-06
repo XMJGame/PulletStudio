@@ -15,7 +15,7 @@ export function BoardSources({
   add: (value: BoardSource) => void;
   report: (error: unknown) => void;
 }) {
-  const [kind, setKind] = useState('shots');
+  const [kind, setKind] = useState('entities');
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<BoardSource[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -59,7 +59,6 @@ export function BoardSources({
       <p className="field-hint">固定版本引用 · 添加后不会随业务更新替换</p>
       <div className="creative-source-tabs">
         {[
-          ['shots', '镜头'],
           ['entities', '资产'],
           ['media', '媒体'],
         ].map(([id, label]) => (
@@ -82,7 +81,7 @@ export function BoardSources({
       )}
       {loading && <p role="status">正在读取…</p>}
       {!loading && !rows.length && (
-        <p className="field-hint">暂无匹配资源。先在生产工作台保存镜头制作卡、资产或媒体。</p>
+        <p className="field-hint">暂无匹配资源。请在项目资产库创建资产或导入媒体。</p>
       )}
       <div className="creative-source-list">
         {rows.map((row) => (
@@ -96,7 +95,7 @@ export function BoardSources({
               {kindLabels[row.value.kind ?? row.ref.kind] ?? '业务引用'} · {statusLabels[row.value.status]}
             </span>
             <strong>{row.value.title}</strong>
-            <small>{row.ready ? `固定 v${row.value.version ?? 1}` : '先保存完整制作卡'}</small>
+            <small>{row.ready ? `固定 v${row.value.version ?? 1}` : '素材暂不可用'}</small>
           </button>
         ))}
       </div>

@@ -141,7 +141,7 @@ export function EntityLibraryDialog({ projectId, onClose }: { projectId: string;
   return (
     <Dialog
       title="资产库"
-      description="管理人物、场景、道具和声音设定。每次保存追加草稿版本；已有镜头引用保持原版本。"
+      description="管理人物、场景、道具和声音设定。每次保存创建新版本，已使用的固定引用保持原样。"
       busy={busy}
       onClose={onClose}
     >

@@ -1,5 +1,7 @@
 # Pullet Studio — 产品定位与模块规划 V2
 
+> 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
+
 **文档性质：正式产品方向调整与架构实施指导**
 
 **日期：2026-11-06**

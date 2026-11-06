@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type CursorPage } from '../api';
+import { api } from '../api';
 import { Dialog } from '../components/Dialog';
 import { describeParameters } from '../components/GenerationParameters';
 import { GenerationDialog, generationStates, type GenerationJob } from '../components/GenerationDialog';
 import type { GenerationConfig, Workflow } from './workflow-types';
 
-type TrialShot = { id: string; code: string; description: string };
 type ReleaseEvent = {
   id: string;
   revision: number;
@@ -66,9 +65,6 @@ export function WorkflowReleaseDialog({
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [history, setHistory] = useState<ReleaseHistory>();
   const [historicalEvidence, setHistoricalEvidence] = useState<{ eventId: string; job: GenerationJob }>();
-  const [shots, setShots] = useState<CursorPage<TrialShot>>();
-  const [shotId, setShotId] = useState('');
-  const [trialOpen, setTrialOpen] = useState(false);
   const [freeTrial, setFreeTrial] = useState(false);
   const [evidence, setEvidence] = useState('');
   const [action, setAction] = useState<'publish' | 'revoke'>('publish');
@@ -109,12 +105,6 @@ export function WorkflowReleaseDialog({
   useEffect(() => {
     void run(load);
   }, [testPath, releasePath, projectId]);
-  async function loadShots() {
-    const more = await api<CursorPage<TrialShot>>(
-      `${testPath}/test-shots${shots?.nextCursor ? `?cursor=${shots.nextCursor}` : ''}`,
-    );
-    setShots({ ...more, items: [...(shots?.items ?? []), ...more.items] });
-  }
   const selectedEvidence = jobs.find((job) => job.id === evidence && job.evidenceCurrent);
 
   return (
@@ -154,45 +144,6 @@ export function WorkflowReleaseDialog({
               粘贴提示词试跑
             </button>
           </section>
-        )}
-        {config?.canConfigure && currentHead && current?.enabled && (
-          <details>
-            <summary>使用旧镜头试跑（兼容）</summary>
-            <section aria-label="选择试跑镜头">
-              <h3>使用项目镜头试跑</h3>
-              {shots && (
-                <label>
-                  试跑镜头
-                  <select
-                    aria-label="试跑镜头"
-                    value={shotId}
-                    onChange={(event) => setShotId(event.target.value)}
-                    disabled={busy}
-                  >
-                    <option value="">选择已有镜头</option>
-                    {shots.items.map((shot) => (
-                      <option key={shot.id} value={shot.id}>
-                        {shot.code} · {shot.description.slice(0, 90)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {(!shots || shots.nextCursor) && (
-                <button disabled={busy} onClick={() => void run(loadShots)}>
-                  {shots ? '更多镜头' : '读取项目镜头'}
-                </button>
-              )}
-              {shots?.items.length === 0 && (
-                <p className="field-hint">请先在项目制作结构中创建镜头并保存提示词。</p>
-              )}
-              {shots && (
-                <button disabled={busy || !shotId} onClick={() => setTrialOpen(true)}>
-                  打开试跑表单
-                </button>
-              )}
-            </section>
-          </details>
         )}
         <section aria-label="试跑证据">
           <h3>试跑证据</h3>
@@ -344,16 +295,6 @@ export function WorkflowReleaseDialog({
           testWorkflow={workflow}
           onClose={() => {
             setFreeTrial(false);
-            void run(load);
-          }}
-        />
-      )}
-      {trialOpen && (
-        <GenerationDialog
-          shotId={shotId}
-          testWorkflow={workflow}
-          onClose={() => {
-            setTrialOpen(false);
             void run(load);
           }}
         />
