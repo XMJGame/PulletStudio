@@ -116,6 +116,125 @@ async function save(page: Page) {
   await page.getByRole('button', { name: '保存画布', exact: true }).click();
   await expect(page.locator('.creative-save-state')).toContainText('已保存');
 }
+test('a new project imports media and a workflow, generates and shares its result through the UI', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('request', (request) => requests.push(new URL(request.url()).pathname));
+  try {
+    await page.context().addCookies((await owner.storageState()).cookies);
+    await page.addInitScript(
+      ({ userId, workspaceId }) => {
+        localStorage.setItem(`pullet.workspace.${userId}`, workspaceId);
+      },
+      { userId: setup.user.id, workspaceId: setup.workspace.id },
+    );
+    await page.goto('/');
+    await page.getByRole('button', { name: '新建项目', exact: true }).click();
+    const create = page.getByRole('dialog', { name: '新建项目', exact: true });
+    await expect(create).toHaveAttribute('data-theme', 'light');
+    await create.getByLabel('项目名称', { exact: true }).fill('Coastal visual study');
+    await page.screenshot({ path: 'test-results/studio-acceptance-new-project.png' });
+    await create.getByRole('button', { name: '创建项目', exact: true }).click();
+    const boardId = await createBoard(page, 'Coastal motion');
+    await page.getByText('更多操作', { exact: true }).click();
+    await page.getByRole('button', { name: '打开素材库', exact: true }).click();
+    const media = page.getByRole('dialog', { name: '项目素材', exact: true });
+    await expect(media).toHaveAttribute('data-theme', 'light');
+    await media.getByLabel('媒体文件', { exact: true }).setInputFiles({
+      name: 'shore.png',
+      mimeType: 'image/png',
+      buffer: fixtures['image.png'].bytes,
+    });
+    await media.getByRole('button', { name: '上传并归档', exact: true }).click();
+    await expect(media.getByRole('status').filter({ hasText: '媒体已完成归档' })).toBeVisible();
+    await media.getByAltText('导入媒体预览').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/studio-acceptance-media-light.png' });
+    await media.getByRole('button', { name: '添加到画布', exact: true }).click();
+    await expect(media).not.toBeVisible();
+    await page.getByText('更多操作', { exact: true }).click();
+    await page.getByRole('button', { name: '工作流中心', exact: true }).click();
+    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await center.getByText('ComfyUI 连接', { exact: true }).click();
+    await center.getByLabel('连接名称', { exact: true }).fill('Acceptance GPU');
+    await center.getByLabel('ComfyUI 基础地址', { exact: true }).fill(remote.baseUrl);
+    await center.getByLabel('批准自部署 HTTP 或私有网络地址').check();
+    await center.getByRole('button', { name: '添加连接', exact: true }).click();
+    await expect(center.getByRole('status')).toContainText('已添加生成连接');
+    await center.getByText('ComfyUI 连接', { exact: true }).click();
+    await center.getByLabel('工作流名称', { exact: true }).fill('Coastal image to video');
+    await center.getByLabel('工作流连接', { exact: true }).selectOption({ label: 'Acceptance GPU' });
+    await center.getByLabel('生成方式', { exact: true }).selectOption('video.image_to_video');
+    await center.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
+      name: 'coastal-api.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(fixtureI2V('').graph)),
+    });
+    await center.getByLabel('正向文本节点', { exact: true }).fill('1');
+    await center.getByLabel('首帧图片节点', { exact: true }).fill('4');
+    await center.getByLabel('输出节点', { exact: true }).fill('3');
+    await center.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+    await expect(center.getByRole('status')).toContainText('绑定节点已验证并保存');
+    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await expect(page.locator('.creative-surface img[alt="shore.png"]')).toBeVisible();
+    await page.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
+    await panel.getByLabel('节点工作流').selectOption({ label: 'Coastal image to video · v1 · 图生视频' });
+    await panel.getByLabel('生成提示词').fill('A slow camera movement along the quiet coast');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    await panel.getByRole('button', { name: '本节点任务', exact: true }).click();
+    const video = panel.getByLabel('节点生成视频');
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.videoWidth))
+      .toBeGreaterThan(0);
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await save(page);
+    await page.screenshot({ path: 'test-results/studio-acceptance-result.png' });
+    await panel.getByRole('button', { name: '查看任务与候选', exact: true }).click();
+    const tasks = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await expect(tasks).toHaveAttribute('data-theme', 'light');
+    await expect(tasks.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await expect(tasks.locator('video')).toBeVisible();
+    await tasks.getByRole('button', { name: '关闭', exact: true }).click();
+    const first = await call('GET', `/boards/${boardId}`);
+    const jobs = await call('GET', `/projects/${first.projectId}/generation-jobs`);
+    expect(jobs.items).toHaveLength(1);
+    const job = jobs.items[0];
+    expect(job.state).toBe('completed');
+    expect(job.inLibrary).toBeTruthy();
+    expect(job.shotId).toBeNull();
+    expect(job.boardExecution.revision).toBeLessThan(first.revision);
+    await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+    const secondId = await createBoard(page, 'Coastal alternatives');
+    await page.getByRole('button', { name: '媒体', exact: true }).click();
+    await page.getByRole('button', { name: /添加 .*\.mp4/ }).click();
+    await save(page);
+    const second = await call('GET', `/boards/${secondId}`);
+    expect(second.layout.nodes[0].data.ref.id).toBe(job.mediaVersionId);
+    await page.reload();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Coastal alternatives');
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.getByText('更多操作', { exact: true }).click();
+    await page.getByRole('button', { name: '打开素材库', exact: true }).click();
+    await expect(media).toHaveAttribute('data-theme', 'dark');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await media.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+    await page.screenshot({ path: 'test-results/studio-acceptance-media-dark-mobile.png' });
+    await media.getByRole('button', { name: '关闭', exact: true }).click();
+    expect(remote.mock.submissions).toHaveLength(1);
+    expect(remote.mock.uploads[0].bytes).toEqual(fixtures['image.png'].bytes);
+    expect(requests.some((path) => /\/(episodes|shots)$/.test(path))).toBeFalsy();
+    expect(errors).toEqual([]);
+  } finally {
+    await remote.close();
+  }
+});
 test('formal project resources, fixed versions, real media, layout, keyboard and unit entrance', async ({
   page,
 }) => {

@@ -27,8 +27,12 @@ PulletStudio/
 │  ├─ drizzle/                        已应用的SQL、快照和journal，顺序不可改
 │  └─ test/                           按业务拆分的隔离Node集成测试
 ├─ apps/web/src/
-│  ├─ main.tsx / style.css             现有应用入口/布局/样式
-│  ├─ components/                     当前工作台、表单与Dialog
+│  ├─ main.tsx / style.css             应用入口、身份与当前表单样式
+│  ├─ shared/styles/ / shared/ui/      共享主题令牌、Dialog主题与基础控件
+│  ├─ features/projects/              正式项目首页与浏览器偏好
+│  ├─ features/canvas/                画布视觉组件、正式生成面板样式
+│  ├─ design-review/                  隔离评审入口和示例素材
+│  ├─ components/                     素材、任务、项目与团队表单及Dialog
 │  ├─ prompts/                        共用项目提示词库窗口与类型
 │  ├─ canvas/                         G1正式React Flow/来源/Inspector/冲突/历史，懒加载
 │  ├─ workflows/                      中心/历史/报告、共享配置、只读图、公开字段编辑/创作者表单
@@ -39,7 +43,6 @@ PulletStudio/
 ├─ tests/workflows/                   解析/边界单测与中心浏览器验收，复用隔离启动配置
 ├─ tools/                             setup、API监视启动、媒体校验
 ├─ examples/                          通用绑定样例，无本机连接配置
-├─ infra/                             历史Compose示例，非可用SQLite正式部署
 ├─ docs/                              当前基线、决策、使用指南及下列分类
 │  ├─ architecture/                   技术规格、初始审计、代码映射
 │  ├─ modules/                        实施前合同及验收边界
@@ -53,7 +56,7 @@ PulletStudio/
 
 G2-A2在generation/追加workflow-catalog.service/controller/state管理原不可变定义的目录关联，workflow-fields负责标量合同，workflow-inspection负责有界声明诊断。仅新增0035的两张关联表；不拆迁旧定义/Job，不新建队列。packages/contracts/src/workflow.d.ts共享Web字段声明，API以Zod为运行校验事实。模块合同/使用/验收分别放modules/、根指南和history/。
 
-G0新增apps/web/canvas-lab.html独立Vite入口、canvas-lab/共享模型/卡片/两底座/样式，生产main只增加导航链接；React Flow分块懒加载，未将画布依赖直接导入生产工作台。原浏览器结果改为test-results/production，画布结果为test-results/canvas，避免不同验收清空同一根目录。实验框架不直接搬到正式Board，G1保留可复用节点/模型边界并按正式数据合同接入。
+当前正式入口为 `apps/web/index.html`，项目直接进入 Board。隔离评审入口为 `apps/web/studio-review.html`，示例资源位于 `design-review/`。正式浏览器套件分别位于 `tests/e2e/`、`tests/boards/`、`tests/workflows/`，评审套件位于 `tests/design-review/`。按需从 `canvas/` 迁移稳定视觉职责到 `features/`，保存与执行仍共用原业务状态。
 
 ## 本轮实际整理
 
@@ -67,7 +70,7 @@ G0新增apps/web/canvas-lab.html独立Vite入口、canvas-lab/共享模型/卡�
 
 | 观察到的维护点 | 何时整理 | 边界与验证 |
 |---|---|---|
-| Web main.tsx约1099行，style.css约1830行 | G1需要新的工作台导航时 | 先抽AppShell/项目导航及工作台入口，再按领域移动组件；保留现页面和Dialog，E2E验证焦点/409/小屏 |
+| Web main.tsx仍集中管理身份与项目弹窗 | 对应职责再次扩展时 | 项目首页与画布视觉已移入features，共享主题和控件移入shared，旧中转页与布局样式已删。后续按稳定职责提取状态，沿用入口和冲突回归 |
 | GenerationDialog约806行，MediaDialog/AnimaticDialog约590行 | 实际更改对应业务时 | 抽配置、任务、结果等职责，不为行数拆空壳；API合同不变 |
 | API schema.ts约1272行 | 有确切新增领域需要时 | 暂保留统一schema，先保持migration连续性，不能拆目录时重建数据库 |
 | MediaService约773行，ProductionService约627行 | 对应功能产生稳定子领域时 | 保留公共service/权限/事务边界，逐个迁出内部职责，使用已有集成测试 |

@@ -458,33 +458,9 @@
 }
 
 .creative-board-dialog {
-  --board-panel: #1b2330;
-  --board-ground: #131b27;
-  --board-ink: #e5edf8;
-  --board-muted: #a8b7cb;
-  --board-line: #354256;
-  --board-accent: #8bb2ff;
-  --board-primary: #a7c4ff;
-  --board-primary-ink: #142542;
-  --board-shadow: 0 14px 42px #0005;
-  --board-card-shadow: 0 4px 14px #0003;
   background: var(--board-panel);
   color: var(--board-ink);
   border-color: var(--board-line);
-  color-scheme: dark;
-}
-.creative-board-dialog.creative-theme-light {
-  --board-panel: #fff;
-  --board-ground: #f1f5fa;
-  --board-ink: #172538;
-  --board-muted: #53647a;
-  --board-line: #d5dfed;
-  --board-accent: #365ca5;
-  --board-primary: #234781;
-  --board-primary-ink: #fff;
-  --board-shadow: 0 14px 44px #2e4b7226, 0 2px 8px #2e4b7210;
-  --board-card-shadow: 0 4px 15px #2e4b7217;
-  color-scheme: light;
 }
 .creative-board-dialog .dialog-header,
 .creative-board-dialog .creative-help {

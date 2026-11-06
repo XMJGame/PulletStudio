@@ -1,5 +1,7 @@
-import { ReactNode, useEffect, useId, useRef } from 'react';
+import { ReactNode, useContext, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { StudioTheme } from '../shared/ui/StudioTheme';
+import '../shared/styles/studio-dialog.css';
 
 export function Dialog({
   title,
@@ -21,6 +23,7 @@ export function Dialog({
   theme?: 'light' | 'dark';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const appTheme = useContext(StudioTheme);
   const titleId = useId();
   const descriptionId = useId();
   useEffect(() => {
@@ -29,7 +32,9 @@ export function Dialog({
     const overflow = document.body.style.overflow;
     dialog.showModal();
     document.body.style.overflow = 'hidden';
-    dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    [...dialog.querySelectorAll<HTMLElement>('[data-autofocus]')]
+      .find((element) => element.getClientRects().length > 0 && !element.matches(':disabled'))
+      ?.focus();
     return () => {
       dialog.close();
       document.body.style.overflow = overflow;
@@ -39,8 +44,8 @@ export function Dialog({
   return createPortal(
     <dialog
       ref={ref}
-      className={`studio-dialog ${className}`.trim()}
-      data-theme={theme}
+      className={`studio-dialog studio-v2 studio-modal ${className}`.trim()}
+      data-theme={theme ?? appTheme}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onKeyDown={(event) => {

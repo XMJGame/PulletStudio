@@ -4,7 +4,7 @@
 
 2026-11-06 V2：日常自由创作仅需 API/Web 与 Generation Worker。文本分析和预演 Worker 属于旧兼容能力，按需启动。L1 升级前备份，构建后重新启动全部 Generation Worker；新上下文的租约保护会拒绝旧二进制领取任务。入口和实际范围见 [自由创作](../LIGHT-CREATION.md)。
 
-更新：2026-11-05。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
+更新：2026-11-06。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
 
 ## 安装与启动
 
@@ -75,11 +75,11 @@ Playwright默认本机Edge，支持PLAYWRIGHT_CHANNEL指定Chrome/Chromium。当
 
 CI配置在.github/workflows/checks.yml，Ubuntu/Node24/FFmpeg/Chromium。远端某次提交是否通过要单独查对应运行，不能拿本机结果代替；本轮不重装依赖或重跑远端CI。
 
-G0画布另有 `npm run test:canvas`：只构建Web并运行playwright.canvas.config.ts，独立Vite/5191，无API/数据库，不重走原生产链初始化。CI在已构建后直接运行该配置。具体边界见[CANVAS-LAB](../CANVAS-LAB.md)。
+正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 Mock ComfyUI。覆盖完整 UI 创作链、固定引用、冲突恢复、权限、交互和候选入库。工作流浏览器使用 `playwright.workflows.config.ts`，两套共用端口，须顺序执行。当前数量见[实施状态](../IMPLEMENTATION-STATUS.md)。
+
+评审原型可用 `npm run dev:studio-review` 在 5196 查看，测试用 `npm run test:studio-review`。原型使用隔离示例数据，正式创作仍从 Web 默认入口进入。
 
 ## 备份与恢复
-
-正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 ComfyUI Mock。5 个场景覆盖固定引用、冲突恢复、权限、交互，以及关闭画布后生成归档、候选比较与选片。test:boards 和 test:workflows 共用端口，须顺序执行。
 
 ```powershell
 npm run db:backup
@@ -91,7 +91,7 @@ npm run db:backup
 
 ## 当前验收界限
 
-工作流中心使用 `npm run test:workflows` 构建并运行 4 项图解析测试和 8 项浏览器验收。场景使用独立 Worker 和 ComfyUI Mock，包含实例诊断、手动路由及试跑和正式生成归档。test:workflows 与 test:boards 共用隔离端口 3112/5192，须顺序执行。
+工作流中心使用 `npm run test:workflows` 构建并运行图解析测试和浏览器验收。场景使用独立 Worker 和 Mock ComfyUI，包含实例诊断、手动路由及试跑和生成归档。已有构建时可分别运行 `npm run test:workflow-graph` 和工作流 Playwright 配置。
 
 启用 G2-C2 前同时升级 API、Web 和 Generation Worker。数据库保护路由任务，旧 Worker 无法取得这类任务的租约。已经入队的绑定任务仍按原连接执行。
 

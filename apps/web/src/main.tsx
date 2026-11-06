@@ -15,6 +15,7 @@ import './style.css';
 import './shared/styles/studio-tokens.css';
 import { StudioProjectGallery } from './features/projects/StudioProjectGallery';
 import { StudioButton } from './shared/ui/StudioUI';
+import { StudioTheme } from './shared/ui/StudioTheme';
 import {
   readStudioTheme,
   saveStudioTheme,
@@ -365,357 +366,365 @@ function App() {
       />
     );
   return (
-    <div className="studio-v2" data-theme={theme}>
-      <StudioProjectGallery
-        key={workspaceId}
-        projects={projects.map((item) => ({
-          id: item.id,
-          title: item.title,
-          category: item.aspectRatio,
-          updated: item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : '',
-        }))}
-        recentIds={recentIds}
-        onOpen={(item) => openProject(item.id)}
-        requestCreate={
-          workspaceManager
-            ? () => {
-                setError('');
-                setProjectForm(true);
-              }
-            : undefined
-        }
-        dark={theme === 'dark'}
-        toggleTheme={toggleTheme}
-        emptyText={workspaceManager ? '创建一个项目，从第一帧开始。' : '管理员分配给你的项目会显示在这里。'}
-        notice={
-          !dialogOpen &&
-          !project &&
-          (error ? (
-            <p className="v2-project-notice" role="alert">
-              {error}
-            </p>
-          ) : message ? (
-            <p className="v2-project-notice" role="status">
-              {message}
-            </p>
-          ) : undefined)
-        }
-        topActions={
-          <div className="v2-project-top-actions">
-            {workspaces.length > 1 && (
-              <WorkspaceMenu
-                workspaces={workspaces}
-                value={workspaceId}
-                disabled={busy}
-                canCreate={user.instanceAdmin}
-                onChange={selectWorkspace}
-                onCreate={() => setWorkspaceForm(true)}
-                onJoin={() => setShowJoin(true)}
-              />
-            )}
-            <details
-              className="v2-account-menu"
-              onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-              }}
-              onClick={(event) => {
-                if (event.target instanceof Element && event.target.closest('button'))
-                  event.currentTarget.open = false;
-              }}
-            >
-              <summary>{user.name}</summary>
-              <div>
-                <StudioButton variant="ghost" disabled={busy} onClick={() => setShowJoin(true)}>
-                  加入工作区
-                </StudioButton>
-                {user.instanceAdmin && (
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setWorkspaceForm(true)}>
-                    新建工作区
-                  </StudioButton>
-                )}
-                {workspaceManager && (
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
-                    团队协作
-                  </StudioButton>
-                )}
-                {workspaceId && (
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTrash(true)}>
-                    项目回收站
-                  </StudioButton>
-                )}
-                <StudioButton className="v2-mobile-theme" variant="ghost" onClick={toggleTheme}>
-                  {theme === 'dark' ? '浅色界面' : '深色界面'}
-                </StudioButton>
-                <StudioButton
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    void act(async () => {
-                      await api('/auth/logout', 'POST');
-                      leaveProject();
-                      setUser(undefined);
-                    })
-                  }
-                >
-                  退出
-                </StudioButton>
-              </div>
-            </details>
-          </div>
-        }
-      />
-      {project && (
-        <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
-          <BoardWorkspace
-            key={project.id}
-            projectId={project.id}
-            projectTitle={project.title}
-            projectMessage={message}
-            userId={user.id}
-            canEdit={access.canEdit}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            onUnauthorized={() => setUser(undefined)}
-            onClose={leaveProject}
-            onWorkflows={() => setShowWorkflowCenter(true)}
-            projectActions={
-              <>
-                {access.canManage && (
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setEditProject(project)}>
-                    项目设置
-                  </StudioButton>
-                )}
-                {(workspaceManager || access.canManage) && (
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
-                    团队协作
-                  </StudioButton>
-                )}
-              </>
-            }
-          />
-        </Suspense>
-      )}
-      {project && showWorkflowCenter && (
-        <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>
-          <WorkflowCenter
-            key={projectId}
-            theme={theme}
-            projectId={projectId}
-            onClose={() => setShowWorkflowCenter(false)}
-            onUnauthorized={() => setUser(undefined)}
-          />
-        </Suspense>
-      )}
-      {projectForm && (
-        <Dialog
-          title="新建项目"
-          description={`在「${workspace?.name || '当前工作区'}」中创建项目，随后进入创作画布。`}
-          busy={busy}
-          onClose={() => {
-            setError('');
-            setProjectForm(false);
-          }}
-        >
-          {error && (
-            <div role="alert" className="notice error">
-              {error}
-            </div>
-          )}
-          <form
-            onSubmit={(e) => {
-              const data = projectFormData(values(e));
-              void act(async () => {
-                const created = await api<Project>('/projects', 'POST', { ...data, workspaceId });
-                setProjects((previous) => [...previous, created]);
-                openProject(created.id);
-                setProjectForm(false);
-              });
-            }}
-          >
-            <div className="dialog-body">
-              <label>
-                项目名称
-                <input
-                  name="title"
-                  required
-                  maxLength={200}
-                  data-autofocus
-                  placeholder="为你的故事取个名字"
-                />
-              </label>
-              <ProjectSetupFields creating />
-              <AspectRatioField />
-              <VisualStyleField />
-              <p className="field-hint">项目编号将在创建时自动生成。</p>
-            </div>
-            <div className="dialog-footer">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
+    <StudioTheme.Provider value={theme}>
+      <div className="studio-v2" data-theme={theme}>
+        <StudioProjectGallery
+          key={workspaceId}
+          projects={projects.map((item) => ({
+            id: item.id,
+            title: item.title,
+            category: item.aspectRatio,
+            updated: item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : '',
+          }))}
+          recentIds={recentIds}
+          onOpen={(item) => openProject(item.id)}
+          requestCreate={
+            workspaceManager
+              ? () => {
                   setError('');
-                  setProjectForm(false);
+                  setProjectForm(true);
+                }
+              : undefined
+          }
+          dark={theme === 'dark'}
+          toggleTheme={toggleTheme}
+          emptyText={workspaceManager ? '创建一个项目，从第一帧开始。' : '管理员分配给你的项目会显示在这里。'}
+          notice={
+            !dialogOpen &&
+            !project &&
+            (error ? (
+              <p className="v2-project-notice" role="alert">
+                {error}
+              </p>
+            ) : message ? (
+              <p className="v2-project-notice" role="status">
+                {message}
+              </p>
+            ) : undefined)
+          }
+          topActions={
+            <div className="v2-project-top-actions">
+              {workspaces.length > 1 && (
+                <WorkspaceMenu
+                  workspaces={workspaces}
+                  value={workspaceId}
+                  disabled={busy}
+                  canCreate={user.instanceAdmin}
+                  onChange={selectWorkspace}
+                  onCreate={() => setWorkspaceForm(true)}
+                  onJoin={() => setShowJoin(true)}
+                />
+              )}
+              <details
+                className="v2-account-menu"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+                }}
+                onClick={(event) => {
+                  if (event.target instanceof Element && event.target.closest('button'))
+                    event.currentTarget.open = false;
                 }}
               >
-                取消
-              </button>
-              <button className="primary" disabled={busy}>
-                {busy ? '正在创建…' : '创建项目'}
-              </button>
+                <summary>{user.name}</summary>
+                <div>
+                  <StudioButton variant="ghost" disabled={busy} onClick={() => setShowJoin(true)}>
+                    加入工作区
+                  </StudioButton>
+                  {user.instanceAdmin && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setWorkspaceForm(true)}>
+                      新建工作区
+                    </StudioButton>
+                  )}
+                  {workspaceManager && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
+                      团队协作
+                    </StudioButton>
+                  )}
+                  {workspaceId && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTrash(true)}>
+                      项目回收站
+                    </StudioButton>
+                  )}
+                  <StudioButton className="v2-mobile-theme" variant="ghost" onClick={toggleTheme}>
+                    {theme === 'dark' ? '浅色界面' : '深色界面'}
+                  </StudioButton>
+                  <StudioButton
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await api('/auth/logout', 'POST');
+                        leaveProject();
+                        setUser(undefined);
+                      })
+                    }
+                  >
+                    退出
+                  </StudioButton>
+                </div>
+              </details>
             </div>
-          </form>
-        </Dialog>
-      )}
-      {editProject && (
-        <MetadataDialog
-          item={editProject}
-          onClose={() => setEditProject(undefined)}
-          onUnauthorized={() => setUser(undefined)}
-          onTrash={(item) => {
-            setEditProject(undefined);
-            setTrashProject(item);
-          }}
-          onSaved={(updated) => {
-            setProjects((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
-            setEditProject(undefined);
-            setMessage('项目资料已保存');
-          }}
+          }
         />
-      )}
-      {workspaceForm && (
-        <Dialog
-          title="新建工作区"
-          description="为独立团队或创作方向建立工作区，成员和项目分别管理。"
-          busy={busy}
-          onClose={() => {
-            setError('');
-            setWorkspaceForm(false);
-          }}
-        >
-          {error && (
-            <div role="alert" className="notice error">
-              {error}
-            </div>
-          )}
-          <form
-            onSubmit={(event) => {
-              const input = values(event);
-              void act(async () => {
-                const created = await api<Workspace>('/workspaces', 'POST', input);
-                setWorkspaces((previous) => [...previous, { ...created, role: 'WORKSPACE_OWNER' }]);
-                selectWorkspace(created.id);
-                setWorkspaceForm(false);
-                setMessage('工作区已创建');
-              });
+        {project && (
+          <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
+            <BoardWorkspace
+              key={project.id}
+              projectId={project.id}
+              projectTitle={project.title}
+              projectMessage={message}
+              userId={user.id}
+              canEdit={access.canEdit}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onUnauthorized={() => setUser(undefined)}
+              onClose={leaveProject}
+              onWorkflows={() => setShowWorkflowCenter(true)}
+              projectActions={
+                <>
+                  {access.canManage && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setEditProject(project)}>
+                      项目设置
+                    </StudioButton>
+                  )}
+                  {(workspaceManager || access.canManage) && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
+                      团队协作
+                    </StudioButton>
+                  )}
+                </>
+              }
+            />
+          </Suspense>
+        )}
+        {project && showWorkflowCenter && (
+          <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>
+            <WorkflowCenter
+              key={projectId}
+              theme={theme}
+              projectId={projectId}
+              onClose={() => setShowWorkflowCenter(false)}
+              onUnauthorized={() => setUser(undefined)}
+            />
+          </Suspense>
+        )}
+        {projectForm && (
+          <Dialog
+            title="新建项目"
+            description={`在「${workspace?.name || '当前工作区'}」中创建项目，随后进入创作画布。`}
+            busy={busy}
+            onClose={() => {
+              setError('');
+              setProjectForm(false);
             }}
           >
-            <div className="dialog-body">
-              <label>
-                工作区名称
-                <input name="name" required maxLength={200} data-autofocus placeholder="例如：短片创作团队" />
-              </label>
-            </div>
-            <div className="dialog-footer">
-              <button type="button" disabled={busy} onClick={() => setWorkspaceForm(false)}>
-                取消
-              </button>
-              <button className="primary" disabled={busy}>
-                {busy ? '正在创建…' : '创建工作区'}
-              </button>
-            </div>
-          </form>
-        </Dialog>
-      )}
-      {showJoin && (
-        <Dialog
-          title="加入工作区"
-          description="输入管理员发给你的邀请令牌，加入对应工作区。"
-          busy={busy}
-          onClose={() => {
-            setError('');
-            setShowJoin(false);
-          }}
-        >
-          {error && (
-            <div role="alert" className="notice error">
-              {error}
-            </div>
-          )}
-          <form
-            onSubmit={(event) => {
-              const input = values(event);
-              void act(async () => {
-                await api('/invitations/accept', 'POST', input);
-                setWorkspaces(await api<Workspace[]>('/workspaces'));
-                setShowJoin(false);
-                setMessage('已加入新工作区，可从左上角切换');
-              });
+            {error && (
+              <div role="alert" className="notice error">
+                {error}
+              </div>
+            )}
+            <form
+              onSubmit={(e) => {
+                const data = projectFormData(values(e));
+                void act(async () => {
+                  const created = await api<Project>('/projects', 'POST', { ...data, workspaceId });
+                  setProjects((previous) => [...previous, created]);
+                  openProject(created.id);
+                  setProjectForm(false);
+                });
+              }}
+            >
+              <div className="dialog-body">
+                <label>
+                  项目名称
+                  <input
+                    name="title"
+                    required
+                    maxLength={200}
+                    data-autofocus
+                    placeholder="为你的故事取个名字"
+                  />
+                </label>
+                <ProjectSetupFields creating />
+                <AspectRatioField />
+                <VisualStyleField />
+                <p className="field-hint">项目编号将在创建时自动生成。</p>
+              </div>
+              <div className="dialog-footer">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setError('');
+                    setProjectForm(false);
+                  }}
+                >
+                  取消
+                </button>
+                <button className="primary" disabled={busy}>
+                  {busy ? '正在创建…' : '创建项目'}
+                </button>
+              </div>
+            </form>
+          </Dialog>
+        )}
+        {editProject && (
+          <MetadataDialog
+            item={editProject}
+            onClose={() => setEditProject(undefined)}
+            onUnauthorized={() => setUser(undefined)}
+            onTrash={(item) => {
+              setEditProject(undefined);
+              setTrashProject(item);
+            }}
+            onSaved={(updated) => {
+              setProjects((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+              setEditProject(undefined);
+              setMessage('项目资料已保存');
+            }}
+          />
+        )}
+        {workspaceForm && (
+          <Dialog
+            title="新建工作区"
+            description="为独立团队或创作方向建立工作区，成员和项目分别管理。"
+            busy={busy}
+            onClose={() => {
+              setError('');
+              setWorkspaceForm(false);
             }}
           >
-            <div className="dialog-body">
-              <label>
-                邀请令牌
-                <input
-                  name="token"
-                  required
-                  minLength={64}
-                  maxLength={64}
-                  autoComplete="off"
-                  data-autofocus
-                />
-              </label>
-            </div>
-            <div className="dialog-footer">
-              <button type="button" disabled={busy} onClick={() => setShowJoin(false)}>
-                取消
-              </button>
-              <button className="primary" disabled={busy}>
-                接受邀请
-              </button>
-            </div>
-          </form>
-        </Dialog>
-      )}
-      {showTeam && workspace && (
-        <TeamDialog
-          workspaceId={workspaceId}
-          workspaceRole={workspace.role}
-          projectId={projectId || undefined}
-          canManageProject={access.canManage}
-          currentUserId={user.id}
-          onClose={() => setShowTeam(false)}
-          onChanged={refreshMemberships}
-          onUnauthorized={() => setUser(undefined)}
-        />
-      )}
-      {trashProject && (
-        <ProjectTrashDialog
-          project={trashProject}
-          onClose={() => setTrashProject(undefined)}
-          onUnauthorized={() => setUser(undefined)}
-          onTrashed={(item) => {
-            setTrashProject(undefined);
-            setProjects((current) => current.filter((x) => x.id !== item.id));
-            if (projectId === item.id) leaveProject();
-            setShowTeam(false);
-            setMessage('项目已移入回收站');
-          }}
-        />
-      )}
-      {showTrash && (
-        <TrashDialog
-          workspaceId={workspaceId}
-          onClose={() => setShowTrash(false)}
-          onUnauthorized={() => setUser(undefined)}
-          onRestored={(item) => {
-            setProjects((current) => [...current.filter((x) => x.id !== item.id), item]);
-            openProject(item.id);
-            setShowTrash(false);
-            setMessage('项目已恢复');
-          }}
-        />
-      )}
-    </div>
+            {error && (
+              <div role="alert" className="notice error">
+                {error}
+              </div>
+            )}
+            <form
+              onSubmit={(event) => {
+                const input = values(event);
+                void act(async () => {
+                  const created = await api<Workspace>('/workspaces', 'POST', input);
+                  setWorkspaces((previous) => [...previous, { ...created, role: 'WORKSPACE_OWNER' }]);
+                  selectWorkspace(created.id);
+                  setWorkspaceForm(false);
+                  setMessage('工作区已创建');
+                });
+              }}
+            >
+              <div className="dialog-body">
+                <label>
+                  工作区名称
+                  <input
+                    name="name"
+                    required
+                    maxLength={200}
+                    data-autofocus
+                    placeholder="例如：短片创作团队"
+                  />
+                </label>
+              </div>
+              <div className="dialog-footer">
+                <button type="button" disabled={busy} onClick={() => setWorkspaceForm(false)}>
+                  取消
+                </button>
+                <button className="primary" disabled={busy}>
+                  {busy ? '正在创建…' : '创建工作区'}
+                </button>
+              </div>
+            </form>
+          </Dialog>
+        )}
+        {showJoin && (
+          <Dialog
+            title="加入工作区"
+            description="输入管理员发给你的邀请令牌，加入对应工作区。"
+            busy={busy}
+            onClose={() => {
+              setError('');
+              setShowJoin(false);
+            }}
+          >
+            {error && (
+              <div role="alert" className="notice error">
+                {error}
+              </div>
+            )}
+            <form
+              onSubmit={(event) => {
+                const input = values(event);
+                void act(async () => {
+                  await api('/invitations/accept', 'POST', input);
+                  setWorkspaces(await api<Workspace[]>('/workspaces'));
+                  setShowJoin(false);
+                  setMessage('已加入新工作区，可从左上角切换');
+                });
+              }}
+            >
+              <div className="dialog-body">
+                <label>
+                  邀请令牌
+                  <input
+                    name="token"
+                    required
+                    minLength={64}
+                    maxLength={64}
+                    autoComplete="off"
+                    data-autofocus
+                  />
+                </label>
+              </div>
+              <div className="dialog-footer">
+                <button type="button" disabled={busy} onClick={() => setShowJoin(false)}>
+                  取消
+                </button>
+                <button className="primary" disabled={busy}>
+                  接受邀请
+                </button>
+              </div>
+            </form>
+          </Dialog>
+        )}
+        {showTeam && workspace && (
+          <TeamDialog
+            workspaceId={workspaceId}
+            workspaceRole={workspace.role}
+            projectId={projectId || undefined}
+            canManageProject={access.canManage}
+            currentUserId={user.id}
+            onClose={() => setShowTeam(false)}
+            onChanged={refreshMemberships}
+            onUnauthorized={() => setUser(undefined)}
+          />
+        )}
+        {trashProject && (
+          <ProjectTrashDialog
+            project={trashProject}
+            onClose={() => setTrashProject(undefined)}
+            onUnauthorized={() => setUser(undefined)}
+            onTrashed={(item) => {
+              setTrashProject(undefined);
+              setProjects((current) => current.filter((x) => x.id !== item.id));
+              if (projectId === item.id) leaveProject();
+              setShowTeam(false);
+              setMessage('项目已移入回收站');
+            }}
+          />
+        )}
+        {showTrash && (
+          <TrashDialog
+            workspaceId={workspaceId}
+            onClose={() => setShowTrash(false)}
+            onUnauthorized={() => setUser(undefined)}
+            onRestored={(item) => {
+              setProjects((current) => [...current.filter((x) => x.id !== item.id), item]);
+              openProject(item.id);
+              setShowTrash(false);
+              setMessage('项目已恢复');
+            }}
+          />
+        )}
+      </div>
+    </StudioTheme.Provider>
   );
 }
 

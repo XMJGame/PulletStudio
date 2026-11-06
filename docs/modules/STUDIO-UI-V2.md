@@ -7,7 +7,7 @@
 | 现有界面或领域 | 决定与接入路径 |
 |---|---|
 | 初始化、登录、工作区、项目列表/设置/回收站 | 复用现有身份、权限与项目接口。应用壳与项目列表拆开，项目卡片提供封面、搜索与最近使用。单工作区不显示切换 |
-| `CreationWorkspace` 和 `main.tsx` 的 create/canvas 分流 | 原型中项目直接进入最近画布或空画布。正式导航完成兼容回归后移除旧中转页，原有素材/提示词/工作流入口搬到画布 |
+| `CreationWorkspace` 和旧 create/canvas 分流 | 已删除中转页。项目直接进入上次画布、最近画布或创建入口。素材、提示词和工作流从画布访问 |
 | `BoardWorkspace`、`BoardSurface`、`BoardInspector`、`board.css` | 复用 Board/Revision、固定引用、冲突恢复、视口持久化与 React Flow。重建工具轨、节点、资源抽屉及生成区，逐步提取状态和 API 请求。切换后清理旧布局和 CSS |
 | `BoardExecutionPanel`、`GenerationDialog` | 保留原执行请求、保存后提交、固定修订、重试幂等、任务状态和归档。公开工作流参数进创作面板，技术配置与任务管理留独立入口 |
 | 素材、角色场景、提示词、工作流中心、团队 | 保留 API、版本和角色限制。依次迁移到统一基础控件，保持可达性并回归只读/跨项目隔离 |
@@ -29,7 +29,7 @@
 3. 逐块接项目/Board/Assets/Prompt/Workflow/Generation，校验权限、版本、保存冲突与断线。清理被替代的旧 UI，走全套回归。
 4. 分支评审与 PR。通过视觉、功能及用户最终验收后才合并。
 
-评审原型由 Vite 开发服务器单独提供。重建分支的正式入口已完成[接入 A](STUDIO-UI-V2-INTEGRATION-A.md)、[接入 B](STUDIO-UI-V2-INTEGRATION-B.md)和[接入 C](STUDIO-UI-V2-INTEGRATION-C.md)。接下来审查完整创作流程和分支差异。
+评审原型由 Vite 开发服务器单独提供。重建分支的正式入口已完成[接入 A](STUDIO-UI-V2-INTEGRATION-A.md)、[接入 B](STUDIO-UI-V2-INTEGRATION-B.md)和[接入 C](STUDIO-UI-V2-INTEGRATION-C.md)。整体验收按[验收与清理合同](STUDIO-UI-V2-ACCEPTANCE.md)执行。
 
 ## 打开评审原型
 

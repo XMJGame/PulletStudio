@@ -1,0 +1,83 @@
+.studio-dialog.studio-modal {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: var(--line);
+}
+.studio-modal :is(.dialog-header, .dialog-footer) {
+  border-color: var(--line);
+  background: var(--paper);
+}
+.studio-modal :is(.dialog-header p, .field-hint, .muted, .metadata-code) {
+  color: var(--muted);
+}
+.studio-dialog.studio-modal :is(label, legend) {
+  color: var(--ink);
+}
+.studio-modal:not(.creative-board-dialog, .v2-library) .dialog-body h3 {
+  margin: 14px 0 8px;
+}
+.studio-modal :is(input, textarea, select, button, .panel) {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: var(--line);
+}
+.studio-modal :is(input, textarea)::placeholder {
+  color: var(--subtle);
+}
+.studio-modal button:not(.v2-button):hover:not(:disabled) {
+  background: var(--soft);
+  border-color: var(--accent);
+}
+.studio-modal button.primary {
+  color: var(--action-ink);
+  background: var(--action);
+  border-color: var(--action);
+}
+.studio-modal button.primary:hover:not(:disabled) {
+  color: var(--action-ink);
+  background: var(--action);
+  filter: brightness(1.1);
+}
+.studio-modal :is(.source-evidence, .member-removal, .empty-state, .badge) {
+  color: var(--ink);
+  background: var(--ground);
+  border-color: var(--line);
+}
+.studio-modal .empty-state p {
+  color: var(--muted);
+}
+.studio-modal .notice.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--line);
+}
+.studio-modal .notice.success {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--line);
+}
+.studio-modal :is(.danger-text, .creative-remove) {
+  color: var(--danger);
+}
+.studio-modal button.danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+.studio-modal :is(.ratio-option, .visual-style-option) {
+  background: var(--ground);
+  border-color: var(--line);
+}
+.studio-modal :is(.ratio-option, .visual-style-option):has(input:checked) {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.studio-modal :is(.metadata-code strong, .ratio-option small) {
+  color: var(--muted);
+}
+.studio-modal .dialog-close {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
