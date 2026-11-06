@@ -25,6 +25,7 @@ import {
 } from './features/projects/studio-preferences';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
 const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
+const WorkspaceLibraryDialog = lazy(() => import('./components/WorkspaceLibraryDialog'));
 
 type Status = { initialized: boolean; setupEnabled: boolean };
 type Access = { canEdit: boolean; canManage: boolean };
@@ -178,6 +179,7 @@ function App() {
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
+  const [showPublicLibrary, setShowPublicLibrary] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [trashProject, setTrashProject] = useState<Project>();
   const [showTrash, setShowTrash] = useState(false);
@@ -194,7 +196,8 @@ function App() {
     !!editProject ||
     !!trashProject ||
     showTrash ||
-    showApiSettings;
+    showApiSettings ||
+    showPublicLibrary;
   async function refreshMemberships() {
     const available = await api<Workspace[]>('/workspaces');
     setWorkspaces(available);
@@ -218,6 +221,7 @@ function App() {
   function selectWorkspace(id: string) {
     leaveProject();
     setShowApiSettings(false);
+    setShowPublicLibrary(false);
     if (user) localStorage.setItem(`pullet.workspace.${user.id}`, id);
     setWorkspaceId(id);
   }
@@ -417,6 +421,11 @@ function App() {
             }
             topActions={
               <div className="v2-project-top-actions">
+                {workspace && (
+                  <StudioButton variant="ghost" icon="folder" onClick={() => setShowPublicLibrary(true)}>
+                    公共库
+                  </StudioButton>
+                )}
                 {workspaces.length > 1 && (
                   <WorkspaceMenu
                     workspaces={workspaces}
@@ -518,6 +527,16 @@ function App() {
                   )}
                 </>
               }
+            />
+          </Suspense>
+        )}
+        {workspace && showPublicLibrary && (
+          <Suspense fallback={<p role="status">正在打开公共库…</p>}>
+            <WorkspaceLibraryDialog
+              key={workspace.id}
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              onClose={() => setShowPublicLibrary(false)}
             />
           </Suspense>
         )}

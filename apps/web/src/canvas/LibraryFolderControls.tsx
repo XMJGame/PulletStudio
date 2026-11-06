@@ -9,6 +9,7 @@ export function LibraryFolderControls({
   value,
   onChange,
   apiPath,
+  onBusyChange,
 }: {
   projectId: string;
   editable: boolean;
@@ -17,12 +18,16 @@ export function LibraryFolderControls({
   value: string;
   onChange: (id: string) => void;
   apiPath?: string;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [action, setAction] = useState<'create' | 'rename' | 'delete'>();
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
   const [retry, setRetry] = useState(0);
   const request = useRef({ name: '', key: '' });
   const selection = useRef(value);

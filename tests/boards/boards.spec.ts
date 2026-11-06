@@ -117,6 +117,147 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('workspace library opens independently, preserves focus and isolates workspace changes', async ({
+  page,
+}) => {
+  const workspace = await call('POST', '/workspaces', { name: 'Shared library team' });
+  const empty = await call('POST', '/workspaces', { name: 'Empty library team' });
+  const source = await call('POST', '/projects', {
+    workspaceId: workspace.id,
+    title: 'Private reference project',
+  });
+  const image = await uploadMedia(source.id, 'image.png');
+  const resource = await call('POST', `/projects/${source.id}/public-library/resources`, {
+    mediaVersionId: image.id,
+  });
+  await page.context().addCookies((await owner.storageState()).cookies);
+  await page.addInitScript(
+    ({ userId, workspaceId }) => {
+      localStorage.setItem(`pullet.workspace.${userId}`, workspaceId);
+    },
+    { userId: setup.user.id, workspaceId: workspace.id },
+  );
+  await page.goto('/');
+  const trigger = page.getByRole('button', { name: '公共库', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '工作区公共库', exact: true });
+  await expect(dialog).toBeVisible();
+  const card = dialog.getByRole('button', { name: '预览公共素材 image.png', exact: true });
+  await expect(card).toBeVisible();
+  let finishFolder!: () => void;
+  const folderGate = new Promise<void>((resolve) => {
+    finishFolder = resolve;
+  });
+  await page.route(`**/workspaces/${workspace.id}/public-library/library-folders`, async (route) => {
+    if (route.request().method() === 'POST') {
+      const response = await route.fetch();
+      await folderGate;
+      await route.fulfill({ response });
+    } else await route.continue();
+  });
+  await dialog.getByRole('button', { name: '新建文件夹', exact: true }).click();
+  await dialog.getByRole('textbox', { name: '文件夹名称', exact: true }).fill('常用参考');
+  await dialog.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '关闭对话框', exact: true })).toBeDisabled();
+  finishFolder();
+  const folders = dialog.getByRole('combobox', { name: '资源文件夹', exact: true });
+  await expect(folders.locator('option:checked')).toHaveText('常用参考');
+  const folderId = await folders.inputValue();
+  await folders.selectOption('');
+  await dialog
+    .getByRole('combobox', { name: '移动公共素材 image.png 到文件夹', exact: true })
+    .selectOption(folderId);
+  await expect(
+    dialog.getByRole('combobox', { name: '移动公共素材 image.png 到文件夹', exact: true }),
+  ).toHaveValue(folderId);
+  await card.click();
+  const preview = dialog.getByRole('region', { name: '公共素材预览' });
+  await expect(preview).toBeFocused();
+  await expect
+    .poll(() =>
+      preview.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+    )
+    .toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(card).toBeFocused();
+  await expect(dialog).toBeVisible();
+  let failRead = true;
+  await page.route(`**/workspaces/${workspace.id}/public-library/resources?*`, async (route) => {
+    if (failRead) {
+      failRead = false;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'TEMPORARY', message: '公共库暂时不可用' }),
+      });
+    } else await route.continue();
+  });
+  const search = dialog.getByRole('textbox', { name: '搜索公共素材' });
+  await search.fill('image');
+  await expect(dialog.getByRole('alert')).toContainText('公共库暂时不可用');
+  await expect(search).toHaveValue('image');
+  await dialog.getByRole('button', { name: '重新读取公共库', exact: true }).click();
+  await expect(card).toBeVisible();
+  await page.screenshot({ path: 'test-results/workspace-library-desktop.png' });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await page.getByRole('button', { name: '深色界面', exact: true }).click();
+  await trigger.click();
+  await expect(card).toBeVisible();
+  await page.screenshot({ path: 'test-results/workspace-library-dark.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog.getByRole('button', { name: '关闭对话框', exact: true })).toBeInViewport();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/workspace-library-mobile.png' });
+  await dialog.getByRole('button', { name: '关闭对话框', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: '切换工作区：Shared library team', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: /Empty library team/ }).click();
+  await trigger.click();
+  await expect(dialog.getByRole('button', { name: /预览公共素材/ })).toHaveCount(0);
+  await expect(
+    dialog.getByText('公共库还没有素材。可先在项目中收录可复用的图片、视频或音频。', { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  const member = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  try {
+    const email = `library-${randomUUID()}@board.test`;
+    const invitation = await call('POST', `/workspaces/${workspace.id}/invitations`, { email });
+    const joined = await member.post('/api/v1/invitations/accept', {
+      data: { token: invitation.token, name: 'Library reader', password: 'Studio8!' },
+      headers: { 'X-Studio-Request': '1' },
+    });
+    expect(joined.ok(), await joined.text()).toBe(true);
+    const user = (await joined.json()).user;
+    await page.context().clearCookies();
+    await page.context().addCookies((await member.storageState()).cookies);
+    await page.addInitScript(
+      ({ userId, workspaceId }) => {
+        localStorage.setItem(`pullet.workspace.${userId}`, workspaceId);
+      },
+      { userId: user.id, workspaceId: workspace.id },
+    );
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: /打开项目 / })).toHaveCount(0);
+    await trigger.click();
+    await expect(card).toBeVisible();
+    await expect(dialog.getByRole('button', { name: '新建文件夹', exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: '移除公共素材 image.png', exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: '添加到本项目', exact: true })).toHaveCount(0);
+    await card.click();
+    await expect(preview).toBeVisible();
+    const bytes = await member.get(
+      `/api/v1/workspaces/${workspace.id}/public-library/resources/${resource.id}/content`,
+    );
+    expect(await bytes.body()).toEqual(fixtures['image.png'].bytes);
+    expect((await member.get(`/api/v1/media-versions/${image.id}/content`)).status()).toBe(404);
+  } finally {
+    await member.dispose();
+  }
+});
+
 test('public library collects, organizes and imports media across projects with recoverable responses', async ({
   page,
 }) => {

@@ -21,6 +21,50 @@ import { WorkspaceLibraryService } from './workspace-library.service';
 const uuid = z.uuid(),
   name = z.string().trim().min(1).max(80),
   expectedVersion = z.number().int().positive();
+export const publicLibraryQuery = z
+  .object({
+    folderId: z.union([uuid, z.literal('root')]).optional(),
+    q: z.string().max(80).optional(),
+    mediaType: z.enum(['image', 'video', 'audio']).optional(),
+    cursor: uuid.optional(),
+  })
+  .strict();
+async function publicMediaAction<T>(action: () => Promise<T>) {
+  try {
+    return await action();
+  } catch (error) {
+    if (
+      error instanceof StorageFailure ||
+      ['ENOENT', 'EACCES', 'EPERM', 'ENOSPC', 'ELOOP'].includes((error as NodeJS.ErrnoException)?.code ?? '')
+    ) {
+      const safe = safeMediaError(error);
+      fail(503, safe.code, safe.message);
+    }
+    throw error;
+  }
+}
+export async function deliverPublicMedia(
+  response: Response,
+  action: () => ReturnType<WorkspaceLibraryService['content']>,
+  download: boolean,
+) {
+  response.setHeader('Accept-Ranges', 'bytes');
+  const file = await publicMediaAction(action);
+  response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+  if (file.range) {
+    response.status(206);
+    response.setHeader('Content-Range', `bytes ${file.range.start}-${file.range.end}/${file.total}`);
+  }
+  const encoded = encodeURIComponent(file.fileName).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return new StreamableFile(file.stream, {
+    type: file.mime,
+    length: file.length,
+    disposition: `${download ? 'attachment' : 'inline'}; filename="media-${file.id}"; filename*=UTF-8''${encoded}`,
+  });
+}
 @Controller('api/v1/projects/:projectId/public-library')
 export class WorkspaceLibraryController {
   constructor(private readonly library: WorkspaceLibraryService) {}
@@ -68,21 +112,7 @@ export class WorkspaceLibraryController {
     @Param('projectId') projectId: string,
     @Query() query: unknown,
   ) {
-    return this.library.list(
-      req.user,
-      parse(uuid, projectId),
-      parse(
-        z
-          .object({
-            folderId: z.union([uuid, z.literal('root')]).optional(),
-            q: z.string().max(80).optional(),
-            mediaType: z.enum(['image', 'video', 'audio']).optional(),
-            cursor: uuid.optional(),
-          })
-          .strict(),
-        query,
-      ),
-    );
+    return this.library.list(req.user, parse(uuid, projectId), parse(publicLibraryQuery, query));
   }
   @Post('resources') collect(
     @Req() req: StudioRequest,
@@ -130,29 +160,13 @@ export class WorkspaceLibraryController {
       parse(z.object({ expectedVersion }).strict(), body).expectedVersion,
     );
   }
-  private async run<T>(action: () => Promise<T>) {
-    try {
-      return await action();
-    } catch (error) {
-      if (
-        error instanceof StorageFailure ||
-        ['ENOENT', 'EACCES', 'EPERM', 'ENOSPC', 'ELOOP'].includes(
-          (error as NodeJS.ErrnoException)?.code ?? '',
-        )
-      ) {
-        const safe = safeMediaError(error);
-        fail(503, safe.code, safe.message);
-      }
-      throw error;
-    }
-  }
   @Post('resources/:id/import') import(
     @Req() req: StudioRequest,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Headers('idempotency-key') key: string,
   ) {
-    return this.run(() =>
+    return publicMediaAction(() =>
       this.library.import(req.user, parse(uuid, projectId), parse(uuid, id), parse(uuid, key)),
     );
   }
@@ -181,23 +195,11 @@ export class WorkspaceLibraryController {
     poster: boolean,
     download: boolean,
   ) {
-    response.setHeader('Accept-Ranges', 'bytes');
-    const file = await this.run(() =>
-      this.library.content(req.user, parse(uuid, projectId), parse(uuid, id), poster, req.headers.range),
+    return deliverPublicMedia(
+      response,
+      () =>
+        this.library.content(req.user, parse(uuid, projectId), parse(uuid, id), poster, req.headers.range),
+      download,
     );
-    response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
-    if (file.range) {
-      response.status(206);
-      response.setHeader('Content-Range', `bytes ${file.range.start}-${file.range.end}/${file.total}`);
-    }
-    const encoded = encodeURIComponent(file.fileName).replace(
-      /['()*]/g,
-      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-    );
-    return new StreamableFile(file.stream, {
-      type: file.mime,
-      length: file.length,
-      disposition: `${download ? 'attachment' : 'inline'}; filename="media-${file.id}"; filename*=UTF-8''${encoded}`,
-    });
   }
 }

@@ -18,16 +18,18 @@ type PublicMedia = {
 type PublicPage = CursorPage<PublicMedia> & { canManageFolders: boolean };
 export function PublicLibraryPanel({
   projectId,
+  workspaceId,
   editable,
   onImported,
   filters,
   onFiltersChange,
-}: {
-  projectId: string;
+  onBusyChange,
+}: ({ projectId: string; workspaceId?: never } | { workspaceId: string; projectId?: never }) & {
   editable: boolean;
   onImported: () => void;
   filters: PublicLibraryFilters;
   onFiltersChange: (value: PublicLibraryFilters) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [folders, setFolders] = useState<LibraryFolder[]>([]),
     [folderId, setFolderId] = useState(filters.folderId);
@@ -42,6 +44,10 @@ export function PublicLibraryPanel({
     [busy, setBusy] = useState(false);
   const [error, setError] = useState(''),
     [operationError, setOperationError] = useState('');
+  const [folderBusy, setFolderBusy] = useState(false);
+  useEffect(() => {
+    onBusyChange?.(busy || folderBusy);
+  }, [busy, folderBusy, onBusyChange]);
   const [preview, setPreview] = useState<PublicMedia>(),
     [remove, setRemove] = useState<string>();
   const [previewError, setPreviewError] = useState(false);
@@ -58,7 +64,9 @@ export function PublicLibraryPanel({
     });
   }
   const attempts = useRef(new Map<string, string>());
-  const base = `/projects/${projectId}/public-library`;
+  const base = projectId
+    ? `/projects/${projectId}/public-library`
+    : `/workspaces/${workspaceId}/public-library`;
   const path = `${base}/resources?q=${encodeURIComponent(query)}${folderId ? `&folderId=${folderId}` : ''}${mediaType ? `&mediaType=${mediaType}` : ''}`;
   const scope = `${path}:${retry}`,
     current = useRef(scope);
@@ -174,7 +182,7 @@ export function PublicLibraryPanel({
         <a href={`${preview.contentUrl}?download=1`} download>
           下载原件
         </a>
-        {editable && (
+        {projectId && editable && (
           <button disabled={busy || preview.inProject} onClick={() => void change(preview, 'import')}>
             {preview.inProject ? '已在本项目' : '添加到本项目'}
           </button>
@@ -186,42 +194,49 @@ export function PublicLibraryPanel({
     );
   return (
     <section aria-label="工作区公共媒体库" className="creative-public-library" aria-busy={busy}>
-      <p className="field-hint">工作区成员共享。添加到项目后，可用于画布与生成。</p>
-      <LibraryFolderControls
-        projectId={projectId}
-        apiPath={`${base}/library-folders`}
-        editable={value.canManageFolders}
-        folders={folders}
-        onFolders={setFolders}
-        value={folderId}
-        onChange={setFolderId}
-      />
-      <div className="creative-media-filters" role="group" aria-label="公共库媒体类型筛选">
-        {[
-          ['', '全部'],
-          ['image', '图片'],
-          ['video', '视频'],
-          ['audio', '音频'],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            aria-pressed={id === mediaType}
-            onClick={() => {
-              setMediaType(id);
-              setRemove(undefined);
-            }}
-          >
-            {label}
-          </button>
-        ))}
+      <p className="field-hint">
+        {projectId
+          ? '工作区成员共享。添加到项目后，可用于画布与生成。'
+          : '整理团队共用的参考素材。进入项目后，可从资源库添加并用于创作。'}
+      </p>
+      <div className="creative-public-controls">
+        <LibraryFolderControls
+          projectId={projectId ?? ''}
+          apiPath={`${base}/library-folders`}
+          editable={value.canManageFolders}
+          folders={folders}
+          onFolders={setFolders}
+          value={folderId}
+          onChange={setFolderId}
+          onBusyChange={setFolderBusy}
+        />
+        <div className="creative-media-filters" role="group" aria-label="公共库媒体类型筛选">
+          {[
+            ['', '全部'],
+            ['image', '图片'],
+            ['video', '视频'],
+            ['audio', '音频'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              aria-pressed={id === mediaType}
+              onClick={() => {
+                setMediaType(id);
+                setRemove(undefined);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <input
+          aria-label="搜索公共素材"
+          placeholder="搜索公共素材名称"
+          maxLength={80}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
-      <input
-        aria-label="搜索公共素材"
-        placeholder="搜索公共素材名称"
-        maxLength={80}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
       {error && (
         <p role="alert">
           {error}
@@ -242,7 +257,9 @@ export function PublicLibraryPanel({
         <p className="field-hint">
           {query || folderId || mediaType
             ? '没有匹配的公共素材。'
-            : '公共库还没有素材。可以从本项目收录可复用的媒体。'}
+            : projectId
+              ? '公共库还没有素材。可以从本项目收录可复用的媒体。'
+              : '公共库还没有素材。可先在项目中收录可复用的图片、视频或音频。'}
         </p>
       )}
       <div className="creative-source-list">
@@ -250,6 +267,7 @@ export function PublicLibraryPanel({
           <div className="creative-source-item creative-public-item" key={row.id}>
             <button
               className="creative-source-card"
+              disabled={folderBusy}
               id={`${previewId}-${row.id}`}
               aria-label={`预览公共素材 ${row.title}`}
               onClick={() => {
@@ -267,7 +285,7 @@ export function PublicLibraryPanel({
               </div>
               <strong>{row.title}</strong>
             </button>
-            {editable && (
+            {projectId && editable && (
               <button
                 className="creative-public-action"
                 disabled={busy || row.inProject}

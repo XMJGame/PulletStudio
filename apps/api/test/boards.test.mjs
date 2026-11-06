@@ -48,7 +48,7 @@ test('formal boards persist immutable references with project permissions and co
           .getSetCookie()
           .map((value) => value.split(';')[0])
           .join('; ');
-      if (response.ok && method === 'GET' && /\/content$/.test(path))
+      if (response.ok && method === 'GET' && /\/(content|poster)$/.test(path))
         return { status: response.status, bytes: Buffer.from(await response.arrayBuffer()) };
       const data = await response.json();
       if (data.csrfToken) csrf = data.csrfToken;
@@ -404,6 +404,141 @@ test('formal boards persist immutable references with project permissions and co
         assert.equal(db().pragma('foreign_key_check').length, 0);
       },
     );
+    await t.test('workspace library works without any project access and restricts management', async () => {
+      const path = `/workspaces/${workspace.id}/public-library`;
+      const collected = (
+        await owner(
+          'POST',
+          `/projects/${project.id}/public-library/resources`,
+          { mediaVersionId: media['image.png'].id },
+          { 'Idempotency-Key': randomUUID() },
+        )
+      ).data;
+      const before = db().prepare('SELECT count(*) AS n FROM projects').get().n;
+      const listed = await outsider('GET', `${path}/resources`);
+      assert.equal(listed.status, 200, JSON.stringify(listed.data));
+      assert.equal(listed.data.items.length, 1);
+      assert.equal(listed.data.canManageFolders, false);
+      assert.equal(listed.data.items[0].contentUrl, `/api/v1${path}/resources/${collected.id}/content`);
+      assert.equal(listed.data.items[0].inProject, false);
+      assert.equal((await outsider('GET', `/projects/${project.id}/public-library/resources`)).status, 404);
+      assert.equal((await outsider('GET', `/media-versions/${media['image.png'].id}/content`)).status, 404);
+      assert.deepEqual(
+        (await outsider('GET', `${path}/resources/${collected.id}/content`)).bytes,
+        fixtures['image.png'].bytes,
+      );
+      const partial = await outsider('GET', `${path}/resources/${collected.id}/content`, undefined, {
+        Range: 'bytes=0-7',
+      });
+      assert.equal(partial.status, 206);
+      assert.equal(partial.bytes.length, 8);
+      assert.equal((await outsider('GET', `${path}/resources/${collected.id}/poster`)).status, 200);
+      assert.equal(
+        (
+          await outsider(
+            'POST',
+            `${path}/library-folders`,
+            { name: 'Denied' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).status,
+        403,
+      );
+      assert.equal(
+        (await outsider('DELETE', `${path}/resources/${collected.id}`, { expectedVersion: 1 })).status,
+        403,
+      );
+      const key = randomUUID();
+      const folder = (
+        await owner('POST', `${path}/library-folders`, { name: 'Workspace only' }, { 'Idempotency-Key': key })
+      ).data;
+      assert.equal(
+        (
+          await owner(
+            'POST',
+            `${path}/library-folders`,
+            { name: 'Workspace only' },
+            { 'Idempotency-Key': key },
+          )
+        ).data.id,
+        folder.id,
+      );
+      assert.equal(
+        (
+          await owner('PATCH', `${path}/library-folders/${folder.id}`, {
+            name: 'Team shelf',
+            expectedVersion: 1,
+          })
+        ).data.version,
+        2,
+      );
+      assert.equal((await outsider('GET', `${path}/library-folders`)).data[0].name, 'Team shelf');
+      assert.equal(
+        (
+          await owner('PATCH', `${path}/resources/${collected.id}`, {
+            folderId: folder.id,
+            expectedVersion: 1,
+          })
+        ).data.version,
+        2,
+      );
+      assert.equal(
+        (await outsider('GET', `${path}/resources?folderId=${folder.id}&q=image&mediaType=image`)).data.items
+          .length,
+        1,
+      );
+      assert.equal(
+        (await outsider('GET', `${path}/resources?folderId=${folder.id}&mediaType=video`)).data.items.length,
+        0,
+      );
+      assert.equal(
+        (await owner('DELETE', `${path}/library-folders/${folder.id}`, { expectedVersion: 1 })).status,
+        409,
+      );
+      assert.equal(
+        (await owner('DELETE', `${path}/library-folders/${folder.id}`, { expectedVersion: 2 })).status,
+        200,
+      );
+      assert.equal(
+        (await owner('DELETE', `${path}/resources/${collected.id}`, { expectedVersion: 2 })).status,
+        409,
+      );
+      assert.equal(
+        (await owner('DELETE', `${path}/resources/${collected.id}`, { expectedVersion: 3 })).status,
+        200,
+      );
+      assert.equal((await outsider('GET', `${path}/resources/${collected.id}/content`)).status, 404);
+      assert.equal(db().prepare('SELECT count(*) AS n FROM projects').get().n, before);
+      const emptyWorkspace = (await owner('POST', '/workspaces', { name: 'Empty public library' })).data;
+      assert.deepEqual(
+        (await owner('GET', `/workspaces/${emptyWorkspace.id}/public-library/resources`)).data.items,
+        [],
+      );
+      assert.equal(
+        (await outsider('GET', `/workspaces/${emptyWorkspace.id}/public-library/resources`)).status,
+        404,
+      );
+      assert.equal(
+        (
+          await owner(
+            'GET',
+            `/workspaces/${emptyWorkspace.id}/public-library/resources/${collected.id}/content`,
+          )
+        ).status,
+        404,
+      );
+      assert.equal(
+        (
+          await owner(
+            'POST',
+            `/workspaces/${emptyWorkspace.id}/public-library/library-folders`,
+            { name: 'Empty team folder' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).status,
+        201,
+      );
+    });
     await t.test(
       'public library imports fixed versions without opening private source projects',
       async () => {

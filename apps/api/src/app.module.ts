@@ -39,6 +39,7 @@ import { MediaService } from './assets/media.service';
 import { ResourceAccessService } from './assets/resource-access.service';
 import { WorkspaceLibraryService } from './assets/workspace-library.service';
 import { WorkspaceLibraryController } from './assets/workspace-library.controller';
+import { WorkspaceLibraryBrowserController } from './assets/workspace-library-browser.controller';
 import { MediaController } from './assets/media.controller';
 import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
@@ -85,6 +86,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     StoryboardExportsController,
     MediaController,
     WorkspaceLibraryController,
+    WorkspaceLibraryBrowserController,
     EntitiesController,
     GenerationController,
     TakeReviewController,

@@ -15,6 +15,7 @@ import { AuthorizationService } from '../production/authorization.service';
 import { MediaService } from './media.service';
 import { ResourceAccessService } from './resource-access.service';
 import { uploadInput } from './media-contract';
+export type LibraryScope = string | { workspaceId: string };
 
 @Injectable()
 export class WorkspaceLibraryService {
@@ -24,9 +25,10 @@ export class WorkspaceLibraryService {
     private readonly access: ResourceAccessService,
     private readonly media: MediaService,
   ) {}
-  private context(user: CurrentUser, projectId: string) {
-    const project = this.authz.project(user, projectId);
-    return { workspaceId: project.workspaceId, member: this.authz.workspace(user, project.workspaceId) };
+  private context(user: CurrentUser, scope: LibraryScope) {
+    const workspaceId =
+      typeof scope === 'string' ? this.authz.project(user, scope).workspaceId : scope.workspaceId;
+    return { workspaceId, member: this.authz.workspace(user, workspaceId) };
   }
   private audit(user: CurrentUser, workspaceId: string, action: string, targetId: string) {
     this.database.db
@@ -50,7 +52,7 @@ export class WorkspaceLibraryService {
     if (!row) fail(400, 'LIBRARY_FOLDER_UNAVAILABLE', '文件夹已移除或不可用');
     return row;
   }
-  listFolders(user: CurrentUser, projectId: string) {
+  listFolders(user: CurrentUser, projectId: LibraryScope) {
     const { workspaceId } = this.context(user, projectId);
     return this.database.db
       .select({ id: folders.id, name: folders.name, version: folders.version })
@@ -61,7 +63,7 @@ export class WorkspaceLibraryService {
   }
   changeFolder(
     user: CurrentUser,
-    projectId: string,
+    projectId: LibraryScope,
     input: { name?: string; id?: string; expectedVersion?: number; remove?: boolean },
     key?: string,
   ) {
@@ -129,10 +131,14 @@ export class WorkspaceLibraryService {
   }
   list(
     user: CurrentUser,
-    projectId: string,
+    scope: LibraryScope,
     query: { folderId?: string; q?: string; mediaType?: 'image' | 'video' | 'audio'; cursor?: string },
   ) {
-    const { workspaceId, member } = this.context(user, projectId);
+    const { workspaceId, member } = this.context(user, scope);
+    const projectId = typeof scope === 'string' ? scope : undefined;
+    const base = projectId
+      ? `/api/v1/projects/${projectId}/public-library`
+      : `/api/v1/workspaces/${workspaceId}/public-library`;
     if (query.folderId && query.folderId !== 'root') this.folder(workspaceId, query.folderId);
     const rows = this.database.db
       .select({ resource: resources, media: mediaVersions })
@@ -167,23 +173,22 @@ export class WorkspaceLibraryService {
         byteLength: media.byteLength,
         canManage: member.role !== 'MEMBER' || resource.createdBy === user.id,
         inProject:
-          resource.sourceProjectId === projectId ||
-          !!this.database.db
-            .select({ id: imports.id })
-            .from(imports)
-            .innerJoin(mediaUploads, eq(mediaUploads.id, imports.uploadId))
-            .where(
-              and(
-                eq(imports.resourceId, resource.id),
-                eq(imports.projectId, projectId),
-                eq(mediaUploads.state, 'complete'),
-              ),
-            )
-            .get(),
-        contentUrl: `/api/v1/projects/${projectId}/public-library/resources/${resource.id}/content`,
-        posterUrl: media.posterJson
-          ? `/api/v1/projects/${projectId}/public-library/resources/${resource.id}/poster`
-          : null,
+          !!projectId &&
+          (resource.sourceProjectId === projectId ||
+            !!this.database.db
+              .select({ id: imports.id })
+              .from(imports)
+              .innerJoin(mediaUploads, eq(mediaUploads.id, imports.uploadId))
+              .where(
+                and(
+                  eq(imports.resourceId, resource.id),
+                  eq(imports.projectId, projectId),
+                  eq(mediaUploads.state, 'complete'),
+                ),
+              )
+              .get()),
+        contentUrl: `${base}/resources/${resource.id}/content`,
+        posterUrl: media.posterJson ? `${base}/resources/${resource.id}/poster` : null,
       })),
       nextCursor: rows.length > 20 ? rows[19].resource.id : null,
     };
@@ -253,7 +258,7 @@ export class WorkspaceLibraryService {
   }
   change(
     user: CurrentUser,
-    projectId: string,
+    projectId: LibraryScope,
     id: string,
     expectedVersion: number,
     folderId?: string | null,
@@ -285,7 +290,7 @@ export class WorkspaceLibraryService {
       { behavior: 'immediate' },
     );
   }
-  async content(user: CurrentUser, projectId: string, id: string, poster: boolean, range?: string) {
+  async content(user: CurrentUser, projectId: LibraryScope, id: string, poster: boolean, range?: string) {
     const authorize = () => {
       const { workspaceId } = this.context(user, projectId);
       const value = this.access.publicMedia(user, id);
