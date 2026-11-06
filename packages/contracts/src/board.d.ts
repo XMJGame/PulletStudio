@@ -29,19 +29,20 @@ export type BoardLayout = {
   nodes: BoardNode[];
   edges: BoardEdge[];
 };
+export type BoardInputPort = 'prompt' | 'first_frame' | `reference:${string}`;
 export type BoardEdge = {
   id: string;
   source: string;
   target: string;
   kind?: 'annotation' | 'input_binding';
   sourcePort?: 'text' | 'image';
-  targetPort?: 'prompt' | 'first_frame';
+  targetPort?: BoardInputPort;
 };
 export type BoardExecution = {
   boardId: string;
   revision: number;
   nodeId: string;
-  bindings: { port: 'prompt' | 'first_frame'; sourceNodeId: string }[];
+  bindings: { port: BoardInputPort; sourceNodeId: string }[];
 };
 export type BoardResolved = {
   status: 'current' | 'stale' | 'draft' | 'revoked' | 'unavailable';

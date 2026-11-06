@@ -20,8 +20,12 @@ const uuid = z.uuid();
 export class GenerationController {
   constructor(private readonly generation: GenerationService) {}
   @Get('projects/:id/generation-config')
-  config(@Req() req: StudioRequest, @Param('id') id: string) {
-    return this.generation.config(req.user, parse(uuid, id));
+  config(@Req() req: StudioRequest, @Param('id') id: string, @Query('workflowId') workflowId?: string) {
+    return this.generation.config(
+      req.user,
+      parse(uuid, id),
+      workflowId === undefined ? undefined : parse(uuid, workflowId),
+    );
   }
   @Get('projects/:id/generation-jobs')
   projectJobs(

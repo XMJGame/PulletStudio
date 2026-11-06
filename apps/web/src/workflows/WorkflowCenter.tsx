@@ -208,7 +208,7 @@ export default function WorkflowCenter({
                   </span>
                   {item.executable === false && <p className="field-hint">{item.executionBlocker}</p>}
                   {item.executable && !!item.mediaSchema?.inputs.length && (
-                    <p className="field-hint">参考图片可在自由生成与试跑中选择。</p>
+                    <p className="field-hint">参考图片可在画布节点、自由生成与试跑中选择。</p>
                   )}
                   {(!!item.mediaSchema?.inputs.length || !!item.mediaSchema?.outputs.length) && (
                     <p className="field-hint">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Connection, EdgeChange, NodeChange } from '@xyflow/react';
 import type {
+  BoardInputPort,
   BoardLayout,
   BoardListItem,
   BoardNode,
@@ -319,10 +320,20 @@ export default function BoardWorkspace({
   }
   function update(node: BoardNode) {
     if (editable)
-      setLayout(
-        (value) =>
-          value && { ...value, nodes: value.nodes.map((item) => (item.id === node.id ? node : item)) },
-      );
+      setLayout((value) => {
+        if (!value) return value;
+        const previous = value.nodes.find((item) => item.id === node.id);
+        const changedWorkflow = previous?.data.generation?.workflowId !== node.data.generation?.workflowId;
+        return {
+          ...value,
+          nodes: value.nodes.map((item) => (item.id === node.id ? node : item)),
+          edges: changedWorkflow
+            ? value.edges.filter(
+                (edge) => edge.target !== node.id || !edge.targetPort?.startsWith('reference:'),
+              )
+            : value.edges,
+        };
+      });
   }
   function remove(ids: string[]) {
     if (!editable) return;
@@ -589,6 +600,9 @@ export default function BoardWorkspace({
   }
   const flowNodes = useMemo<CanvasNode[]>(() => {
     if (!layout) return [];
+    const referenceTargets = new Set(
+      layout.edges.filter((edge) => edge.targetPort?.startsWith('reference:')).map((edge) => edge.target),
+    );
     return [...layout.nodes]
       .sort((a, b) => Number(b.type === 'group') - Number(a.type === 'group'))
       .map((node) => ({
@@ -609,7 +623,7 @@ export default function BoardWorkspace({
           height: node.type === 'group' && node.data.collapsed ? 120 : node.height,
         },
         zIndex: node.type === 'group' ? -1 : 1,
-        data: { domain: node, value: resolved[node.id] },
+        data: { domain: node, value: resolved[node.id], hasReferenceInputs: referenceTargets.has(node.id) },
       }));
   }, [layout, resolved, selected]);
   const flowEdges = useMemo(
@@ -617,8 +631,20 @@ export default function BoardWorkspace({
       (layout?.edges ?? []).map((edge) => ({
         ...edge,
         sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
-        targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
-        label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
+        targetHandle:
+          edge.kind === 'input_binding'
+            ? edge.targetPort?.startsWith('reference:')
+              ? 'references'
+              : edge.targetPort
+            : 'in',
+        label:
+          edge.kind === 'input_binding'
+            ? edge.targetPort === 'prompt'
+              ? '提示词'
+              : edge.targetPort === 'first_frame'
+                ? '首帧'
+                : undefined
+            : undefined,
         style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
         hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
       })),
@@ -728,7 +754,7 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
-  function bindInput(target: string, port: 'prompt' | 'first_frame', source: string) {
+  function bindInput(target: string, port: BoardInputPort, source: string) {
     if (!editable || !layout) return;
     const edges = layout.edges.filter(
       (e) => !(e.kind === 'input_binding' && e.target === target && e.targetPort === port),

@@ -87,7 +87,9 @@ export const boardLayout = z
             target: z.uuid(),
             kind: z.enum(['annotation', 'input_binding']).optional(),
             sourcePort: z.enum(['text', 'image']).optional(),
-            targetPort: z.enum(['prompt', 'first_frame']).optional(),
+            targetPort: z
+              .union([z.enum(['prompt', 'first_frame']), z.templateLiteral(['reference:', z.uuid()])])
+              .optional(),
           })
           .strict(),
       )
@@ -126,7 +128,7 @@ export const boardLayout = z
         if (
           edge.targetPort === 'prompt'
             ? edge.sourcePort !== 'text' || source?.type !== 'note'
-            : edge.targetPort !== 'first_frame' ||
+            : !edge.targetPort ||
               edge.sourcePort !== 'image' ||
               !(
                 source?.type === 'result' ||

@@ -41,7 +41,7 @@ export function WorkflowMediaEditor({
     <details className="workflow-media-editor" open={Boolean(schema.inputs.length || schema.outputs.length)}>
       <summary>扩展媒体声明</summary>
       <p className="field-hint">
-        必填图片槽位可在自由生成和试跑中使用。可选媒体、视频、音频和扩展输出目前只支持配置。原首帧与主输出沿用上方绑定。
+        必填图片槽位可在生成节点、自由生成和试跑中使用。可选媒体、视频、音频和扩展输出目前只支持配置。原首帧与主输出沿用上方绑定。
       </p>
       <div className="workflow-media-toolbar">
         <StudioButton

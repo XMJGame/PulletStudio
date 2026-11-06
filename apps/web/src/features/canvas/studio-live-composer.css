@@ -77,6 +77,23 @@
   min-width: 0;
   margin: 0;
 }
+.v2-live-reference-slots {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.v2-live-reference-slots .creative-frame-chip {
+  max-width: 100%;
+}
+.v2-live-reference-slots label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.v2-live-reference-slots select {
+  width: 100%;
+}
 .creative-frame-chip {
   display: flex;
   align-items: center;

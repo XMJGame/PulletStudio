@@ -121,7 +121,7 @@ export class GenerationService {
       token: this.secrets.decrypt(connection.encryptedSecret, connection.id, connection.workspaceId),
     });
   }
-  config(user: CurrentUser, projectId: string) {
+  config(user: CurrentUser, projectId: string, workflowId?: string) {
     const project = this.authz.project(user, projectId);
     const canConfigure = this.canConfigure(user, project.workspaceId);
     const access = this.production.access(user, projectId);
@@ -226,6 +226,11 @@ export class GenerationService {
           .all()
           .map((row) => ({ ...summary(row), releaseState: productionIds.get(row.id)! }))
       : [];
+    const pinned =
+      workflowId &&
+      query()
+        .where(and(eq(generationWorkflows.projectId, projectId), eq(generationWorkflows.id, workflowId)))
+        .get();
     return {
       canConfigure,
       canEdit: access.canEdit,
@@ -243,6 +248,7 @@ export class GenerationService {
           .get(),
       ),
       workflows,
+      ...(pinned ? { pinnedWorkflow: summary(pinned) } : {}),
       productionWorkflows,
       connections,
     };
@@ -655,7 +661,7 @@ export class GenerationService {
         const catalog = catalogState(this.database, workflow.id);
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
-        const projectReferences = !shot && !boardExecution;
+        const projectReferences = !shot;
         assertMediaExecutable(definition.mediaSchema, projectReferences);
         const slots = definition.mediaSchema?.inputs ?? [];
         const supplied = input.referenceImageVersions ?? {};

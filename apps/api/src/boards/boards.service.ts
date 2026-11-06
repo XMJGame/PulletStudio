@@ -10,6 +10,8 @@ import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
 import { BoardReferencesService } from './board-references.service';
 import { emptyBoard } from './board-contract';
+import type { WorkflowInput } from '../generation/generation-contract';
+import { supportsReferenceImages } from '../generation/workflow-media';
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 @Injectable()
 export class BoardsService {
@@ -241,21 +243,33 @@ export class BoardsService {
           .get()!;
         const previous = JSON.parse(current.layoutJson) as BoardLayout;
         for (const node of input.layout.nodes) {
-          if (
-            node.type === 'generation' &&
-            node.data.generation?.workflowId &&
-            !this.database.db
-              .select({ id: generationWorkflows.id })
-              .from(generationWorkflows)
-              .where(
-                and(
-                  eq(generationWorkflows.id, node.data.generation.workflowId),
-                  eq(generationWorkflows.projectId, row.projectId),
-                ),
-              )
-              .get()
-          )
-            fail(404, 'NOT_FOUND', '生成节点工作流不属于当前项目');
+          if (node.type === 'generation') {
+            const workflowId = node.data.generation?.workflowId;
+            const workflow =
+              workflowId &&
+              this.database.db
+                .select({ definitionJson: generationWorkflows.definitionJson })
+                .from(generationWorkflows)
+                .where(
+                  and(
+                    eq(generationWorkflows.id, workflowId),
+                    eq(generationWorkflows.projectId, row.projectId),
+                  ),
+                )
+                .get();
+            if (workflowId && !workflow) fail(404, 'NOT_FOUND', '生成节点工作流不属于当前项目');
+            const bindings = input.layout.edges.filter(
+              (edge) => edge.target === node.id && edge.targetPort?.startsWith('reference:'),
+            );
+            if (bindings.length) {
+              const schema = workflow
+                ? (JSON.parse(workflow.definitionJson) as WorkflowInput).mediaSchema
+                : undefined;
+              const ports = new Set(schema?.inputs.map((slot) => `reference:${slot.id}`));
+              if (!supportsReferenceImages(schema) || bindings.some((edge) => !ports.has(edge.targetPort!)))
+                fail(400, 'REFERENCE_SLOT_UNKNOWN', '参考图片槽位不属于当前固定工作流');
+            }
+          }
           if (node.type === 'result')
             this.references.result(
               user,

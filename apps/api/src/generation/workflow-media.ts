@@ -112,7 +112,7 @@ export function supportsReferenceImages(schema?: WorkflowMediaSchema) {
 export function assertMediaExecutable(schema?: WorkflowMediaSchema, projectReferences = false) {
   if (!hasExtendedMedia(schema)) return;
   if (!supportsReferenceImages(schema)) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', mediaExecutionReason);
-  if (!projectReferences) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', '请从「自由生成」选择此工作流的参考图片。');
+  if (!projectReferences) fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', '请在项目创作入口使用多参考图工作流。');
 }
 export function publicMediaSchema(schema?: WorkflowMediaSchema) {
   return {

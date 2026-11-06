@@ -37,6 +37,7 @@ export type GenerationConfig = {
   canReview: boolean;
   poolConfigured: boolean;
   workflows: Workflow[];
+  pinnedWorkflow?: Workflow;
   productionWorkflows: Workflow[];
   connections: Connection[];
 };

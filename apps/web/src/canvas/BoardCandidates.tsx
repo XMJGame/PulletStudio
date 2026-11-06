@@ -196,6 +196,15 @@ export function BoardCandidates({
               首帧：{job.image.fileName} · v{job.image.version}
             </p>
           )}
+          {!!job.referenceImages?.length && (
+            <ul aria-label="采用的参考图片">
+              {job.referenceImages.map((item) => (
+                <li key={item.slotId}>
+                  {item.label} · {item.fileName} · v{item.version}
+                </li>
+              ))}
+            </ul>
+          )}
           {job.promptLibrary && (
             <p>
               提示词库：{job.promptLibrary.title} · v{job.promptLibrary.version}

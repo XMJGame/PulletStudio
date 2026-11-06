@@ -3,7 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
-import { startComfyMock, fixtureI2V, fixtureWorkflow } from '../fixtures/comfy-mock.mjs';
+import {
+  startComfyMock,
+  fixtureI2V,
+  fixtureWorkflow,
+  fixtureReferenceImages,
+} from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
 async function expectReadable(element: Locator) {
@@ -1758,6 +1763,123 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await context.close();
       await actor.dispose();
     }
+  } finally {
+    await remote.close();
+  }
+});
+
+test('canvas image slots persist fixed bindings and execute the original workflow revision', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  try {
+    const value = await project('Canvas reference slots');
+    const png = await uploadMedia(value.id, 'image.png');
+    const jpg = await uploadMedia(value.id, 'image.jpg');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Reference slots fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureReferenceImages(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'Two fixed pictures');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '添加 image.jpg', exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流', { exact: true }).selectOption(workflow.id);
+    await panel.getByLabel('生成提示词', { exact: true }).fill('Quiet platform, coastal light');
+    const readBoard = () => call('GET', `/boards/${boardId}`);
+    await save(page);
+    const unbound = await readBoard();
+    const node = unbound.layout.nodes.find((item: any) => item.type === 'generation');
+    const first = unbound.layout.nodes.find((item: any) => item.data.ref?.id === png.id);
+    const second = unbound.layout.nodes.find((item: any) => item.data.ref?.id === jpg.id);
+    const firstSelect = panel.getByLabel('节点参考图片 1：Character', { exact: true });
+    const secondSelect = panel.getByLabel('节点参考图片 2：Scene', { exact: true });
+    await firstSelect.selectOption(first.id);
+    await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeDisabled();
+    await secondSelect.selectOption(second.id);
+    await save(page);
+    const saved = await readBoard();
+    const edges = saved.layout.edges.filter((edge: any) => edge.targetPort?.startsWith('reference:'));
+    expect(edges.map((edge: any) => [edge.targetPort, edge.source])).toEqual([
+      [`reference:${definition.mediaSchema.inputs[0].id}`, first.id],
+      [`reference:${definition.mediaSchema.inputs[1].id}`, second.id],
+    ]);
+    const session = await (await owner.get('/api/v1/auth/me')).json();
+    for (const [badEdges, code] of [
+      [[{ ...edges[0], targetPort: `reference:${randomUUID()}` }, edges[1]], 'REFERENCE_SLOT_UNKNOWN'],
+      [[...edges, { ...edges[0], id: randomUUID(), source: second.id }], 'VALIDATION_FAILED'],
+    ] as const) {
+      const rejected = await owner.post(`/api/v1/boards/${boardId}/revisions`, {
+        data: {
+          title: saved.title,
+          expectedRevision: saved.revision,
+          layout: {
+            ...saved.layout,
+            edges: [
+              ...saved.layout.edges.filter((edge: any) => !edge.targetPort?.startsWith('reference:')),
+              ...badEdges,
+            ],
+          },
+        },
+        headers: {
+          'X-Studio-Request': '1',
+          'X-CSRF-Token': session.csrfToken,
+          'Idempotency-Key': randomUUID(),
+        },
+      });
+      expect(rejected.status()).toBe(400);
+      if (code === 'REFERENCE_SLOT_UNKNOWN') expect((await rejected.json()).code).toBe(code);
+    }
+    const latest = await call('POST', `/workflow-catalogs/${workflow.familyId}/revisions`, {
+      expectedVersion: 1,
+      summary: 'Change slot display label',
+      definition: {
+        ...definition,
+        mediaSchema: {
+          ...definition.mediaSchema,
+          inputs: definition.mediaSchema.inputs.map((item, index) => ({
+            ...item,
+            label: index === 0 ? 'New character' : item.label,
+          })),
+        },
+      },
+    });
+    await page.reload();
+    await page.locator(`.react-flow__node[data-id="${node.id}"]`).click();
+    await expect(panel.getByLabel('节点工作流').locator('option:checked')).toContainText('固定 v1');
+    await expect(firstSelect).toHaveValue(first.id);
+    await expect(secondSelect).toHaveValue(second.id);
+    await panel.getByRole('button', { name: '执行生成节点', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    await panel.getByText('此次生成记录', { exact: true }).click();
+    await expect(panel.getByRole('list', { name: '采用的参考图片' })).toContainText(
+      'Character · image.png · v1',
+    );
+    await expect(panel.getByRole('list', { name: '采用的参考图片' })).toContainText('Scene · image.jpg · v1');
+    expect(remote.mock.submissions).toHaveLength(1);
+    const jobs = (await call('GET', `/boards/${boardId}/nodes/${node.id}/generation-jobs`)).items;
+    expect(jobs[0].boardExecution.revision).toBe(saved.revision);
+    expect(jobs[0].boardExecution.bindings).toEqual(
+      expect.arrayContaining(
+        edges.map((edge: any) => ({ port: edge.targetPort, sourceNodeId: edge.source })),
+      ),
+    );
+    expect(jobs[0].workflowRevision).toBe(1);
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await panel.getByLabel('节点工作流', { exact: true }).selectOption(latest.id);
+    await expect(panel.getByLabel('节点参考图片 1：New character', { exact: true })).toHaveValue('');
+    await expect(secondSelect).toHaveValue('');
+    await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeDisabled();
+    await save(page);
+    const revised = await readBoard();
+    expect(revised.layout.edges.some((edge: any) => edge.targetPort?.startsWith('reference:'))).toBe(false);
+    expect(revised.layout.edges.some((edge: any) => edge.targetPort === 'prompt')).toBe(true);
   } finally {
     await remote.close();
   }

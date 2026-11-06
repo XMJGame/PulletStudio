@@ -113,6 +113,14 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
           <span className="creative-port-label" style={{ top: '82%' }}>
             首帧 · IMAGE
           </span>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="references"
+            style={{ top: '75%', opacity: data.hasReferenceInputs ? 1 : 0 }}
+            isConnectable={false}
+            aria-label="参考图片输入连线"
+          />
         </>
       )}
     </article>

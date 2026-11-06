@@ -74,24 +74,31 @@ export class BoardGenerationService {
         const text = layout.nodes.find((n) => n.id === textEdge?.source);
         if (text?.type !== 'note' || !text.data.text?.trim())
           fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文本便签');
-        let imageVersionId: string | undefined;
-        if (imageEdge) {
-          const source = layout.nodes.find((n) => n.id === imageEdge.source)!;
+        const resolveImage = (sourceId: string) => {
+          const source = layout.nodes.find((n) => n.id === sourceId)!;
           const value =
             source.type === 'result'
               ? this.references.result(user, board.projectId, source.data.jobId!, true)
               : this.references.resolve(user, board.projectId, source.data.ref!, true);
           if (value.status === 'unavailable' || value.media?.mediaType !== 'image')
-            fail(400, 'REFERENCE_IMAGE_INVALID', '首帧输入必须是可访问的固定图片');
-          imageVersionId = value.media.id;
-        }
+            fail(400, 'REFERENCE_IMAGE_INVALID', '参考图片必须是可访问的固定版本');
+          return value.media.id;
+        };
+        const referenceImageVersions = Object.fromEntries(
+          bindings.flatMap((edge) =>
+            edge.targetPort?.startsWith('reference:')
+              ? [[edge.targetPort.slice('reference:'.length), resolveImage(edge.source)]]
+              : [],
+          ),
+        );
         const job = parse(createProjectJobInput, {
           ...node.data.generation,
           positivePrompt: text.data.text,
           negativePrompt: text.data.prompt?.negativePrompt ?? '',
           source: text.data.prompt?.source ?? '',
           promptLibraryRevisionId: text.data.prompt?.promptLibraryRevisionId,
-          imageVersionId,
+          imageVersionId: imageEdge && resolveImage(imageEdge.source),
+          referenceImageVersions,
           boardId: id,
           routing: input.routing,
           confirmed: input.confirmed,
