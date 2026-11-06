@@ -1,11 +1,12 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { AppConfig } from '../config';
 import { DatabaseService } from '../db/database.service';
 import {
   auditEvents,
+  generationJobs,
   mediaAssets,
   mediaUploads,
   mediaVersions,
@@ -91,6 +92,21 @@ export class MediaService {
     const row = this.database.db.select().from(mediaAssets).where(eq(mediaAssets.id, id)).get();
     if (!row) fail(404, 'NOT_FOUND', '素材不存在或无权访问');
     this.authz.project(user, row.projectId, action);
+    if (
+      action === 'edit' &&
+      this.database.db
+        .select({ id: mediaVersions.id })
+        .from(mediaVersions)
+        .where(
+          and(
+            eq(mediaVersions.assetId, id),
+            eq(mediaVersions.version, 1),
+            eq(mediaVersions.origin, 'workflow_test'),
+          ),
+        )
+        .get()
+    )
+      fail(409, 'WORKFLOW_TEST_MEDIA', '试跑证据不能追加素材版本');
     return row;
   }
   async status(user: CurrentUser, projectId: string) {
@@ -381,7 +397,17 @@ export class MediaService {
             posterJson: prepared.details.poster
               ? JSON.stringify({ ...prepared.details.poster, key: `${prefix}/poster.jpg` })
               : null,
-            origin: row.generationJobId ? 'generation' : row.animaticJobId ? 'animatic' : 'manual',
+            origin: row.generationJobId
+              ? this.database.db
+                  .select({ purpose: generationJobs.purpose })
+                  .from(generationJobs)
+                  .where(eq(generationJobs.id, row.generationJobId))
+                  .get()?.purpose === 'workflow_test'
+                ? 'workflow_test'
+                : 'generation'
+              : row.animaticJobId
+                ? 'animatic'
+                : 'manual',
             createdBy: row.createdBy,
             createdAt: now,
           })
@@ -594,11 +620,23 @@ export class MediaService {
   }
   assets(user: CurrentUser, projectId: string, cursor?: string) {
     this.authz.project(user, projectId);
+    const productionAsset = notExists(
+      this.database.db
+        .select({ id: mediaVersions.id })
+        .from(mediaVersions)
+        .where(
+          and(
+            eq(mediaVersions.assetId, mediaAssets.id),
+            eq(mediaVersions.version, 1),
+            eq(mediaVersions.origin, 'workflow_test'),
+          ),
+        ),
+    );
     const boundary = cursor
       ? this.database.db
           .select()
           .from(mediaAssets)
-          .where(and(eq(mediaAssets.id, cursor), eq(mediaAssets.projectId, projectId)))
+          .where(and(eq(mediaAssets.id, cursor), eq(mediaAssets.projectId, projectId), productionAsset))
           .get()
       : undefined;
     if (cursor && !boundary) fail(400, 'MEDIA_CURSOR_INVALID', '素材分页位置无效');
@@ -608,6 +646,7 @@ export class MediaService {
       .where(
         and(
           eq(mediaAssets.projectId, projectId),
+          productionAsset,
           boundary
             ? or(
                 lt(mediaAssets.createdAt, boundary.createdAt),
@@ -676,6 +715,7 @@ export class MediaService {
         const shot = this.production.shot(user, shotId, 'edit');
         const version = this.version(user, mediaVersionId);
         if (version.projectId !== shot.projectId) fail(404, 'NOT_FOUND', '媒体版本不属于当前项目');
+        if (version.origin === 'workflow_test') fail(409, 'WORKFLOW_TEST_MEDIA', '试跑证据不能加入生产候选');
         const old = this.database.db
           .select()
           .from(takes)

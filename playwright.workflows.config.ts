@@ -6,4 +6,13 @@ export default defineConfig({
   testDir: './tests/workflows',
   testMatch: '**/*.spec.ts',
   outputDir: 'test-results/workflows',
+  webServer: [
+    ...boards.webServer,
+    {
+      command: 'node apps/api/dist/generation-worker.js',
+      wait: { stdout: /Media generation worker ready/ },
+      reuseExistingServer: false,
+      env: boards.webServer[0].env,
+    },
+  ],
 });

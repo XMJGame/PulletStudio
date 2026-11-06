@@ -1276,6 +1276,7 @@ export const generationStates = [
   'submitted',
   'fetching',
   'completed',
+  'test_completed',
   'needs_reconciliation',
   'failed',
   'canceled',
@@ -1284,6 +1285,9 @@ export const generationJobs = sqliteTable(
   'generation_jobs',
   {
     id: text('id').primaryKey(),
+    purpose: text('purpose', { enum: ['production', 'workflow_test'] })
+      .notNull()
+      .default('production'),
     shotId: text('shot_id').notNull(),
     projectId: text('project_id').notNull(),
     workspaceId: text('workspace_id').notNull(),
@@ -1331,6 +1335,39 @@ export const generationJobs = sqliteTable(
     check(
       'generation_job_complete',
       sql`${t.state} <> 'completed' OR (${t.mediaVersionId} IS NOT NULL AND ${t.takeId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const workflowReleaseEvents = sqliteTable(
+  'workflow_release_events',
+  {
+    id: text('id').primaryKey(),
+    familyId: text('family_id')
+      .notNull()
+      .references(() => workflowCatalogs.id),
+    workflowId: text('workflow_id')
+      .notNull()
+      .references(() => workflowCatalogRevisions.workflowId),
+    sequence: integer('sequence').notNull(),
+    action: text('action', { enum: ['publish', 'revoke'] }).notNull(),
+    testJobId: text('test_job_id')
+      .notNull()
+      .references(() => generationJobs.id),
+    actorId: text('actor_id')
+      .notNull()
+      .references(() => users.id),
+    reason: text('reason').notNull(),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workflow_release_sequence').on(t.familyId, t.sequence),
+    uniqueIndex('workflow_release_request').on(t.familyId, t.actorId, t.requestKey),
+    check(
+      'workflow_release_valid',
+      sql`${t.sequence}>0 AND ${t.action} IN ('publish','revoke') AND length(${t.reason}) BETWEEN 1 AND 1000`,
     ),
   ],
 );

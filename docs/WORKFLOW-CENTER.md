@@ -1,4 +1,4 @@
-# 工作流中心（G2-A2 核心）
+# 工作流中心
 
 在正式项目工作台点“工作流中心”，无需先创建镜头。管理员封装技术工作流，创作者在镜头“媒体生成”使用公开参数。两处共用GenerationSettings、Generation API、原队列和Storage。
 
@@ -47,10 +47,28 @@
 | PATCH `/workflow-catalogs/:id` | expectedVersion、archived；CAS及审计 |
 | POST `/generation-workflows/:id/inspection` | 固定定义诊断，附连接配置版本和时间 |
 
-原generation-config只列目录当前头，公开字段合同/defaultValue；原Job创建增加可选fieldValues，读取返回冻结值、creativeParameters及workflowRevision。旧parameters/parameterValues兼容。字段Schema版本为studio.workflow-fields.v1，省略按v1解释，未知版本拒绝；通用媒体输入未接入。
+generation-config 的 workflows 列出目录当前修订。productionWorkflows 提供项目可选生产版本及启用状态。旧 parameters/parameterValues 和可选 fieldValues 继续有效，Job 读取返回冻结参数与工作流修订。字段 Schema 版本为 studio.workflow-fields.v1，省略时按 v1 解释。
+
+## 受控试跑与项目发布
+
+1. 从工作流中心保存配置，然后打开「试跑与发布」。配置管理员选择项目中的现有镜头。镜头需有与当前制作卡和项目设定匹配的已保存提示词。
+2. 打开试跑表单，核对提示词、创作参数和必要的首帧。勾选资源消耗确认后加入试跑队列。试跑和正式生成使用同一个 Worker，并共享单镜头任务限制。
+3. 等待「试跑证据已归档」，返回试跑记录预览或下载。证据固定到工作流修订、镜头、提示词、参数和连接版本。试跑证据保存在项目内，生产素材库、首帧列表、资产和画布引用以及 Take 使用生产素材。
+4. 具有项目审核权限的成员选择该修订的试跑证据并填写意见，再确认发布。发布要求当前修订、未归档目录、启用的连接及该连接版本完成的试跑。已发布的修订可由项目创作者选择。
+5. 审核者可撤回发布。新修订保存为草稿时，团队继续使用当前发布版本。发布替换或撤回影响新任务，之前已入队的任务按原快照继续。发布历史可打开当时的试跑证据。
+
+工作流中心创建或编辑的修订进入审核流程，后续修订继承此规则。此前已保存的兼容版本，以及旧配置 API 和镜头内快捷配置创建的兼容版本，在目录首次正式发布前维持原使用方式。采用审核模式的目录可以保留之前的兼容生产版本，直至首次发布。项目内共享沿用现有 RBAC，跨项目模板共享另行规划。
+
+| 方法/路径 | 合同 |
+|---|---|
+| GET `/generation-workflows/:id/test-shots?cursor=` | 配置管理员读取项目镜头，每页 30 项 |
+| POST `/generation-workflows/:id/test-jobs` | 复用生成表单参数，以 shotId 选择镜头，以路径固定工作流。confirmed 必须为 true，使用 UUID 请求键 |
+| GET `/generation-workflows/:id/test-jobs` | 项目成员读取固定修订最近 30 次试跑 |
+| GET `/workflow-catalogs/:id/releases?before=` | 发布和撤回历史，每页 20 项 |
+| POST `/workflow-catalogs/:id/releases` | 项目审核权限。publish 需要 workflowId、testJobId，revoke 针对当前发布。两者都需要 expectedVersion、reason 与 UUID 请求键 |
 
 ## 限制与下一门禁
 
-整个G2-A仍有正式工作流审批/共享策略、受控测试预览及证据待做；管理员保存和声明匹配均不等于通过正式审批。测试也须选择合法镜头/Artifact、固定媒体/修订、确认成本并复用Job，不伪造镜头或网页直连Comfy。G2-B才接正式画布生成/比较/Take，G2-C做多实例能力匹配和调度。任意媒体/多参考输入、完整Comfy编辑器、专业剪辑器及第三方动态脚本均不在本包。
+G2-B 接入正式画布的镜头生成、候选比较和 Take 审核，G2-C 接入多实例能力匹配和调度。本阶段的模型执行验收使用隔离 ComfyUI Mock。真实模型兼容性由对应工作流的实机试跑验证。
 
-参考取舍见[能力对照](architecture/HERO-INFINITE-CANVAS-REVIEW.md)，源码/资源未复用。本阶段[合同](modules/WORKFLOW-CENTER-G2-A2.md)及[验收](history/WORKFLOW-CENTER-G2-A2-2026-11-05.md)单独记录。`npm run test:workflows`含图解析和5项浏览器验收，与test:boards共用隔离3112/5192，须顺序执行；原生产用不同端口。后端集成在隔离Mock上执行生成/归档，不访问用户ComfyUI或真实模型。
+`npm run test:workflows` 包含图解析与 6 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。试跑功能使用同一版本的 API 和 Generation Worker。详见 [A3 合同](modules/WORKFLOW-CENTER-G2-A3.md)和[验收](history/WORKFLOW-CENTER-G2-A3-2026-11-06.md)。

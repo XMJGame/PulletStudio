@@ -10,6 +10,7 @@ import {
   type WorkflowEditing,
 } from './workflow-types';
 import { DependencyView, type Inspection } from './DependencyView';
+import { WorkflowReleaseDialog } from './WorkflowReleaseDialog';
 import './workflow-center.css';
 type History = {
   familyId: string;
@@ -48,6 +49,7 @@ export default function WorkflowCenter({
   const [restoring, setRestoring] = useState<History['items'][number]>(),
     [inspection, setInspection] = useState<Inspection>();
   const [inspectionName, setInspectionName] = useState('');
+  const [releaseWorkflow, setReleaseWorkflow] = useState<Workflow>();
   const restoreAttempt = useState(() => ({ body: '', key: '' }))[0];
   const path = `/projects/${projectId}`;
   function report(reason: unknown) {
@@ -183,12 +185,24 @@ export default function WorkflowCenter({
                       {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
                     </p>
                     <p className="field-hint">
+                      {item.releaseState === 'published'
+                        ? '已发布'
+                        : item.releaseState === 'draft'
+                          ? '待审核发布'
+                          : '兼容配置'}
+                    </p>
+                    <p className="field-hint">
                       {[
                         ...item.parameters.map((parameter) => parameterLabels[parameter.key]),
                         ...(item.fields ?? []).map((field) => field.label),
                       ].join(' · ') || '使用工作流固定参数'}{' '}
                       · {new Date(item.createdAt).toLocaleString()}
                     </p>
+                    {item.familyId && (
+                      <button disabled={busy} onClick={() => setReleaseWorkflow(item)}>
+                        试跑与发布
+                      </button>
+                    )}
                     {config.canConfigure && (
                       <div className="workflow-map-actions">
                         <button disabled={busy} onClick={() => requestEditor(item.id)}>
@@ -283,6 +297,7 @@ export default function WorkflowCenter({
                   refreshConfig={refreshConfig}
                   setMessage={setMessage}
                   expanded
+                  requireRelease
                   onDraftChange={setDirty}
                   editing={editing}
                   onSaved={loadEditor}
@@ -391,6 +406,14 @@ export default function WorkflowCenter({
             )}
           </div>
         </Dialog>
+      )}
+      {releaseWorkflow && (
+        <WorkflowReleaseDialog
+          workflow={releaseWorkflow}
+          projectId={projectId}
+          onClose={() => setReleaseWorkflow(undefined)}
+          onChanged={refreshConfig}
+        />
       )}
       {restoring && history && (
         <Dialog

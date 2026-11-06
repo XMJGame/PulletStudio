@@ -8,8 +8,12 @@ import type { GenerationConfig as Config, Workflow } from '../workflows/workflow
 import { GenerationSettings } from '../workflows/GenerationSettings';
 import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
 
-type Job = {
+export type GenerationJob = {
   id: string;
+  shotId: string;
+  createdAt: string;
+  shotCode?: string;
+  evidenceCurrent?: boolean;
   state: string;
   shotVersion: number;
   workflowName: string;
@@ -22,6 +26,8 @@ type Job = {
   image: { id: string; fileName: string; version: number } | null;
   parameterValues: ParameterValues;
   result: {
+    mediaType: 'image' | 'video';
+    contentUrl: string;
     metadata: {
       width: number | null;
       height: number | null;
@@ -30,6 +36,7 @@ type Job = {
     };
   } | null;
 };
+type Job = GenerationJob;
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
 const capabilityLabels: Record<string, string> = {
@@ -37,13 +44,14 @@ const capabilityLabels: Record<string, string> = {
   'video.text_to_video': '文字生视频',
   'video.image_to_video': '图生视频',
 };
-const states: Record<string, string> = {
+export const generationStates: Record<string, string> = {
   queued: '等待 Worker',
   preparing: '正在检查输入',
   submitting: '正在提交',
   submitted: '远端已接收，等待结果',
   fetching: '正在取回和归档',
   completed: '已归档为镜头候选',
+  test_completed: '试跑证据已归档',
   failed: '任务失败',
   canceled: '已取消',
   needs_reconciliation: '需要核对',
@@ -68,12 +76,20 @@ const errors: Record<string, string> = {
   WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
 };
 
-export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose: () => void }) {
+export function GenerationDialog({
+  shotId,
+  onClose,
+  testWorkflow,
+}: {
+  shotId: string;
+  onClose: () => void;
+  testWorkflow?: Workflow;
+}) {
   const [context, setContext] = useState<CardEditor>();
   const [config, setConfig] = useState<Config>();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [workflowId, setWorkflowId] = useState('');
+  const [workflowId, setWorkflowId] = useState(testWorkflow?.id ?? '');
   const [pinnedWorkflow, setPinnedWorkflow] = useState<Workflow>();
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, string | boolean>>({});
@@ -87,15 +103,19 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [remoteIds, setRemoteIds] = useState<Record<string, string>>({});
-  const jobPath = `/shots/${shotId}/generation-jobs`;
+  const jobPath = testWorkflow
+    ? `/generation-workflows/${testWorkflow.id}/test-jobs`
+    : `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
+  const availableWorkflows = config?.productionWorkflows ?? [];
   const selectedWorkflow =
-    pinnedWorkflow?.id === workflowId
+    testWorkflow ??
+    (pinnedWorkflow?.id === workflowId
       ? pinnedWorkflow
-      : config?.workflows.find((item) => item.id === workflowId);
+      : availableWorkflows.find((item) => item.id === workflowId));
   const workflows = [
-    ...(config?.workflows ?? []),
-    ...(pinnedWorkflow && !config?.workflows.some((item) => item.id === pinnedWorkflow.id)
+    ...availableWorkflows,
+    ...(pinnedWorkflow && !availableWorkflows.some((item) => item.id === pinnedWorkflow.id)
       ? [pinnedWorkflow]
       : []),
   ];
@@ -181,8 +201,12 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
   }
   return (
     <Dialog
-      title="镜头媒体生成"
-      description="选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。"
+      title={testWorkflow ? '工作流试跑' : '镜头媒体生成'}
+      description={
+        testWorkflow
+          ? '使用此镜头已保存的提示词验证固定修订。结果保存在工作流的试跑记录中。'
+          : '选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。'
+      }
       busy={busy}
       onClose={onClose}
     >
@@ -197,17 +221,17 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
             {message}
           </p>
         )}
-        {config?.canEdit && (
+        {config?.canEdit && (!testWorkflow || config.canConfigure) && (
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (!confirmed) return;
+              if (!confirmed || (testWorkflow && !preview)) return;
               void run(async () => {
                 const value = await api<Job>(
                   jobPath,
                   'POST',
                   {
-                    workflowId,
+                    ...(testWorkflow ? { shotId } : { workflowId }),
                     promptId,
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
@@ -218,50 +242,55 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                 );
                 setJobs((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
                 resetRequest();
-                setMessage('生成任务已加入队列。');
+                setMessage(testWorkflow ? '试跑任务已加入队列。' : '生成任务已加入队列。');
               });
             }}
           >
             <fieldset className="plain-fieldset" disabled={busy}>
-              <h3>新建生成任务</h3>
-              {!config.workflows.some((item) => item.enabled) && (
-                <p className="field-hint">请先由管理员配置并验证工作流。</p>
+              <h3>
+                {testWorkflow ? `${testWorkflow.name} · v${testWorkflow.revision ?? 1}` : '新建生成任务'}
+              </h3>
+              {!testWorkflow && !workflows.some((item) => item.enabled) && (
+                <p className="field-hint">请在工作流中心配置或发布可用版本。</p>
               )}
-              <label>
-                生成工作流
-                <select
-                  aria-label="生成工作流"
-                  value={workflowId}
-                  required
-                  onChange={(event) => {
-                    const id = event.target.value;
-                    setWorkflowId(id);
-                    setPinnedWorkflow(workflows.find((item) => item.id === id));
-                    setParameterOverrides({});
-                    setFieldOverrides({});
-                    setImageVersionId('');
-                    resetRequest();
-                    if (
-                      config.workflows.find((item) => item.id === id)?.capability ===
-                        'video.image_to_video' &&
-                      !images
-                    )
-                      void run(async () =>
-                        setImages(await api<CursorPage<ReferenceImage>>(`${projectPath}/generation-images`)),
-                      );
-                  }}
-                >
-                  <option value="">选择工作流</option>
-                  {workflows
-                    .filter((item) => item.enabled)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              {!testWorkflow && (
+                <label>
+                  生成工作流
+                  <select
+                    aria-label="生成工作流"
+                    value={workflowId}
+                    required
+                    onChange={(event) => {
+                      const id = event.target.value;
+                      setWorkflowId(id);
+                      setPinnedWorkflow(workflows.find((item) => item.id === id));
+                      setParameterOverrides({});
+                      setFieldOverrides({});
+                      setImageVersionId('');
+                      resetRequest();
+                      if (
+                        workflows.find((item) => item.id === id)?.capability === 'video.image_to_video' &&
+                        !images
+                      )
+                        void run(async () =>
+                          setImages(
+                            await api<CursorPage<ReferenceImage>>(`${projectPath}/generation-images`),
+                          ),
+                        );
+                    }}
+                  >
+                    <option value="">选择工作流</option>
+                    {workflows
+                      .filter((item) => item.enabled)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
+                          {new Date(item.createdAt).toLocaleString()}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
               {selectedWorkflow && (
                 <>
                   {(selectedWorkflow.parameters ?? []).map((binding) => (
@@ -393,6 +422,9 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                     ))}
                 </select>
               </label>
+              {testWorkflow && !prompts.some((item) => item.cardVersion === context?.shot.version) && (
+                <p className="field-hint">请先为此镜头当前制作卡保存一版提示词。</p>
+              )}
               <button
                 type="button"
                 disabled={!promptId}
@@ -439,20 +471,28 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   checked={confirmed}
                   onChange={(event) => setConfirmed(event.target.checked)}
                 />
-                {needsImage
-                  ? '确认发送所选提示词和首帧图片到该工作流并消耗生成资源'
-                  : '确认发送所选提示词到该工作流并消耗生成资源'}
+                {testWorkflow
+                  ? '确认将所选输入发送到 ComfyUI 并消耗试跑资源'
+                  : needsImage
+                    ? '确认发送所选提示词和首帧图片到该工作流并消耗生成资源'
+                    : '确认发送所选提示词到该工作流并消耗生成资源'}
               </label>
               <button
                 className="primary"
-                disabled={!workflowId || !promptId || !confirmed || (needsImage && !imageVersionId)}
+                disabled={
+                  !workflowId ||
+                  !promptId ||
+                  !confirmed ||
+                  (needsImage && !imageVersionId) ||
+                  Boolean(testWorkflow && !preview)
+                }
               >
-                加入生成队列
+                {testWorkflow ? '加入试跑队列' : '加入生成队列'}
               </button>
             </fieldset>
           </form>
         )}
-        <h3>此镜头的生成任务</h3>
+        <h3>{testWorkflow ? '此修订的试跑任务' : '此镜头的生成任务'}</h3>
         {!jobs.length && <p className="field-hint">暂无生成任务。</p>}
         {jobs.map((job) => (
           <article className="entity-reference" key={job.id}>
@@ -490,7 +530,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
                   {job.result.metadata.frameRate ? ` · ${job.result.metadata.frameRate} fps` : ''}
                 </p>
               )}
-              <p>{states[job.state] ?? job.state}</p>
+              <p>{generationStates[job.state] ?? job.state}</p>
               {job.errorCode && (
                 <p className="field-hint">
                   {errors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
@@ -547,7 +587,7 @@ export function GenerationDialog({ shotId, onClose }: { shotId: string; onClose:
             )}
           </article>
         ))}
-        {config && (
+        {config && !testWorkflow && (
           <GenerationSettings
             config={config}
             projectPath={projectPath}

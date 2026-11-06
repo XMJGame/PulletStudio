@@ -13,12 +13,17 @@ export type Workflow = {
   revision?: number;
   catalogVersion?: number;
   archived?: boolean;
+  reviewRequired?: boolean;
+  releaseState?: 'compatible' | 'published' | 'draft';
+  publishedWorkflowId?: string | null;
 };
 export type Connection = { id: string; name: string; version: number; enabled: boolean };
 export type GenerationConfig = {
   canConfigure: boolean;
   canEdit: boolean;
+  canReview: boolean;
   workflows: Workflow[];
+  productionWorkflows: Workflow[];
   connections: Connection[];
 };
 export const capabilityLabels: Record<string, string> = {

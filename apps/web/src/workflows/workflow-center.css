@@ -164,6 +164,28 @@
 .workflow-graph-preview .notice p {
   overflow-wrap: anywhere;
 }
+.workflow-release section,
+.workflow-release form {
+  margin: 16px 0;
+}
+.workflow-release article {
+  margin: 10px 0;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.workflow-release input[type='radio'] {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+.workflow-release details img,
+.workflow-release details video {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  margin: 8px 0;
+  object-fit: contain;
+}
 @media (max-width: 760px) {
   .studio-dialog.workflow-center-dialog {
     width: calc(100vw - 16px);

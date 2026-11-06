@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, like, or } from 'drizzle-orm';
+import { and, asc, eq, gt, like, ne, or } from 'drizzle-orm';
 import type { BoardReference, BoardResolved, BoardSource } from '../../../../packages/contracts/src/board';
 import { DatabaseService } from '../db/database.service';
 import { CurrentUser, fail } from '../common/http';
@@ -31,7 +31,8 @@ export class BoardReferencesService {
       .from(mediaVersions)
       .where(and(eq(mediaVersions.id, id), eq(mediaVersions.projectId, projectId)))
       .get();
-    if (!row) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '引用不存在或无权访问');
+    if (!row || row.origin === 'workflow_test')
+      fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '引用不存在或无权访问');
     assertSampleAccess(this.database, user, row);
     const value = this.media.version(user, id);
     return { row, value };
@@ -183,6 +184,7 @@ export class BoardReferencesService {
         .where(
           and(
             eq(mediaVersions.projectId, projectId),
+            ne(mediaVersions.origin, 'workflow_test'),
             cursor ? gt(mediaVersions.id, cursor) : undefined,
             q ? like(mediaVersions.fileName, `%${q}%`) : undefined,
           ),

@@ -1,6 +1,8 @@
 import { expect, test, request, type APIRequestContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { startComfyMock, fixtureWorkflow, fixtureCreativeFields } from '../fixtures/comfy-mock.mjs';
+import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
 async function api(method: string, path: string, data?: unknown, actor = owner) {
   const session = await (await actor.get('/api/v1/auth/me')).json();
@@ -34,7 +36,12 @@ test.beforeAll(async () => {
   expect(response.ok()).toBeTruthy();
   setup = await response.json();
   if (initialized) setup.workspace = (await api('GET', '/workspaces'))[0];
-  remote = await startComfyMock({});
+  const fixtures = await createMediaFixtures(
+    resolve('test-results/workflow-fixtures'),
+    process.env.FFMPEG_PATH ||
+      (process.platform === 'win32' ? resolve('data/tools/ffmpeg/bin/ffmpeg.exe') : 'ffmpeg'),
+  );
+  remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
 });
 test.afterAll(async () => {
   await owner?.dispose();
@@ -334,7 +341,84 @@ test('creator form renders declared scalar controls and freezes overrides into a
       ]),
     ),
   );
-  expect(job.state).toBe('queued');
-  expect(remote.mock.submissions).toHaveLength(0);
-  await api('POST', `/generation-jobs/${job.id}/cancel`, {});
+  await expect.poll(async () => (await api('GET', `/generation-jobs/${job.id}`)).state).toBe('completed');
+  expect(remote.mock.submissions).toHaveLength(1);
+});
+
+test('manager runs a fixed draft and releases only the reviewed evidence', async ({ page }) => {
+  const value = await project('Controlled workflow release');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Release fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, {
+    ...fixtureCreativeFields(connection.id),
+    name: 'Workflow under review',
+    reviewRequired: true,
+  });
+  const basic = await api('POST', `/projects/${value.id}/shots`, {
+    description: 'A worker enters a studio.',
+  });
+  const editor = await api('GET', `/shots/${basic.id}/card/editor`);
+  const shot = (
+    await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
+  ).shot;
+  await api('POST', `/shots/${shot.id}/prompts/compile`, {
+    mode: 'commit',
+    expectedShotVersion: shot.version,
+    expectedProjectVersion: value.version,
+    profileRevisionId: null,
+  });
+  await open(page, value);
+  const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  await expect(center.getByText('待审核发布', { exact: true })).toBeVisible();
+  await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
+  const review = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+  await review.getByRole('button', { name: '读取项目镜头', exact: true }).click();
+  await review.getByLabel('试跑镜头', { exact: true }).selectOption(shot.id);
+  await review.getByRole('button', { name: '打开试跑表单', exact: true }).click();
+  const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+  await trial.getByLabel('已保存提示词', { exact: true }).selectOption({ index: 1 });
+  await trial.getByLabel('创作参数：补充描述', { exact: true }).fill('Overhead light');
+  const submit = trial.getByRole('button', { name: '加入试跑队列', exact: true });
+  await expect(submit).toBeDisabled();
+  await trial.getByRole('button', { name: '核对提示词', exact: true }).click();
+  await expect(trial.getByLabel('正向提示词', { exact: true })).toBeVisible();
+  await trial.getByLabel('确认将所选输入发送到 ComfyUI 并消耗试跑资源', { exact: true }).check();
+  await submit.click();
+  await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+  await trial.getByRole('button', { name: '关闭', exact: true }).click();
+  await review.getByText('预览试跑结果', { exact: true }).click();
+  await expect(review.getByAltText('试跑结果')).toBeVisible();
+  await expect
+    .poll(() =>
+      review.getByAltText('试跑结果').evaluate((element) => (element as HTMLImageElement).naturalWidth),
+    )
+    .toBe(96);
+  await expect(review.getByRole('button', { name: '确认发布', exact: true })).toBeDisabled();
+  await review.getByRole('radio', { name: '选为发布依据' }).check();
+  await review.getByLabel('审核意见', { exact: true }).fill('预览构图已核对');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => review.evaluate((element) => element.scrollWidth <= element.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: 'test-results/workflow-release-mobile.png' });
+  await review.getByRole('button', { name: '确认发布', exact: true }).click();
+  await expect(review.getByRole('status')).toContainText('工作流已发布给项目团队');
+  expect(
+    (await api('GET', `/projects/${value.id}/generation-config`)).productionWorkflows.map(
+      (item: { id: string }) => item.id,
+    ),
+  ).toEqual([workflow.id]);
+  await review.getByLabel('审核意见', { exact: true }).fill('暂时停用此版');
+  await review.getByRole('button', { name: '确认撤回', exact: true }).click();
+  await expect(review.getByRole('status')).toContainText('工作流发布已撤回');
+  const history = review.getByRole('region', { name: '发布历史' });
+  const published = history.locator('article').filter({ hasText: '发布 v1' });
+  await published.getByRole('button', { name: '查看发布依据', exact: true }).click();
+  await published.getByText('预览试跑结果', { exact: true }).click();
+  await expect(published.getByText('补充描述 · Overhead light', { exact: true })).toBeVisible();
+  expect((await api('GET', `/projects/${value.id}/generation-config`)).productionWorkflows).toEqual([]);
+  expect((await api('GET', `/shots/${shot.id}/takes`)).items).toEqual([]);
 });

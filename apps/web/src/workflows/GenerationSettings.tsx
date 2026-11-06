@@ -24,6 +24,7 @@ export function GenerationSettings({
   refreshConfig,
   setMessage,
   expanded = false,
+  requireRelease = false,
   onDraftChange,
   editing,
   onSaved,
@@ -35,6 +36,7 @@ export function GenerationSettings({
   refreshConfig: () => Promise<void>;
   setMessage: (value: string) => void;
   expanded?: boolean;
+  requireRelease?: boolean;
   onDraftChange?: (dirty: boolean) => void;
   editing?: WorkflowEditing;
   onSaved?: (id: string) => void | Promise<void>;
@@ -184,6 +186,7 @@ export function GenerationSettings({
                   output: { node: data.get('outputNode'), field: data.get('outputField') },
                   parameters: readParameterBindings(data),
                   fields,
+                  ...(requireRelease ? { reviewRequired: true } : {}),
                   ...(fields.length ? { fieldSchemaVersion: 'studio.workflow-fields.v1' } : {}),
                 };
                 const body = editing
@@ -214,7 +217,9 @@ export function GenerationSettings({
                 attempt.current = { body: '', key: '' };
                 setBindingFormVersion((value) => value + 1);
                 await refreshConfig();
-                setMessage(`工作流的绑定节点已验证并保存。修订 v${result.revision ?? 1}`);
+                setMessage(
+                  `工作流的绑定节点已验证并保存。修订 v${result.revision ?? 1}${requireRelease ? ' 待审核' : ''}`,
+                );
                 await onSaved?.(result.id);
               });
             }}

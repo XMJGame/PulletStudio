@@ -201,6 +201,7 @@ export class EntitiesService {
             .where(and(eq(mediaVersions.id, ref.mediaVersionId), eq(mediaVersions.projectId, project.id)))
             .get();
           if (!media) fail(404, 'NOT_FOUND', '参考媒体不存在或不属于当前项目');
+          if (media.origin === 'workflow_test') fail(409, 'WORKFLOW_TEST_MEDIA', '试跑证据不能用作资产参考');
           assertSampleAccess(this.database, user, media);
           if (
             actualKind === 'voice'

@@ -87,8 +87,8 @@ npm run db:backup
 
 ## 当前验收界限
 
-工作流中心：`npm run test:workflow-graph`运行4项纯解析/边界测试，`npm run test:workflows`构建后跑解析及5项浏览器验收，覆盖不可变修订/冲突/恢复/归档和四类创作字段。复用正式画布隔离3112/5192，因此test:workflows与test:boards顺序执行。浏览器中的新Job停在隔离队列后取消，API集成通过ComfyMock实际提交并归档合成媒体；均不访问用户ComfyUI。纯Web增量按实际影响选择测试，不无故全量重复。
+工作流中心使用 `npm run test:workflows` 构建并运行 4 项图解析测试和 6 项浏览器验收。浏览器场景启动独立 Worker，通过 ComfyUI Mock 归档试跑与正式生成的合成图片。test:workflows 与 test:boards 共用隔离端口 3112/5192，须顺序执行。
 
-字段Schema/Worker更新后须重新build并启动新版generation Worker，避免旧进程跳过新字段的提交前声明复核；已有任务及快照保留。迁移先备份，在忽略的独立目录生成并补齐SQL/保护/回填，再放正式SQL和快照，最后登记journal；不要让热重载应用未写完的迁移。
+工作流字段或试跑功能更新后，重新构建并同时更新 API 与 Generation Worker。旧 Worker 读取到试跑任务时无法完成试跑归档，数据库会阻止把试跑产物登记为生产素材。升级前先备份。在忽略的独立目录生成迁移并补齐 SQL 和保护，再放入正式 SQL 和快照，最后登记 journal。
 
 最新证据见[实施状态](../IMPLEMENTATION-STATUS.md)。Mock证明协议/权限/恢复，不能证明远端模型画质；真实I2V已独立验收，真实文本/T2I/T2V、正式作品、多GB/长片、LAN/TLS/S3及灾备仍需要对应门禁。详细历史不再塞入此运行手册。

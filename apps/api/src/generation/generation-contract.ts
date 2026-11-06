@@ -91,6 +91,7 @@ export const workflowInput = z
     parameters: z.array(parameter).max(3).optional(),
     fields: z.array(exposedField).max(20).optional(),
     fieldSchemaVersion: z.literal('studio.workflow-fields.v1').optional(),
+    reviewRequired: z.literal(true).optional(),
     output: z.object({ node: nodeId, field: slot }).strict(),
   })
   .strict()

@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
@@ -9,6 +9,7 @@ import {
   generationJobs,
   generationWorkflows,
   promptArtifacts,
+  shots,
   mediaVersions,
   workflowCatalogs,
   workflowCatalogRevisions,
@@ -21,6 +22,7 @@ import { AssetApprovalService } from '../assets/asset-approval.service';
 import { MediaService } from '../assets/media.service';
 import { catalogState, registerWorkflow, workflowHash, workflowReplay } from './workflow-catalog-state';
 import { FieldValues, resolveFields } from './workflow-fields';
+import { latestCompatibleRevision, latestRelease } from './workflow-release-state';
 import { ComfyProvider, GenerationError } from './comfy-provider';
 import {
   CreateJobInput,
@@ -99,23 +101,26 @@ export class GenerationService {
   config(user: CurrentUser, projectId: string) {
     const project = this.authz.project(user, projectId);
     const canConfigure = this.canConfigure(user, project.workspaceId);
-    const workflows = this.database.db
-      .select({
-        id: generationWorkflows.id,
-        name: generationWorkflows.name,
-        capability: generationWorkflows.capability,
-        createdAt: generationWorkflows.createdAt,
-        enabled: generationConnections.enabled,
-        definitionJson: generationWorkflows.definitionJson,
-        familyId: workflowCatalogs.id,
-        revision: workflowCatalogRevisions.revision,
-        catalogVersion: workflowCatalogs.version,
-        archived: workflowCatalogs.archived,
-      })
-      .from(generationWorkflows)
-      .innerJoin(generationConnections, eq(generationWorkflows.connectionId, generationConnections.id))
-      .leftJoin(workflowCatalogRevisions, eq(workflowCatalogRevisions.workflowId, generationWorkflows.id))
-      .leftJoin(workflowCatalogs, eq(workflowCatalogs.id, workflowCatalogRevisions.familyId))
+    const access = this.production.access(user, projectId);
+    const query = () =>
+      this.database.db
+        .select({
+          id: generationWorkflows.id,
+          name: generationWorkflows.name,
+          capability: generationWorkflows.capability,
+          createdAt: generationWorkflows.createdAt,
+          enabled: generationConnections.enabled,
+          definitionJson: generationWorkflows.definitionJson,
+          familyId: workflowCatalogs.id,
+          revision: workflowCatalogRevisions.revision,
+          catalogVersion: workflowCatalogs.version,
+          archived: workflowCatalogs.archived,
+        })
+        .from(generationWorkflows)
+        .innerJoin(generationConnections, eq(generationWorkflows.connectionId, generationConnections.id))
+        .leftJoin(workflowCatalogRevisions, eq(workflowCatalogRevisions.workflowId, generationWorkflows.id))
+        .leftJoin(workflowCatalogs, eq(workflowCatalogs.id, workflowCatalogRevisions.familyId));
+    const heads = query()
       .where(
         and(
           eq(generationWorkflows.projectId, projectId),
@@ -141,26 +146,60 @@ export class GenerationService {
           .limit(50)
           .all()
       : [];
+    const summary = ({ definitionJson, ...workflow }: (typeof heads)[number]) => {
+      const definition = JSON.parse(definitionJson) as WorkflowInput;
+      const values = resolveParameters(definition),
+        fieldValues = resolveFields(definition);
+      return {
+        ...workflow,
+        reviewRequired: definition.reviewRequired === true,
+        enabled: workflow.enabled && !workflow.archived,
+        parameters: (definition.parameters ?? []).map((binding) => ({
+          ...binding,
+          defaultValue: values[binding.key],
+        })),
+        fields: (definition.fields ?? []).map(({ node: _node, input: _input, ...field }) => ({
+          ...field,
+          defaultValue: fieldValues[field.id],
+        })),
+      };
+    };
+    const productionIds = new Set<string>();
+    const workflows = heads.map((head) => {
+      const workflow = summary(head);
+      const release = head.familyId ? latestRelease(this.database, head.familyId) : undefined;
+      const productionId = release
+        ? release.action === 'publish'
+          ? release.workflowId
+          : undefined
+        : workflow.reviewRequired && head.familyId
+          ? latestCompatibleRevision(this.database, head.familyId)
+          : head.id;
+      if (productionId) productionIds.add(productionId);
+      return {
+        ...workflow,
+        releaseState: productionId === head.id ? (release ? 'published' : 'compatible') : 'draft',
+        publishedWorkflowId: release?.action === 'publish' ? release.workflowId : null,
+      };
+    });
+    const productionWorkflows = productionIds.size
+      ? query()
+          .where(
+            and(
+              eq(generationWorkflows.projectId, projectId),
+              inArray(generationWorkflows.id, [...productionIds]),
+            ),
+          )
+          .orderBy(desc(generationWorkflows.createdAt), desc(generationWorkflows.id))
+          .all()
+          .map(summary)
+      : [];
     return {
       canConfigure,
-      canEdit: this.production.access(user, projectId).canEdit,
-      workflows: workflows.map(({ definitionJson, ...workflow }) => {
-        const definition = JSON.parse(definitionJson) as WorkflowInput;
-        const values = resolveParameters(definition),
-          fieldValues = resolveFields(definition);
-        return {
-          ...workflow,
-          enabled: workflow.enabled && !workflow.archived,
-          parameters: (definition.parameters ?? []).map((binding) => ({
-            ...binding,
-            defaultValue: values[binding.key],
-          })),
-          fields: (definition.fields ?? []).map(({ node: _node, input: _input, ...field }) => ({
-            ...field,
-            defaultValue: fieldValues[field.id],
-          })),
-        };
-      }),
+      canEdit: access.canEdit,
+      canReview: access.canReview,
+      workflows,
+      productionWorkflows,
       connections,
     };
   }
@@ -169,6 +208,7 @@ export class GenerationService {
     const scope = and(
       eq(mediaVersions.projectId, projectId),
       eq(mediaVersions.mediaType, 'image'),
+      ne(mediaVersions.origin, 'workflow_test'),
       lte(mediaVersions.byteLength, referenceImageLimit),
       inArray(mediaVersions.mime, Object.keys(referenceImageExtensions)),
     );
@@ -341,6 +381,7 @@ export class GenerationService {
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     return {
       id: row.id,
+      purpose: row.purpose,
       shotId: row.shotId,
       shotVersion: row.shotVersion,
       promptId: row.promptId,
@@ -352,7 +393,9 @@ export class GenerationService {
         value: fieldValues?.[field.id] ?? definition.graph[field.node].inputs[field.input],
       })),
       workflowRevision: catalogState(this.database, row.workflowId)?.revision ?? 1,
-      result: result ? { mediaType: result.mediaType, metadata: result.metadata } : null,
+      result: result
+        ? { mediaType: result.mediaType, metadata: result.metadata, contentUrl: result.contentUrl }
+        : null,
       workflowName: workflow.name,
       capability: workflow.capability,
       state: row.state,
@@ -365,11 +408,18 @@ export class GenerationService {
       updatedAt: row.updatedAt,
     };
   }
-  createJob(user: CurrentUser, shotId: string, input: CreateJobInput, key: string) {
+  createJob(
+    user: CurrentUser,
+    shotId: string,
+    input: CreateJobInput,
+    key: string,
+    purpose: Job['purpose'] = 'production',
+  ) {
     return this.database.db.transaction(
       () => {
         const shot = this.production.shot(user, shotId, 'edit'),
           project = this.authz.project(user, shot.projectId);
+        if (purpose === 'workflow_test') this.manage(user, project.workspaceId);
         const replay = this.database.db
           .select()
           .from(generationJobs)
@@ -383,6 +433,7 @@ export class GenerationService {
           .get();
         if (replay) {
           if (
+            replay.purpose !== purpose ||
             replay.workflowId !== input.workflowId ||
             replay.promptId !== input.promptId ||
             (JSON.parse(replay.snapshotJson) as GenerationSnapshot).image?.id !== input.imageVersionId
@@ -402,8 +453,18 @@ export class GenerationService {
         }
         const workflow = this.workflow(input.workflowId);
         if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
-        if (catalogState(this.database, workflow.id)?.archived)
-          fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
+        const catalog = catalogState(this.database, workflow.id);
+        if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
+        const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
+        if (purpose === 'production') {
+          const release = catalog && latestRelease(this.database, catalog.familyId);
+          if (
+            release
+              ? release.action !== 'publish' || release.workflowId !== workflow.id
+              : definition.reviewRequired
+          )
+            fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
+        }
         const connection = this.connection(workflow.connectionId, project.workspaceId);
         if (!connection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
         const prompt = this.database.db
@@ -440,6 +501,7 @@ export class GenerationService {
           const source = this.media.version(user, input.imageVersionId);
           if (source.projectId !== project.id) fail(404, 'NOT_FOUND', '首帧不属于当前项目');
           if (
+            source.origin === 'workflow_test' ||
             source.mediaType !== 'image' ||
             !referenceImageExtensions[source.mime] ||
             source.byteLength > referenceImageLimit
@@ -458,7 +520,6 @@ export class GenerationService {
           positivePrompt: string;
           negativePrompt: string;
         };
-        const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
         const parameterValues = resolveParameters(definition, input.parameterValues);
         const fieldValues = resolveFields(definition, input.fieldValues);
         const graph = renderWorkflow(
@@ -474,6 +535,7 @@ export class GenerationService {
           .insert(generationJobs)
           .values({
             id,
+            purpose,
             shotId,
             projectId: project.id,
             workspaceId: project.workspaceId,
@@ -492,7 +554,12 @@ export class GenerationService {
           })
           .returning()
           .get()!;
-        this.audit(user, project.workspaceId, 'generation.job.queue', id);
+        this.audit(
+          user,
+          project.workspaceId,
+          purpose === 'workflow_test' ? 'generation.test.queue' : 'generation.job.queue',
+          id,
+        );
         return this.view(row, user);
       },
       { behavior: 'immediate' },
@@ -504,11 +571,30 @@ export class GenerationService {
     const rows = this.database.db
       .select()
       .from(generationJobs)
-      .where(eq(generationJobs.shotId, shotId))
+      .where(and(eq(generationJobs.shotId, shotId), eq(generationJobs.purpose, 'production')))
       .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
       .limit(30)
       .all();
     return rows.map((row) => this.view(row, user, access));
+  }
+  testJobs(user: CurrentUser, workflowId: string) {
+    const workflow = this.workflow(workflowId);
+    const access = this.production.access(user, workflow.projectId);
+    const connection = this.connection(workflow.connectionId, workflow.workspaceId);
+    const rows = this.database.db
+      .select({ job: generationJobs, shotCode: shots.code })
+      .from(generationJobs)
+      .innerJoin(shots, eq(shots.id, generationJobs.shotId))
+      .where(and(eq(generationJobs.workflowId, workflowId), eq(generationJobs.purpose, 'workflow_test')))
+      .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
+      .limit(30)
+      .all();
+    return rows.map(({ job, shotCode }) => ({
+      ...this.view(job, user, access),
+      shotCode,
+      evidenceCurrent:
+        job.state === 'test_completed' && connection.enabled && job.connectionVersion === connection.version,
+    }));
   }
   get(user: CurrentUser, id: string) {
     const row = this.job(id);

@@ -100,6 +100,7 @@ export class GenerationWorker {
   }
   private checkInputs(user: CurrentUser, job: Job, connectionId: string, snapshot: GenerationSnapshot) {
     this.owns(job);
+    if (job.purpose === 'workflow_test') this.jobs.manage(user, job.workspaceId);
     if (
       this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
       this.production.project(user, job.projectId).version !== job.projectVersion ||
@@ -289,6 +290,11 @@ export class GenerationWorker {
         this.owns(job);
         if (!this.jobs.connection(connection.id).enabled) throw new GenerationError('CONNECTION_DISABLED');
         const currentShot = this.production.shot(user, shot.id, 'edit');
+        if (job.purpose === 'workflow_test') {
+          this.jobs.audit(user, job.workspaceId, 'generation.test.complete', job.id);
+          this.release(job, { state: 'test_completed', mediaVersionId, errorCode: null });
+          return;
+        }
         const take = this.media.addTake(user, shot.id, mediaVersionId, currentShot.version);
         this.jobs.audit(user, job.workspaceId, 'generation.job.complete', job.id);
         this.release(job, { state: 'completed', mediaVersionId, takeId: take.id, errorCode: null });

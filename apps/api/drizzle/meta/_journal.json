@@ -253,6 +253,13 @@
       "when": 1793889712687,
       "tag": "0035_flawless_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1793931495885,
+      "tag": "0036_workflow_release",
+      "breakpoints": true
     }
   ]
 }

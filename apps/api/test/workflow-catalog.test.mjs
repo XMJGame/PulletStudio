@@ -44,12 +44,15 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
           .getSetCookie()
           .map((value) => value.split(';')[0])
           .join('; ');
-      const data = await result.json();
+      const data = result.headers.get('content-type')?.includes('application/json')
+        ? await result.json()
+        : Buffer.from(await result.arrayBuffer());
       if (data.csrfToken) csrf = data.csrfToken;
       return { status: result.status, data };
     };
   }
   const owner = client(),
+    reviewer = client(),
     reader = client(),
     outsider = client();
   const start = async () => {
@@ -86,6 +89,7 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
     project = (await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Station study' })).data;
     for (const [actor, name, role] of [
       [reader, 'Reader', 'VIEWER'],
+      [reviewer, 'Reviewer', 'REVIEWER'],
       [outsider, 'Outside', null],
     ]) {
       const invite = (
@@ -503,6 +507,143 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
       },
     );
     await t.test(
+      'controlled tests isolate output and project reviewers publish a fixed revision',
+      async () => {
+        const managed = await create({ ...definition, name: 'Managed workflow', reviewRequired: true });
+        assert.equal(managed.status, 201, JSON.stringify(managed.data));
+        const { id, familyId } = managed.data;
+        const configPath = `/projects/${project.id}/generation-config`;
+        const releasePath = `/workflow-catalogs/${familyId}/releases`;
+        const trialPath = `/generation-workflows/${id}/test-jobs`;
+        const trialInput = { shotId: shot.id, promptId: prompt.id, confirmed: true };
+        const release = (body, actor = reviewer, key = randomUUID()) =>
+          actor('POST', releasePath, body, { 'Idempotency-Key': key });
+        const config = async () => (await reader('GET', configPath)).data;
+        assert.equal(
+          (await config()).productionWorkflows.some((item) => item.id === id),
+          false,
+        );
+        assert.equal((await queue(id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
+        assert.equal((await outsider('GET', trialPath)).status, 404);
+        assert.equal(
+          (await reviewer('POST', trialPath, trialInput, { 'Idempotency-Key': randomUUID() })).status,
+          403,
+        );
+        const testKey = randomUUID();
+        assert.equal(
+          (
+            await owner(
+              'POST',
+              trialPath,
+              { ...trialInput, confirmed: false },
+              { 'Idempotency-Key': testKey },
+            )
+          ).status,
+          400,
+        );
+        const trial = await owner('POST', trialPath, trialInput, { 'Idempotency-Key': testKey });
+        assert.equal(trial.status, 201, JSON.stringify(trial.data));
+        const publish = {
+          action: 'publish',
+          expectedVersion: 1,
+          workflowId: id,
+          testJobId: trial.data.id,
+          reason: 'Preview checked',
+        };
+        assert.equal((await release(publish, reader)).status, 403);
+        assert.equal((await release(publish)).data.code, 'WORKFLOW_TEST_REQUIRED');
+        assert.equal((await queue(id, undefined, testKey)).data.code, 'IDEMPOTENCY_CONFLICT');
+        const before = remote.mock.submissions.length;
+        for (let index = 0; index < 3; index++) await app.get(GenerationWorker).tick();
+        assert.equal(remote.mock.submissions.length, before + 1);
+        const evidence = (await reviewer('GET', trialPath)).data[0];
+        assert.equal(evidence.state, 'test_completed', JSON.stringify(evidence));
+        assert.equal(evidence.evidenceCurrent, true);
+        assert.equal(evidence.takeId, null);
+        const evidenceId = evidence.mediaVersionId;
+        assert.equal(
+          (await owner('POST', trialPath, trialInput, { 'Idempotency-Key': testKey })).data.id,
+          evidence.id,
+        );
+        assert.deepEqual(
+          (await reviewer('GET', evidence.result.contentUrl.replace('/api/v1', ''))).data,
+          fixtures['image.png'].bytes,
+        );
+        assert.equal((await outsider('GET', evidence.result.contentUrl.replace('/api/v1', ''))).status, 404);
+        const assets = (await owner('GET', `/projects/${project.id}/media-assets`)).data.items;
+        assert.ok(!assets.some((asset) => asset.latest.id === evidenceId));
+        const inputs = (await owner('GET', `/projects/${project.id}/generation-images`)).data.items;
+        assert.ok(!inputs.some((image) => image.id === evidenceId));
+        const jobs = (await owner('GET', `/shots/${shot.id}/generation-jobs`)).data;
+        assert.ok(!jobs.some((job) => job.id === evidence.id));
+        assert.equal(
+          (
+            await owner('POST', `/shots/${shot.id}/takes`, {
+              mediaVersionId: evidenceId,
+              expectedShotVersion: shot.version,
+            })
+          ).data.code,
+          'WORKFLOW_TEST_MEDIA',
+        );
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET purpose='production' WHERE id=?").run(evidence.id),
+          /workflow test job/,
+        );
+        assert.equal(
+          (await release({ ...publish, testJobId: completed.id })).data.code,
+          'WORKFLOW_TEST_REQUIRED',
+        );
+        const releaseKey = randomUUID();
+        const [accepted, raced] = await Promise.all([
+          release(publish, reviewer, releaseKey),
+          release({ ...publish, reason: 'Concurrent approval' }),
+        ]);
+        const winner = accepted.status === 201 ? accepted : raced;
+        assert.equal(winner.status, 201, JSON.stringify(winner.data));
+        assert.equal([accepted, raced].filter((result) => result.status === 409).length, 1);
+        if (accepted.status === 201)
+          assert.deepEqual((await release(publish, reviewer, releaseKey)).data, accepted.data);
+        assert.ok((await config()).productionWorkflows.some((item) => item.id === id));
+        const draft = await owner(
+          'POST',
+          `/workflow-catalogs/${familyId}/revisions`,
+          {
+            expectedVersion: 2,
+            summary: 'New draft',
+            definition,
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(draft.status, 201, JSON.stringify(draft.data));
+        assert.equal((await read(draft.data.id)).definition.reviewRequired, true);
+        assert.equal((await queue(draft.data.id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
+        assert.ok((await config()).productionWorkflows.some((item) => item.id === id));
+        const production = await queue(id);
+        assert.equal(production.status, 201, JSON.stringify(production.data));
+        const revoked = await release({
+          expectedVersion: 3,
+          action: 'revoke',
+          reason: 'Retire published revision',
+        });
+        assert.equal(revoked.status, 201, JSON.stringify(revoked.data));
+        assert.equal((await queue(id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
+        for (let index = 0; index < 3; index++) await app.get(GenerationWorker).tick();
+        const finished = (await owner('GET', `/generation-jobs/${production.data.id}`)).data;
+        assert.equal(finished.state, 'completed', JSON.stringify(finished));
+        assert.ok(finished.takeId);
+        const history = (await reviewer('GET', releasePath)).data;
+        assert.deepEqual(
+          history.items.map((event) => event.action),
+          ['revoke', 'publish'],
+        );
+        assert.equal(history.items[1].testJobId, evidence.id);
+        assert.throws(
+          () => db().prepare('DELETE FROM workflow_release_events WHERE id=?').run(revoked.data.id),
+          /immutable/,
+        );
+      },
+    );
+    await t.test(
       'history pagination and independent backup preserve catalogs and immutable definitions',
       async () => {
         let head = (await owner('GET', `/projects/${project.id}/generation-config`)).data.workflows.find(
@@ -536,6 +677,7 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
             'workflow_catalog_revisions',
             'generation_workflows',
             'generation_jobs',
+            'workflow_release_events',
           ]) {
             const key = name === 'workflow_catalog_revisions' ? 'workflow_id' : 'id';
             assert.deepEqual(
