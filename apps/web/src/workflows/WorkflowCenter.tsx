@@ -12,6 +12,8 @@ import {
 import { DependencyView, type Inspection } from './DependencyView';
 import { WorkflowReleaseDialog } from './WorkflowReleaseDialog';
 import { InstancePoolDialog } from './InstancePoolDialog';
+import { StudioButton } from '../shared/ui/StudioUI';
+import { StudioLibraryNav, type LibraryPane } from '../shared/ui/StudioLibraryNav';
 import './workflow-center.css';
 type History = {
   familyId: string;
@@ -29,10 +31,12 @@ type History = {
 };
 export default function WorkflowCenter({
   projectId,
+  theme,
   onClose,
   onUnauthorized,
 }: {
   projectId: string;
+  theme: 'light' | 'dark';
   onClose: () => void;
   onUnauthorized: () => void;
 }) {
@@ -52,8 +56,12 @@ export default function WorkflowCenter({
   const [inspectionName, setInspectionName] = useState('');
   const [releaseWorkflow, setReleaseWorkflow] = useState<Workflow>();
   const [showInstancePool, setShowInstancePool] = useState(false);
+  const [pane, setPane] = useState<LibraryPane>('list');
   const restoreAttempt = useState(() => ({ body: '', key: '' }))[0];
   const path = `/projects/${projectId}`;
+  const workflows = config?.workflows.filter((item) =>
+    `${item.name} ${capabilityLabels[item.capability]}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   function report(reason: unknown) {
     if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
       setConfig(undefined);
@@ -113,6 +121,7 @@ export default function WorkflowCenter({
     setEditorKey((key) => key + 1);
     setDirty(false);
     setInspection(undefined);
+    setPane('detail');
   }
   function requestEditor(id?: string) {
     setHistory(undefined);
@@ -133,11 +142,13 @@ export default function WorkflowCenter({
   return (
     <Dialog
       title="工作流中心"
-      description="管理员配置技术工作流，创作者在镜头中选择固定修订。此处不执行生成。"
+      description="导入 API JSON、配置画布可用参数，并对指定修订单独试跑。"
       onClose={close}
       busy={busy}
-      className="workflow-center-dialog"
+      className="studio-v2 v2-library workflow-center-dialog"
+      theme={theme}
     >
+      <StudioLibraryNav pane={pane} onChange={setPane} list="工作流列表" detail="工作流配置" />
       <div className="dialog-body">
         {error && (
           <p role="alert" className="notice error">
@@ -150,71 +161,71 @@ export default function WorkflowCenter({
           </p>
         )}
         {!config && !error && <p role="status">正在读取项目工作流…</p>}
-        <div className="workflow-center-layout">
-          <section aria-label="已保存的工作流">
-            <div className="section-heading">
-              <h3>已保存配置</h3>
-              <button disabled={busy} onClick={() => void run(refreshConfig)}>
+        <div className="v2-library-layout" data-pane={pane}>
+          <section className="v2-library-list" aria-label="已保存的工作流">
+            <div className="v2-library-heading">
+              <h3>项目工作流</h3>
+              <StudioButton variant="ghost" disabled={busy} onClick={() => void run(refreshConfig)}>
                 刷新列表
-              </button>
+              </StudioButton>
             </div>
             <input
               aria-label="搜索工作流"
+              type="search"
               maxLength={120}
               placeholder="搜索名称或生成方式"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
             {config?.canConfigure && (
-              <button disabled={busy} onClick={() => requestEditor()}>
-                新建工作流配置
-              </button>
-            )}
-            {config?.canConfigure && (
-              <button disabled={busy} onClick={() => setShowInstancePool(true)}>
-                管理实例池
-              </button>
+              <div className="v2-library-tools">
+                <StudioButton icon="plus" variant="primary" disabled={busy} onClick={() => requestEditor()}>
+                  新建工作流配置
+                </StudioButton>
+                <StudioButton variant="ghost" disabled={busy} onClick={() => setShowInstancePool(true)}>
+                  管理实例池
+                </StudioButton>
+              </div>
             )}
             <div className="workflow-saved-list">
-              {config?.workflows
-                .filter((item) =>
-                  `${item.name} ${capabilityLabels[item.capability]}`
-                    .toLowerCase()
-                    .includes(query.trim().toLowerCase()),
-                )
-                .map((item) => (
-                  <article className="panel" key={item.id}>
-                    <strong>
-                      {item.name} · v{item.revision ?? 1}
-                    </strong>
-                    <p>
-                      {capabilityLabels[item.capability]} ·{' '}
-                      {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
-                    </p>
-                    <p className="field-hint">
-                      {item.releaseState === 'published'
-                        ? '已发布'
-                        : item.releaseState === 'draft'
-                          ? '待审核发布'
-                          : '兼容配置'}
-                    </p>
-                    <p className="field-hint">
-                      {[
-                        ...item.parameters.map((parameter) => parameterLabels[parameter.key]),
-                        ...(item.fields ?? []).map((field) => field.label),
-                      ].join(' · ') || '使用工作流固定参数'}{' '}
-                      · {new Date(item.createdAt).toLocaleString()}
-                    </p>
-                    {item.familyId && (
-                      <button disabled={busy} onClick={() => setReleaseWorkflow(item)}>
-                        试跑与发布
-                      </button>
+              {workflows?.map((item) => (
+                <article className="panel" data-selected={editing?.id === item.id} key={item.id}>
+                  <strong>
+                    {item.name} · v{item.revision ?? 1}
+                  </strong>
+                  <p>
+                    {capabilityLabels[item.capability]} ·{' '}
+                    {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
+                  </p>
+                  <span className="v2-workflow-status">
+                    {item.releaseState === 'published'
+                      ? '已发布'
+                      : item.releaseState === 'draft'
+                        ? '待审核发布'
+                        : '兼容配置'}
+                  </span>
+                  <p className="field-hint v2-workflow-metadata">
+                    {[
+                      ...item.parameters.map((parameter) => parameterLabels[parameter.key]),
+                      ...(item.fields ?? []).map((field) => field.label),
+                    ].join(' · ') || '使用工作流固定参数'}
+                  </p>
+                  <div className="v2-library-tools">
+                    {config?.canConfigure && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => requestEditor(item.id)}>
+                        查看 / 修订
+                      </StudioButton>
                     )}
-                    {config.canConfigure && (
+                    {item.familyId && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => setReleaseWorkflow(item)}>
+                        试跑与发布
+                      </StudioButton>
+                    )}
+                  </div>
+                  {config?.canConfigure && (
+                    <details className="v2-workflow-more">
+                      <summary>管理此配置</summary>
                       <div className="workflow-map-actions">
-                        <button disabled={busy} onClick={() => requestEditor(item.id)}>
-                          查看 / 修订
-                        </button>
                         <button
                           disabled={busy || !item.familyId}
                           onClick={() => void run(() => openHistory(item))}
@@ -249,26 +260,27 @@ export default function WorkflowCenter({
                               );
                               setInspection(value);
                               setInspectionName(`${item.name} · 固定 v${item.revision ?? 1}`);
+                              setPane('detail');
                             })
                           }
                         >
                           检查已保存依赖
                         </button>
                       </div>
-                    )}
-                  </article>
-                ))}
+                    </details>
+                  )}
+                </article>
+              ))}
             </div>
-            {config && !config.workflows.length && (
+            {workflows?.length === 0 && (
               <p className="field-hint">
-                尚无工作流配置。管理员导入API JSON并通过绑定校验后，即可在镜头生成中选择。
+                {query.trim()
+                  ? '没有匹配的工作流。'
+                  : '尚无工作流。导入 API JSON 并保存绑定后，可在画布中使用。'}
               </p>
             )}
-            <p className="field-hint">
-              修改和回滚追加新修订，历史任务保持原引用。技术校验不等于正式审批或真实生成成功。归档与历史恢复前请先保存或明确放弃当前草稿。
-            </p>
           </section>
-          <section aria-label="配置工作流">
+          <section className="v2-library-detail" aria-label="配置工作流">
             {inspection && (
               <>
                 <p>{inspectionName}</p>
@@ -277,7 +289,11 @@ export default function WorkflowCenter({
             )}
             {config?.canConfigure ? (
               <>
-                <h3>{editing ? `修订配置 · 固定 v${editing.catalog.revision}` : '新建配置'}</h3>
+                <div className="v2-library-heading">
+                  <h3>
+                    {editing ? `${editing.definition.name} · v${editing.catalog.revision}` : '新建配置'}
+                  </h3>
+                </div>
                 {editing && (
                   <div className="workflow-editor-heading">
                     <p className="field-hint">
@@ -303,7 +319,7 @@ export default function WorkflowCenter({
                   run={run}
                   refreshConfig={refreshConfig}
                   setMessage={setMessage}
-                  expanded
+                  theme={theme}
                   requireRelease
                   onDraftChange={setDirty}
                   editing={editing}
@@ -321,14 +337,18 @@ export default function WorkflowCenter({
         </div>
       </div>
       <div className="dialog-footer">
-        <span className="field-hint">{dirty ? '有未保存的配置输入' : '生成任务仍在原镜头入口创建'}</span>
-        <button disabled={busy} onClick={close}>
+        <span className="field-hint">
+          {dirty ? '有未保存的配置输入' : '画布任务使用提交时固定的工作流版本'}
+        </span>
+        <StudioButton disabled={busy} onClick={close}>
           关闭工作流中心
-        </button>
+        </StudioButton>
       </div>
       {leaving && (
         <Dialog
           title="离开工作流配置"
+          className="studio-v2 v2-library v2-library-aux"
+          theme={theme}
           description="尚有未保存的配置输入，离开会丢弃当前草稿。"
           onClose={() => setLeaving(false)}
         >
@@ -341,6 +361,8 @@ export default function WorkflowCenter({
       {pending && (
         <Dialog
           title="切换工作流配置"
+          className="studio-v2 v2-library v2-library-aux"
+          theme={theme}
           description="切换将丢弃当前未保存草稿；服务器历史修订不会删除。"
           onClose={() => setPending(undefined)}
         >
@@ -362,6 +384,8 @@ export default function WorkflowCenter({
       {history && (
         <Dialog
           title="工作流修订历史"
+          className="studio-v2 v2-library v2-library-aux"
+          theme={theme}
           description="查看旧版本或恢复为新的修订，不覆盖已有定义。"
           onClose={() => setHistory(undefined)}
         >
@@ -416,6 +440,7 @@ export default function WorkflowCenter({
       )}
       {showInstancePool && config?.canConfigure && (
         <InstancePoolDialog
+          theme={theme}
           config={config}
           onRefresh={refreshConfig}
           onClose={() => setShowInstancePool(false)}
@@ -423,6 +448,7 @@ export default function WorkflowCenter({
       )}
       {releaseWorkflow && (
         <WorkflowReleaseDialog
+          theme={theme}
           workflow={releaseWorkflow}
           projectId={projectId}
           onClose={() => setReleaseWorkflow(undefined)}
@@ -432,6 +458,8 @@ export default function WorkflowCenter({
       {restoring && history && (
         <Dialog
           title="从历史创建新修订"
+          className="studio-v2 v2-library v2-library-aux"
+          theme={theme}
           description={`将固定v${restoring.revision}配置重新验证并追加为新版本；旧任务和历史保留。`}
           onClose={() => setRestoring(undefined)}
           busy={busy}

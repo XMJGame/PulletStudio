@@ -50,11 +50,13 @@ function EvidencePreview({ job }: { job: GenerationJob }) {
 
 export function WorkflowReleaseDialog({
   workflow,
+  theme,
   projectId,
   onClose,
   onChanged,
 }: {
   workflow: Workflow;
+  theme: 'light' | 'dark';
   projectId: string;
   onClose: () => void;
   onChanged: () => Promise<void>;
@@ -110,6 +112,8 @@ export function WorkflowReleaseDialog({
   return (
     <Dialog
       title="试跑与发布"
+      className="studio-v2 v2-library v2-library-aux"
+      theme={theme}
       description={`${workflow.name} · 固定修订 v${workflow.revision ?? 1}`}
       busy={busy}
       onClose={onClose}
@@ -291,6 +295,7 @@ export function WorkflowReleaseDialog({
       </div>
       {freeTrial && (
         <GenerationDialog
+          theme={theme}
           creation={{ projectId }}
           testWorkflow={workflow}
           onClose={() => {

@@ -1268,6 +1268,7 @@ export default function BoardWorkspace({
       )}
       {freeGeneration && !denied && (
         <GenerationDialog
+          theme={theme}
           creation={{
             projectId,
             boardId: base?.id,
@@ -1306,6 +1307,7 @@ export default function BoardWorkspace({
       )}
       {promptLibrary && !denied && (
         <PromptLibraryDialog
+          theme={theme}
           projectId={projectId}
           initialDraft={promptLibrary.draft}
           onClose={() => setPromptLibrary(undefined)}

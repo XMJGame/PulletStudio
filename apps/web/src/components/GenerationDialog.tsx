@@ -108,10 +108,12 @@ const errors: Record<string, string> = {
 };
 export function GenerationDialog({
   onClose,
+  theme = 'light',
   testWorkflow,
   creation,
 }: {
   onClose: () => void;
+  theme?: 'light' | 'dark';
   testWorkflow?: Workflow;
   creation: {
     projectId: string;
@@ -852,6 +854,7 @@ export function GenerationDialog({
       </div>
       {library && (
         <PromptLibraryDialog
+          theme={theme}
           projectId={creation.projectId}
           initialDraft={
             library === 'save'

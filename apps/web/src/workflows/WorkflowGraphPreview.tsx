@@ -10,11 +10,13 @@ export default function WorkflowGraphPreview({
   capability,
   onBind,
   disabled,
+  theme,
 }: {
   graph: WorkflowGraph;
   bindings: Record<string, string>;
   capability: string;
   disabled: boolean;
+  theme: 'light' | 'dark';
   onBind: (role: Bind, node: string, input?: string) => void;
 }) {
   const [selected, setSelected] = useState('');
@@ -82,7 +84,7 @@ export default function WorkflowGraphPreview({
   const text = current && Object.hasOwn(current.inputs, input) && typeof current.inputs[input] === 'string';
   return (
     <section className="workflow-graph-preview" aria-label="API工作流技术预览">
-      <p className="field-hint">只读技术图：选择节点查看输入，明确设置映射；此处不执行生成，不修改原图。</p>
+      <p className="field-hint">选择节点查看输入并设置映射。技术图保留导入时的节点和连线。</p>
       {analysis.error && (
         <p role="alert" className="notice error">
           {analysis.error}
@@ -130,7 +132,7 @@ export default function WorkflowGraphPreview({
               fitView
               minZoom={0.12}
               maxZoom={2}
-              colorMode="dark"
+              colorMode={theme}
               onNodeClick={(_, node) => {
                 setSelected(node.id);
                 setInput('');
@@ -206,6 +208,12 @@ export default function WorkflowGraphPreview({
               设为输出节点
             </button>
           </div>
+        </div>
+      )}
+      {model && !current && (
+        <div className="workflow-node-inspector workflow-node-empty">
+          <h4>节点映射</h4>
+          <p className="field-hint">从图上选择节点，或用上方列表定位。</p>
         </div>
       )}
     </section>

@@ -200,9 +200,13 @@ test('prompt library revises with conflict recovery, clipboard and revoked read 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/prompt-library-mobile.png' });
   expect(await library.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await library.getByRole('button', { name: '提示词列表', exact: true }).click();
   await library.getByLabel('搜索提示词').fill('Remote newer');
   await library.getByLabel('筛选标签').fill('scene');
   await expect(library.getByRole('button', { name: /Station lighting · v2/ })).toHaveCount(1);
+  await library.getByRole('button', { name: '提示词内容', exact: true }).click();
+  await expect(library.getByLabel('库正向提示词')).toBeVisible();
+  await expect(library.getByLabel('库正向提示词')).toHaveValue('A station in evening light');
 
   const reader = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
@@ -326,11 +330,13 @@ test('project workflow center imports, visualizes and maps existing API fields w
   const value = await project('Workflow setup');
   await open(page, value);
   const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  await dialog.getByText('ComfyUI 连接', { exact: true }).click();
   await dialog.getByLabel('连接名称', { exact: true }).fill('Local validation fixture');
   await dialog.getByLabel('ComfyUI 基础地址', { exact: true }).fill(remote.baseUrl);
   await dialog.getByLabel('批准自部署 HTTP 或私有网络地址').check();
   await dialog.getByRole('button', { name: '添加连接', exact: true }).click();
   await expect(dialog.getByRole('status')).toContainText('已添加生成连接');
+  await dialog.getByText('ComfyUI 连接', { exact: true }).click();
   const graph = fixtureWorkflow('').graph,
     content = JSON.stringify(graph),
     requests = remote.mock.requests.length;
@@ -360,7 +366,6 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Mapped studio workflow');
   await dialog.getByLabel('选择工作流节点', { exact: true }).selectOption('3');
   await dialog.getByRole('button', { name: '设为输出节点' }).click();
-  await page.screenshot({ path: 'test-results/workflow-center-desktop.png' });
   await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
   await expect(dialog.getByRole('status')).toContainText('工作流的绑定节点已验证并保存');
   await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText(
@@ -368,12 +373,23 @@ test('project workflow center imports, visualizes and maps existing API fields w
   );
   expect(remote.mock.submissions).toHaveLength(0);
   expect(remote.mock.requests.some((path) => path.startsWith('/object_info/'))).toBeTruthy();
+  await dialog.getByRole('button', { name: '预览节点图' }).click();
+  await dialog.getByLabel('选择工作流节点').selectOption('1');
+  await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/workflow-center-desktop.png', animations: 'disabled' });
   await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
   await openCenter(page);
+  await expect(dialog).toHaveAttribute('data-theme', 'dark');
   await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText(
     'Mapped studio workflow',
   );
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await dialog.getByRole('button', { name: '预览节点图', exact: true }).click();
+  await dialog.getByLabel('选择工作流节点').selectOption('3');
+  await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/workflow-center-dark.png', animations: 'disabled' });
 });
 test('readonly users see existing workflow summaries without connection credentials or configuration controls', async ({
   page,
@@ -450,9 +466,16 @@ test('invalid files preserve drafts; untrusted graph text never becomes external
   await expect(dialog.getByRole('alert')).toContainText('API');
   await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(content);
   await page.setViewportSize({ width: 390, height: 844 });
+  await dialog.getByRole('button', { name: '工作流配置', exact: true }).click();
   await dialog.getByLabel('选择工作流节点').selectOption('a');
   await dialog.getByLabel('节点常量输入').selectOption('text');
   await dialog.getByRole('button', { name: '设为正向文本' }).click();
+  await dialog.getByRole('button', { name: '工作流列表', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toBeVisible();
+  await dialog.getByRole('button', { name: '工作流配置', exact: true }).click();
+  await expect(dialog.getByLabel('正向文本节点', { exact: true })).toHaveValue('a');
+  await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(content);
+  await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-mobile.png' });
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
   await dialog.getByRole('button', { name: '关闭工作流中心' }).click();
@@ -489,6 +512,7 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   expect((await api('GET', `/generation-workflows/${first.id}/definition`)).definition.fields[0].label).toBe(
     '补充描述',
   );
+  await dialog.getByText('管理此配置', { exact: true }).click();
   await dialog.getByRole('button', { name: '检查已保存依赖' }).click();
   await expect(dialog.getByRole('region', { name: '工作流依赖报告' })).toContainText('声明匹配');
   const current = await api('GET', `/workflow-catalogs/${first.familyId}/definition`);
@@ -508,6 +532,7 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   await dialog.getByRole('button', { name: '载入最新配置' }).click();
   await page.getByRole('button', { name: '丢弃草稿并切换' }).click();
   await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Remote writer revision');
+  await dialog.getByText('管理此配置', { exact: true }).click();
   await dialog.getByRole('button', { name: '修订历史', exact: true }).click();
   await page.getByRole('button', { name: '恢复 v1 为新修订', exact: true }).click();
   await page.getByRole('button', { name: '确认恢复为新修订', exact: true }).click();
@@ -515,6 +540,7 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   const restored = await api('GET', `/workflow-catalogs/${first.familyId}/definition`);
   expect(restored.catalog.revision).toBe(4);
   expect(restored.definition.fields[0].label).toBe('补充描述');
+  await dialog.getByText('管理此配置', { exact: true }).click();
   await dialog.getByRole('button', { name: '归档目录', exact: true }).click();
   await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText('已归档');
   expect((await api('GET', `/projects/${value.id}/generation-config`)).workflows[0].enabled).toBeFalsy();

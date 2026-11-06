@@ -499,6 +499,7 @@ function App() {
         <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>
           <WorkflowCenter
             key={projectId}
+            theme={theme}
             projectId={projectId}
             onClose={() => setShowWorkflowCenter(false)}
             onUnauthorized={() => setUser(undefined)}
