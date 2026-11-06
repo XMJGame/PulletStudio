@@ -162,7 +162,7 @@ test('resource filters search the full project and ignore stale pages after a ca
   await open(page, value);
   await createBoard(page, 'Filtered references');
   const sources = page.getByRole('complementary', { name: '正式项目资源' });
-  const cards = sources.locator('.creative-source-list > button');
+  const cards = sources.locator('.creative-source-list .creative-source-card');
   await expect(sources.getByRole('button', { name: '媒体', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -334,10 +334,221 @@ test('actual browser zoom preserves canvas, inline prompts and save at 125 and 1
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: `test-results/browser-zoom-${Math.round(factor * 100)}.png` });
       await picker.getByRole('button', { name: '收起提示词选择', exact: true }).click();
+      await page.getByRole('button', { name: '预览 image.png', exact: true }).click();
+      const resourcePreview = page.getByRole('region', { name: '资源预览' });
+      await expect(resourcePreview.getByRole('img')).toBeVisible();
+      await expect(resourcePreview.getByRole('button', { name: '返回资源列表' })).toBeInViewport();
+      await page.screenshot({ path: `test-results/resource-preview-zoom-${Math.round(factor * 100)}.png` });
+      await resourcePreview.getByRole('button', { name: '返回资源列表' }).click();
       if (factor === 1.25) await page.getByRole('button', { name: '深色画布', exact: true }).click();
     }
   } finally {
     await context.close();
+  }
+});
+
+test('resource previews keep fixed media outside the canvas and let read-only users inspect files', async ({
+  page,
+}) => {
+  const value = await project('Resource preview studies');
+  const image = await uploadMedia(value.id, 'image.png');
+  await uploadMedia(value.id, 'clip.mp4');
+  await uploadMedia(value.id, 'sound.wav');
+  await open(page, value);
+  const id = await createBoard(page, 'Preview without pinning');
+  const sources = page.getByRole('complementary', { name: '正式项目资源' });
+  const preview = sources.getByRole('region', { name: '资源预览' });
+  await sources.getByRole('button', { name: '预览 image.png', exact: true }).click();
+  await expect(preview.getByRole('img', { name: '项目资源预览' })).toBeVisible();
+  await expect(preview).toContainText('96×64');
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  await page.keyboard.press('Escape');
+  await expect(sources.getByRole('button', { name: '预览 image.png', exact: true })).toBeFocused();
+  await sources.getByRole('button', { name: '预览 clip.mp4', exact: true }).click();
+  await expect
+    .poll(() => preview.locator('video').evaluate((element: HTMLVideoElement) => element.videoWidth))
+    .toBe(96);
+  const download = await owner.get(
+    (await preview.getByRole('link', { name: '下载固定版本原件' }).getAttribute('href')) as string,
+  );
+  expect(download.ok()).toBeTruthy();
+  expect(await download.body()).toEqual(fixtures['clip.mp4'].bytes);
+  await page.screenshot({ path: 'test-results/source-preview-video.png' });
+  await preview.getByRole('button', { name: '返回资源列表' }).click();
+  await expect(sources.locator('video')).toHaveCount(0);
+  await sources.getByRole('button', { name: '预览 sound.wav', exact: true }).click();
+  await expect(preview.locator('audio')).toBeVisible();
+  await preview.getByRole('button', { name: '返回资源列表' }).click();
+  await page.route(`**${image.contentUrl}`, (route) => route.abort());
+  await sources.getByRole('button', { name: '预览 image.png', exact: true }).click();
+  await expect(preview.getByRole('alert')).toContainText('预览无法读取');
+  await expect(preview.locator('img')).toHaveCount(0);
+  await expect(preview.getByRole('link')).toHaveCount(0);
+  await page.unroute(`**${image.contentUrl}`);
+  await preview.getByRole('button', { name: '重新读取预览' }).click();
+  await expect(preview.getByRole('img')).toBeVisible();
+  await preview.getByRole('button', { name: '添加到画布', exact: true }).click();
+  await expect(preview.getByRole('status')).toContainText('已添加到画布草稿');
+  await save(page);
+  const saved = await call('GET', `/boards/${id}`);
+  expect(saved.layout.nodes[0].data.ref.id).toBe(image.id);
+  const invite = await call('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+    email: `preview-${randomUUID()}@board.test`,
+  });
+  const reader = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  try {
+    const joined = await (
+      await reader.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Preview reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      })
+    ).json();
+    await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+    await page.goto('about:blank');
+    await open(page, value, reader, joined.user.id);
+    await expect(sources.getByRole('button', { name: '添加 image.png', exact: true })).toBeDisabled();
+    await sources.getByRole('button', { name: '预览 image.png', exact: true }).click();
+    await expect(preview.getByRole('img')).toBeVisible();
+    await expect(preview.getByRole('button', { name: '添加到画布', exact: true })).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '资源库', exact: true }).click();
+    await sources.getByRole('button', { name: '预览 image.png', exact: true }).click();
+    await expect(preview.getByRole('img')).toBeVisible();
+    await page.screenshot({ path: 'test-results/source-preview-readonly-mobile.png' });
+    await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+    await preview.getByRole('button', { name: '返回资源列表' }).click();
+    await sources.getByRole('button', { name: '预览 image.png', exact: true }).click();
+    await expect(page.getByRole('main', { name: '创作画布' })).toContainText('画布或项目已不可访问');
+    expect((await call('GET', `/boards/${id}`)).layout).toEqual(saved.layout);
+  } finally {
+    await reader.dispose();
+  }
+});
+
+test('candidate review compares fixed results and keeps selection while new jobs arrive', async ({
+  page,
+  playwright,
+}, testInfo) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const value = await project('Candidate review studies');
+    const image = await uploadMedia(value.id, 'image.png');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Review fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Compare generated motion');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    const jobIds = [];
+    for (const prompt of ['A slow camera movement toward the coast', 'A still camera watching the harbor']) {
+      await panel.getByLabel('生成提示词').fill(prompt);
+      await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+      await expect
+        .poll(async () => (await call('GET', `/projects/${value.id}/generation-jobs`)).items.length)
+        .toBe(jobIds.length + 1);
+      const latest = (await call('GET', `/projects/${value.id}/generation-jobs`)).items[0];
+      await expect
+        .poll(async () => (await call('GET', `/generation-jobs/${latest.id}`)).state, { timeout: 20000 })
+        .toBe('completed');
+      jobIds.push(latest.id);
+      await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+      await expect(panel.getByRole('article', { name: '当前候选', exact: true })).toHaveAttribute(
+        'data-job-id',
+        latest.id,
+      );
+    }
+    await panel.getByText(/历史任务 ·/).click();
+    await panel.getByRole('button', { name: `查看候选 ${jobIds[0]}`, exact: true }).click();
+    const primary = panel.getByRole('article', { name: '当前候选', exact: true });
+    const secondary = panel.getByRole('article', { name: '对照结果', exact: true });
+    await expect(primary).toHaveAttribute('data-job-id', jobIds[0]);
+    await panel.getByRole('button', { name: '对照结果', exact: true }).click();
+    await expect(secondary).toHaveAttribute('data-job-id', jobIds[1]);
+    await expect(panel.locator('video')).toHaveCount(2);
+    await expect
+      .poll(() => primary.locator('video').evaluate((element: HTMLVideoElement) => element.videoWidth))
+      .toBe(96);
+    await expect
+      .poll(() => secondary.locator('video').evaluate((element: HTMLVideoElement) => element.videoWidth))
+      .toBe(96);
+    await primary.getByText('此次生成记录', { exact: true }).click();
+    await expect(primary).toContainText('A slow camera movement toward the coast');
+    await panel.getByRole('button', { name: '本节点任务', exact: true }).click();
+    await page.screenshot({ path: 'test-results/candidates-compare-desktop.png' });
+    const head = await call('GET', `/boards/${boardId}`);
+    const nodeId = head.layout.nodes.find((item: any) => item.type === 'generation').id;
+    const path = `/boards/${boardId}/nodes/${nodeId}/generation-jobs`;
+    const third = await call('POST', path, { expectedRevision: head.revision, confirmed: true });
+    await expect
+      .poll(async () => (await call('GET', `/generation-jobs/${third.id}`)).state, { timeout: 20000 })
+      .toBe('completed');
+    await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+    await expect(panel.getByRole('button', { name: `查看候选 ${third.id}` })).toBeVisible();
+    await expect(primary).toHaveAttribute('data-job-id', jobIds[0]);
+    await expect(secondary).toHaveAttribute('data-job-id', jobIds[1]);
+    await primary.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(primary.getByText('已存入素材库', { exact: true })).toBeVisible();
+    expect((await call('GET', `/generation-jobs/${jobIds[1]}`)).inLibrary).toBe(false);
+    await primary.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await expect(primary.getByRole('button', { name: '加入画布结果', exact: true })).toBeDisabled();
+    await primary.getByRole('button', { name: '复用此次提示词', exact: true }).click();
+    await expect(panel.getByLabel('生成提示词')).toHaveValue('A slow camera movement toward the coast');
+    await save(page);
+    const saved = await call('GET', `/boards/${boardId}`);
+    expect(
+      saved.layout.nodes.filter((item: any) => item.type === 'result').map((item: any) => item.data.jobId),
+    ).toEqual([jobIds[0]]);
+    expect(saved.layout.nodes.find((item: any) => item.type === 'reference').data.ref.id).toBe(image.id);
+    expect((await call('GET', `/generation-jobs/${jobIds[1]}`)).prompt.positivePrompt).toBe(
+      'A still camera watching the harbor',
+    );
+    expect((await call('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(3);
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await primary.getByRole('button', { name: '复用此次提示词', exact: true }).scrollIntoViewIfNeeded();
+    await expect(primary.getByRole('button', { name: '复用此次提示词', exact: true })).toBeInViewport();
+    await page.screenshot({ path: 'test-results/candidates-compare-mobile.png' });
+    await panel.getByRole('button', { name: '结束对照', exact: true }).click();
+    await expect(panel.locator('video')).toHaveCount(1);
+    const { context, setZoom } = await zoomBrowser(
+      playwright.chromium,
+      testInfo.outputPath('candidate-zoom'),
+    );
+    try {
+      const zoomed = await context.newPage();
+      await open(zoomed, value);
+      await expect(zoomed.getByLabel('当前画布名称')).toHaveValue('Compare generated motion');
+      await zoomed.locator(`.react-flow__node[data-id="${nodeId}"]`).click();
+      const review = zoomed.getByRole('region', { name: '生成节点设置' });
+      await review.getByText(/历史任务 ·/).click();
+      await review.getByRole('button', { name: `查看候选 ${jobIds[0]}`, exact: true }).click();
+      await review.getByRole('button', { name: '对照结果', exact: true }).click();
+      for (const factor of [1.25, 1.5]) {
+        expect(await setZoom(zoomed.url(), factor)).toBe(factor);
+        await expect.poll(() => zoomed.evaluate(() => innerWidth)).toBe(Math.round(1440 / factor));
+        const active = review.getByRole('article', { name: '当前候选', exact: true });
+        await active.getByRole('button', { name: '复用此次提示词' }).scrollIntoViewIfNeeded();
+        await expect(active.getByRole('button', { name: '复用此次提示词' })).toBeInViewport();
+        await expect(review.locator('video')).toHaveCount(2);
+        expect(await zoomed.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await zoomed.screenshot({ path: `test-results/candidate-zoom-${Math.round(factor * 100)}.png` });
+        if (factor === 1.25) await zoomed.getByRole('button', { name: '深色画布' }).click();
+      }
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await remote.close();
   }
 });
 
@@ -1198,8 +1409,10 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await expect(view.getByRole('button', { name: '加入画布结果', exact: true })).toHaveCount(0);
       await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
       await view.getByRole('button', { name: '刷新节点任务', exact: true }).click();
-      await expect(view.getByRole('alert')).toBeVisible();
-      await expect(view.locator('video')).toHaveCount(0);
+      await expect(readonly.getByRole('main', { name: '创作画布' }).getByRole('alert').first()).toContainText(
+        /无权|不可访问/,
+      );
+      await expect(readonly.locator('video')).toHaveCount(0);
     } finally {
       await context.close();
       await actor.dispose();

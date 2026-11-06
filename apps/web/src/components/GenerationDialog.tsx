@@ -48,6 +48,7 @@ export type GenerationJob = {
   result: {
     mediaType: 'image' | 'video';
     contentUrl: string;
+    posterUrl?: string | null;
     metadata: {
       width: number | null;
       height: number | null;

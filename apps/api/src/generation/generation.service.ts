@@ -460,7 +460,12 @@ export class GenerationService {
       })),
       workflowRevision: catalogState(this.database, row.workflowId)?.revision ?? 1,
       result: result
-        ? { mediaType: result.mediaType, metadata: result.metadata, contentUrl: result.contentUrl }
+        ? {
+            mediaType: result.mediaType,
+            metadata: result.metadata,
+            contentUrl: result.contentUrl,
+            posterUrl: result.posterUrl,
+          }
         : null,
       workflowName: workflow.name,
       capability: workflow.capability,

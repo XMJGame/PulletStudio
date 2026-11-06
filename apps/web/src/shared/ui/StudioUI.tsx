@@ -23,6 +23,7 @@ const glyphs = {
   check: 'm5 12 4 4L19 6',
   alert: 'M12 9v4m0 4h.01M12 3 2.5 20h19L12 3Z',
   play: 'm9 5 11 7-11 7V5Z',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Zm7 0a3 3 0 1 0 6 0 3 3 0 0 0-6 0Z',
   film: 'M4 4h16v16H4zm4 0v16m8-16v16M4 9h4m-4 6h4m8-6h4m-4 6h4',
   fit: 'M9 4H4v5m11-5h5v5m0 6v5h-5m-6 0H4v-5',
   minus: 'M5 12h14',

@@ -1161,8 +1161,9 @@ export default function BoardWorkspace({
                 editable={editable}
                 refresh={refresh}
                 add={(source) => {
-                  if (add('reference', source) && window.matchMedia('(max-width: 760px)').matches)
-                    setShowSources(false);
+                  const added = add('reference', source);
+                  if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
+                  return Boolean(added);
                 }}
                 onDragSource={(source) => {
                   draggedResource.current = source;
@@ -1170,7 +1171,7 @@ export default function BoardWorkspace({
                 onImport={() => setMediaLibrary(true)}
                 onClose={() => setShowSources(false)}
                 report={(reason) => {
-                  if (reason instanceof ApiError && [401, 403].includes(reason.status)) report(reason);
+                  if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
                 }}
               />
             )}

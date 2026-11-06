@@ -260,6 +260,7 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
         await app.get(GenerationWorker).tick();
         queued = (await owner('GET', `/generation-jobs/${queued.id}`)).data;
         assert.equal(queued.state, 'completed');
+        assert.match(queued.result.posterUrl, /\/poster$/);
         assert.equal(queued.inLibrary, false);
         const resultNode = { ...node('result', { jobId: queued.id }), id: queued.id };
         layout.nodes.push(resultNode);

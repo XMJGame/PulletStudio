@@ -60,6 +60,8 @@ G2-A2在generation/追加workflow-catalog.service/controller/state管理原不�
 
 `canvas/useBoardSources` 管理资源查询、分页与过期响应隔离，`BoardSources` 只处理展示和筛选。`prompts/PromptLibraryPicker` 负责就地选用固定版本，`PromptLibraryDialog` 保留编辑管理，两者共用原 Prompt Library API 与类型；固定应用逻辑在 BoardWorkspace 复用。`tests/fixtures/browser-zoom.mjs` 仅在独立测试配置目录创建临时扩展和浏览器，用于实际页面缩放，不进入产品构建。
 
+`canvas/BoardCandidates` 管理候选主预览、历史选择及双结果对照；执行、任务读取与入库由 `BoardExecutionPanel` 沿用原接口。`canvas/BoardSourcePreview` 负责资源库中的固定版本预览与错误清理，不创建新的媒体记录。两个组件都属于正式 Board，不接入冻结的评审原型。
+
 ## 本轮实际整理
 
 1. 完成标准交付包并单独提交，业务与文档整理分开追溯。

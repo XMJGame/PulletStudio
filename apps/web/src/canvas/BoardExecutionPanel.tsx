@@ -6,7 +6,8 @@ import type {
   BoardView,
 } from '../../../../packages/contracts/src/board';
 import { api, ApiError, CursorPage } from '../api';
-import { GenerationJob, generationStates } from '../components/GenerationDialog';
+import { GenerationJob } from '../components/GenerationDialog';
+import { BoardCandidates } from './BoardCandidates';
 import { parameterLabels } from '../components/GenerationParameters';
 import { CreativeParameters } from '../workflows/CreativeParameters';
 import { GenerationConfig, capabilityLabels } from '../workflows/workflow-types';
@@ -465,36 +466,52 @@ export function BoardExecutionPanel({
         {children}
         {jobs && (jobs.items.length > 0 || jobs.nextCursor) ? (
           <section className="v2-live-candidates" aria-label="节点任务与候选" ref={candidates} tabIndex={-1}>
-            <h4>任务与候选</h4>
-            {jobs.items.slice(0, 1).map(renderJob)}
-            {(jobs.items.length > 1 || jobs.nextCursor) && (
-              <details className="creative-advanced">
-                <summary>历史任务</summary>
-                {jobs.items.slice(1).map(renderJob)}
-                {jobs.nextCursor && (
-                  <StudioButton
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() =>
-                      void api<CursorPage<GenerationJob>>(`${path}?cursor=${jobs.nextCursor}`)
-                        .then((more) => {
-                          expanded.current = true;
-                          setJobs((old) => ({
-                            ...more,
-                            items: [
-                              ...(old?.items ?? []),
-                              ...more.items.filter((item) => !old?.items.some((row) => row.id === item.id)),
-                            ],
-                          }));
-                        })
-                        .catch(report)
-                    }
-                  >
-                    更多节点任务
-                  </StudioButton>
-                )}
-              </details>
-            )}
+            <BoardCandidates
+              jobs={jobs}
+              layout={layout}
+              editable={editable}
+              busy={busy}
+              onResult={onResult}
+              onReuse={(job) => {
+                if (!editable || !job.prompt) return;
+                onPromptChange({ ...job.prompt, promptLibraryRevisionId: job.promptLibrary?.revisionId });
+              }}
+              onArchive={(job) => {
+                if (!editable || busy) return;
+                setBusy(true);
+                setError('');
+                void api<GenerationJob>(`/generation-jobs/${job.id}/save-to-library`, 'POST', {})
+                  .then((saved) => {
+                    setJobs(
+                      (value) =>
+                        value && {
+                          ...value,
+                          items: value.items.map((item) => (item.id === saved.id ? saved : item)),
+                        },
+                    );
+                    onSavedToLibrary();
+                  })
+                  .catch(report)
+                  .finally(() => setBusy(false));
+              }}
+              onMore={() => {
+                if (busy || !jobs.nextCursor) return;
+                setBusy(true);
+                void api<CursorPage<GenerationJob>>(`${path}?cursor=${jobs.nextCursor}`)
+                  .then((more) => {
+                    expanded.current = true;
+                    setJobs((old) => ({
+                      ...more,
+                      items: [
+                        ...(old?.items ?? []),
+                        ...more.items.filter((item) => !old?.items.some((row) => row.id === item.id)),
+                      ],
+                    }));
+                  })
+                  .catch(report)
+                  .finally(() => setBusy(false));
+              }}
+            />
           </section>
         ) : null}
       </div>
@@ -578,69 +595,4 @@ export function BoardExecutionPanel({
       </footer>
     </section>
   );
-
-  function renderJob(job: GenerationJob) {
-    return (
-      <article className="v2-live-candidate" key={job.id}>
-        <header>
-          <strong data-state={job.state} aria-live="polite">
-            {generationStates[job.state] ?? job.state}
-          </strong>
-          <small>
-            画布 v{job.boardExecution?.revision} · {new Date(job.createdAt).toLocaleString()}
-          </small>
-        </header>
-        {job.errorCode && <p role="status">生成遇到问题，请在任务与候选中查看并处理。</p>}
-        {job.result &&
-          (job.result.mediaType === 'image' ? (
-            <img src={job.result.contentUrl} alt="节点生成结果" loading="lazy" />
-          ) : (
-            <video src={job.result.contentUrl} aria-label="节点生成视频" controls preload="metadata" />
-          ))}
-        <div className="v2-live-inline">
-          {editable && (
-            <StudioButton
-              icon="plus"
-              disabled={
-                busy ||
-                layout.nodes.some((n) => n.type === 'result' && n.data.jobId === job.id) ||
-                layout.nodes.length >= 100
-              }
-              onClick={() => onResult(job)}
-            >
-              加入画布结果
-            </StudioButton>
-          )}
-          {editable && job.state === 'completed' && !job.inLibrary && (
-            <StudioButton
-              icon="folder"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                setError('');
-                void api(`/generation-jobs/${job.id}/save-to-library`, 'POST', {})
-                  .then(async () => {
-                    setJobs(
-                      (value) =>
-                        value && {
-                          ...value,
-                          items: value.items.map((item) =>
-                            item.id === job.id ? { ...item, inLibrary: true } : item,
-                          ),
-                        },
-                    );
-                    onSavedToLibrary();
-                  })
-                  .catch(report)
-                  .finally(() => setBusy(false));
-              }}
-            >
-              存入素材库
-            </StudioButton>
-          )}
-          {job.inLibrary && <small>已存入素材库</small>}
-        </div>
-      </article>
-    );
-  }
 }
