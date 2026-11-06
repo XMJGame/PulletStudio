@@ -2,15 +2,15 @@
 
 Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Drizzle和SQLite。Provider与Storage保留独立边界，工作区/项目权限从第一版实施。
 
-**当前已具备基础生产链，尚未完成团队V1与正式部署验收。** 已实现原文导入、AI分镜草案及人工采纳、完整镜头卡/提示词、媒体导入/生成、资产版本、Take审核/选片、标准交付包及可选低清预演。G1正式画布已接入项目/单元、固定镜头/资产/媒体版本、修订/CAS及原权限。官方MiniMax H3单首帧I2V已实机验收；文本/T2I/T2V主要由Mock验收。G2画布生成闭环、多独立ComfyUI实例、团队指派/批次/评论、Mounted/S3和正式部署仍待开发。
+基础生产链覆盖原文导入、AI 分镜草案、完整镜头卡、提示词、媒体生成、资产版本、候选审核、选片和标准交付。正式画布支持镜头生成与候选比较。官方 MiniMax H3 单首帧 I2V 已独立实机验收，画布闭环使用 Mock。多实例调度、团队批次和正式部署仍在计划中。
 
 产品入口为生产工作台和正式创作画布，正式剪辑/调色/转场/合成/混音交外部软件。保留轻量故事板预演，重点把原件、选片、版本与清单有序交给后期；不开发专业剪辑器。完整范围见[ADR-009](docs/ADR-009-production-and-postproduction-handoff.md)。
 
 右上角“创作画布原型”或`/canvas-lab.html`可体验参考/提示词/配置/多方案比较、连线、布局保存及本地媒体预览。当前是隔离样例，不读取项目或调用模型，见[CANVAS-LAB](docs/CANVAS-LAB.md)。
 
-正式项目点击“创作画布”，或在制作结构“打开项目/单元画布”。可选真实业务版本、预览、布局/分组、保存/历史和冲突处理；不依赖原型数据、不因连线改卡或调用模型，见[正式画布/API](docs/CREATIVE-CANVAS.md)。后续模型执行仅经现有Generation API，[ADR-010](docs/ADR-010-comfy-instances-and-board-boundary.md)冻结原生/prompt＋独立实例auto/manual，调度尚未实现。
+正式项目点击「创作画布」，或在制作结构打开单元画布。选择镜头节点后，可以用发布的工作流生成，或并排比较候选并审核选片。生成队列在画布关闭后继续运行。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
 
-项目工作流中心支持 API 图导入、版本管理、四类创作参数和依赖诊断。配置管理员可用项目镜头试跑固定修订，审核者核对证据后发布给项目团队。接下来是 G2-B 画布生成与 G2-C 实例调度。[工作流中心](docs/WORKFLOW-CENTER.md)
+项目工作流中心支持 API 图导入、版本管理、四类创作参数和依赖诊断。配置管理员可用项目镜头试跑固定修订，审核者核对证据后发布给项目团队。[工作流中心](docs/WORKFLOW-CENTER.md)
 
 ## 从哪里开始
 
@@ -59,7 +59,7 @@ npm run test:e2e
 npm run db:backup
 ```
 
-G2-A3 本机验收通过 199 项 API 测试、4 项图解析测试、6 项工作流中心场景、4 项正式画布场景和 1 项生产全流程。试跑使用隔离 ComfyUI Mock。[实施状态](docs/IMPLEMENTATION-STATUS.md)
+G2-B 本机验收通过 199 项 API 测试、4 项图解析测试、6 项工作流中心场景、5 项正式画布场景和 1 项生产全流程。模型执行使用隔离 ComfyUI Mock。[实施状态](docs/IMPLEMENTATION-STATUS.md)
 
 SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 

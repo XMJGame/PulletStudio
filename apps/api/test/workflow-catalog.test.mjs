@@ -65,11 +65,17 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
   const read = async (id) => (await owner('GET', `/generation-workflows/${id}/definition`)).data;
   const revise = (body, key = randomUUID(), actor = owner) =>
     actor('POST', `/workflow-catalogs/${saved.familyId}/revisions`, body, { 'Idempotency-Key': key });
-  const queue = (workflowId, fieldValues, key = randomUUID()) =>
+  const queue = (workflowId, fieldValues, key = randomUUID(), canvasShotVersion) =>
     owner(
       'POST',
       `/shots/${shot.id}/generation-jobs`,
-      { workflowId, promptId: prompt.id, confirmed: true, ...(fieldValues ? { fieldValues } : {}) },
+      {
+        workflowId,
+        promptId: prompt.id,
+        confirmed: true,
+        canvasShotVersion,
+        ...(fieldValues ? { fieldValues } : {}),
+      },
       { 'Idempotency-Key': key },
     );
   try {
@@ -524,6 +530,14 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
           false,
         );
         assert.equal((await queue(id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
+        assert.equal(
+          (await queue(saved.id, undefined, randomUUID(), shot.version)).data.code,
+          'WORKFLOW_NOT_PUBLISHED',
+        );
+        assert.equal(
+          (await queue(id, undefined, randomUUID(), shot.version + 1)).data.code,
+          'CANVAS_SHOT_OUTDATED',
+        );
         assert.equal((await outsider('GET', trialPath)).status, 404);
         assert.equal(
           (await reviewer('POST', trialPath, trialInput, { 'Idempotency-Key': randomUUID() })).status,
@@ -618,7 +632,8 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         assert.equal((await read(draft.data.id)).definition.reviewRequired, true);
         assert.equal((await queue(draft.data.id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
         assert.ok((await config()).productionWorkflows.some((item) => item.id === id));
-        const production = await queue(id);
+        const canvasKey = randomUUID();
+        const production = await queue(id, undefined, canvasKey, shot.version);
         assert.equal(production.status, 201, JSON.stringify(production.data));
         const revoked = await release({
           expectedVersion: 3,
@@ -627,6 +642,11 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         });
         assert.equal(revoked.status, 201, JSON.stringify(revoked.data));
         assert.equal((await queue(id)).data.code, 'WORKFLOW_NOT_PUBLISHED');
+        assert.equal(
+          (await queue(id, undefined, randomUUID(), shot.version)).data.code,
+          'WORKFLOW_NOT_PUBLISHED',
+        );
+        assert.equal((await queue(id, undefined, canvasKey, shot.version)).data.id, production.data.id);
         for (let index = 0; index < 3; index++) await app.get(GenerationWorker).tick();
         const finished = (await owner('GET', `/generation-jobs/${production.data.id}`)).data;
         assert.equal(finished.state, 'completed', JSON.stringify(finished));

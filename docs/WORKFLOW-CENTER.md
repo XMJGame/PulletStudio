@@ -69,6 +69,6 @@ generation-config 的 workflows 列出目录当前修订。productionWorkflows �
 
 ## 限制与下一门禁
 
-G2-B 接入正式画布的镜头生成、候选比较和 Take 审核，G2-C 接入多实例能力匹配和调度。本阶段的模型执行验收使用隔离 ComfyUI Mock。真实模型兼容性由对应工作流的实机试跑验证。
+正式画布使用项目当前发布的工作流修订。下一阶段是 G2-C 多实例能力匹配和调度。真实模型兼容性由对应工作流的实机试跑验证。[画布使用指南](CREATIVE-CANVAS.md)
 
 `npm run test:workflows` 包含图解析与 6 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。试跑功能使用同一版本的 API 和 Generation Worker。详见 [A3 合同](modules/WORKFLOW-CENTER-G2-A3.md)和[验收](history/WORKFLOW-CENTER-G2-A3-2026-11-06.md)。

@@ -150,6 +150,7 @@ export const createJobInput = z
     imageVersionId: z.uuid().optional(),
     parameterValues: parameterValues.optional(),
     fieldValues: fieldValuesInput.optional(),
+    canvasShotVersion: z.number().int().positive().optional(),
     confirmed: z.literal(true),
   })
   .strict();

@@ -1,6 +1,6 @@
 # ComfyUI 单镜头生成
 
-架构边界见[ADR-010](ADR-010-comfy-instances-and-board-boundary.md)：V1使用原生POST /prompt，后续支持多个独立实例，默认auto、高级manual，指定实例不可用不静默换机；端点和密钥只在后端。当前实现仍为工作流绑定单连接，多实例管理/能力/授权/调度待G2之后实施，不接Distributed专用API。创作画布只调用Studio Generation API；G1只做正式引用，不提交生成。
+工作流当前绑定单连接，Studio 通过 ComfyUI 原生 POST /prompt 提交任务。创作画布与镜头工作台共用 Generation Job。画布提交额外校验当前制作卡版本和工作流发布状态。下一阶段接入多个独立实例。[ADR-010](ADR-010-comfy-instances-and-board-boundary.md) · [画布生成](CREATIVE-CANVAS.md#镜头生成候选比较与选片)
 
 在 Studio 的制作结构中打开一个镜头，选择“媒体生成”。管理员先添加 ComfyUI 连接及项目工作流。创作者选择当前制作卡的已保存提示词，核对文本，确认发送及生成资源消耗后加入队列。
 

@@ -110,6 +110,7 @@ export async function startComfyMock(files) {
       return send(res, { prompt_id: remoteId });
     }
     if (url.pathname.startsWith('/history/')) {
+      if (mock.mode === 'hold') return send(res, {});
       const id = url.pathname.split('/').at(-1);
       const record = history.get(id);
       return send(res, record ? { [id]: record } : {});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 import { Dialog } from '../components/Dialog';
 import { kindLabels, statusLabels } from './board-types';
@@ -96,6 +96,7 @@ export function BoardInspector({
   detail,
   onDetail,
   closeDetail,
+  shotActions,
 }: {
   node?: BoardNode;
   value?: BoardResolved;
@@ -106,6 +107,7 @@ export function BoardInspector({
   detail?: BoardResolved;
   onDetail: () => void;
   closeDetail: () => void;
+  shotActions?: ReactNode;
 }) {
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => setMediaError(false), [node?.id, value?.media?.contentUrl]);
@@ -133,6 +135,7 @@ export function BoardInspector({
               {value?.status !== 'unavailable' && value?.detail && (
                 <button onClick={onDetail}>查看固定版本详情</button>
               )}
+              {shotActions}
               {value?.media && !mediaError && (
                 <div className="creative-media">
                   {value.media.mediaType === 'image' ? (

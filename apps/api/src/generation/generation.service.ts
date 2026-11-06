@@ -164,7 +164,7 @@ export class GenerationService {
         })),
       };
     };
-    const productionIds = new Set<string>();
+    const productionIds = new Map<string, 'published' | 'compatible'>();
     const workflows = heads.map((head) => {
       const workflow = summary(head);
       const release = head.familyId ? latestRelease(this.database, head.familyId) : undefined;
@@ -175,7 +175,7 @@ export class GenerationService {
         : workflow.reviewRequired && head.familyId
           ? latestCompatibleRevision(this.database, head.familyId)
           : head.id;
-      if (productionId) productionIds.add(productionId);
+      if (productionId) productionIds.set(productionId, release ? 'published' : 'compatible');
       return {
         ...workflow,
         releaseState: productionId === head.id ? (release ? 'published' : 'compatible') : 'draft',
@@ -187,12 +187,12 @@ export class GenerationService {
           .where(
             and(
               eq(generationWorkflows.projectId, projectId),
-              inArray(generationWorkflows.id, [...productionIds]),
+              inArray(generationWorkflows.id, [...productionIds.keys()]),
             ),
           )
           .orderBy(desc(generationWorkflows.createdAt), desc(generationWorkflows.id))
           .all()
-          .map(summary)
+          .map((row) => ({ ...summary(row), releaseState: productionIds.get(row.id)! }))
       : [];
     return {
       canConfigure,
@@ -436,6 +436,7 @@ export class GenerationService {
             replay.purpose !== purpose ||
             replay.workflowId !== input.workflowId ||
             replay.promptId !== input.promptId ||
+            (input.canvasShotVersion !== undefined && replay.shotVersion !== input.canvasShotVersion) ||
             (JSON.parse(replay.snapshotJson) as GenerationSnapshot).image?.id !== input.imageVersionId
           )
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成输入');
@@ -451,6 +452,8 @@ export class GenerationService {
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他创作字段值');
           return this.view(replay, user);
         }
+        if (input.canvasShotVersion !== undefined && shot.version !== input.canvasShotVersion)
+          fail(409, 'CANVAS_SHOT_OUTDATED', '制作卡已有新版本，请更新画布镜头引用后再生成');
         const workflow = this.workflow(input.workflowId);
         if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
         const catalog = catalogState(this.database, workflow.id);
@@ -461,7 +464,7 @@ export class GenerationService {
           if (
             release
               ? release.action !== 'publish' || release.workflowId !== workflow.id
-              : definition.reviewRequired
+              : definition.reviewRequired || input.canvasShotVersion !== undefined
           )
             fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
         }

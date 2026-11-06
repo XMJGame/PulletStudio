@@ -28,7 +28,7 @@
 | Take审核与选片 | LOCAL-MEDIA及镜头候选审核界面 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md)；API assets/take-review* |
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 可选轻量预演 | [ANIMATICS](ANIMATICS.md) | [预演合同](modules/ANIMATIC-IMPLEMENTATION.md)；API timeline/，不再扩展专业剪辑器 |
-| 创作画布 | [G1正式画布/API](CREATIVE-CANVAS.md)、[G0隔离原型](CANVAS-LAB.md)、[参考ADR](ADR-008-creative-canvas-reference.md) | [G1合同](modules/CANVAS-G1-IMPLEMENTATION.md)、[G0合同](modules/CANVAS-G0-IMPLEMENTATION.md)；生成接入待G2 |
+| 创作画布 | [固定引用、生成与候选比较](CREATIVE-CANVAS.md)、[G0 隔离原型](CANVAS-LAB.md) | [G1 合同](modules/CANVAS-G1-IMPLEMENTATION.md)、[G2-B 合同](modules/CANVAS-G2-B.md)、[G2-B 验收](history/CANVAS-G2-B-2026-11-06.md) |
 
 ## 技术规格与参考
 

@@ -18,7 +18,7 @@ export function TakeReviewPanel({
 }: {
   takeId: string;
   shotId: string;
-  onChanged: () => Promise<void>;
+  onChanged: (review: TakeReview, selection: TakeSelection) => Promise<void> | void;
   onBusyChange: (busy: boolean) => void;
 }) {
   const [review, setReview] = useState<TakeReview>();
@@ -68,7 +68,7 @@ export function TakeReviewPanel({
     ]);
     setReview(nextReview);
     setSelection(nextSelection);
-    await onChanged();
+    await onChanged(nextReview, nextSelection);
   }
   async function post(path: string, body: object) {
     if (!reason.trim()) throw new Error('请填写审核或选片理由。');

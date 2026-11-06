@@ -11,7 +11,7 @@ const base = { expectedVersion: z.number().int().positive(), summary: z.string()
 const revise = z.object({ ...base, definition: workflowInput }).strict(),
   restore = z.object({ ...base, workflowId: uuid }).strict();
 const archive = z.object({ expectedVersion: z.number().int().positive(), archived: z.boolean() }).strict();
-const test = createJobInput.omit({ workflowId: true }).extend({ shotId: uuid });
+const test = createJobInput.omit({ workflowId: true, canvasShotVersion: true }).extend({ shotId: uuid });
 const releaseBase = { expectedVersion: base.expectedVersion, reason: base.summary };
 const release = z.discriminatedUnion('action', [
   z.object({ ...releaseBase, action: z.literal('publish'), workflowId: uuid, testJobId: uuid }).strict(),

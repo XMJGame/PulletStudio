@@ -1,6 +1,16 @@
 import { defineConfig } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 const id = randomUUID();
+const testEnvironment = {
+  DATABASE_PATH: `./data/e2e/boards-${id}.sqlite`,
+  MEDIA_ROOT: `./data/e2e/boards-${id}-media`,
+  SETUP_TOKEN: 'playwright-formal-boards-setup-2026',
+  PORT: '3112',
+  APP_ORIGINS: 'http://127.0.0.1:5192',
+  COOKIE_SECURE: 'false',
+  NODE_ENV: 'test',
+  PROVIDER_MASTER_KEY: 'c'.repeat(64),
+};
 export default defineConfig({
   testDir: './tests/boards',
   outputDir: 'test-results/boards',
@@ -20,16 +30,13 @@ export default defineConfig({
       command: 'node apps/api/dist/main.js',
       url: 'http://127.0.0.1:3112/health/ready',
       reuseExistingServer: false,
-      env: {
-        DATABASE_PATH: `./data/e2e/boards-${id}.sqlite`,
-        MEDIA_ROOT: `./data/e2e/boards-${id}-media`,
-        SETUP_TOKEN: 'playwright-formal-boards-setup-2026',
-        PORT: '3112',
-        APP_ORIGINS: 'http://127.0.0.1:5192',
-        COOKIE_SECURE: 'false',
-        NODE_ENV: 'test',
-        PROVIDER_MASTER_KEY: 'c'.repeat(64),
-      },
+      env: testEnvironment,
+    },
+    {
+      command: 'node apps/api/dist/generation-worker.js',
+      wait: { stdout: /Media generation worker ready/ },
+      reuseExistingServer: false,
+      env: testEnvironment,
     },
     {
       command: 'node node_modules/vite/bin/vite.js apps/web --host 127.0.0.1 --port 5192 --strictPort',

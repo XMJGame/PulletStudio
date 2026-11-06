@@ -39,6 +39,12 @@ export type GenerationJob = {
 type Job = GenerationJob;
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
+type CanvasGeneration = {
+  shotVersion: number;
+  title: string;
+  canEdit: boolean;
+  images: Pick<ReferenceImage, 'id' | 'fileName' | 'version'>[];
+};
 const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
   'video.text_to_video': '文字生视频',
@@ -80,10 +86,12 @@ export function GenerationDialog({
   shotId,
   onClose,
   testWorkflow,
+  canvas,
 }: {
   shotId: string;
   onClose: () => void;
   testWorkflow?: Workflow;
+  canvas?: CanvasGeneration;
 }) {
   const [context, setContext] = useState<CardEditor>();
   const [config, setConfig] = useState<Config>();
@@ -107,7 +115,9 @@ export function GenerationDialog({
     ? `/generation-workflows/${testWorkflow.id}/test-jobs`
     : `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
-  const availableWorkflows = config?.productionWorkflows ?? [];
+  const availableWorkflows = (config?.productionWorkflows ?? []).filter(
+    (workflow) => !canvas || workflow.releaseState === 'published',
+  );
   const selectedWorkflow =
     testWorkflow ??
     (pinnedWorkflow?.id === workflowId
@@ -126,7 +136,21 @@ export function GenerationDialog({
       return [binding.key, binding.key === 'aspectRatio' || value === '' ? value : Number(value)];
     }),
   );
-  const selectedImage = images?.items.find((item) => item.id === imageVersionId);
+  const boardImages = canvas?.images ?? [];
+  const selectedImage =
+    boardImages.find((item) => item.id === imageVersionId) ??
+    images?.items.find((item) => item.id === imageVersionId);
+  const canvasCurrent = !canvas || context?.shot.version === canvas.shotVersion;
+  const canCreateJob =
+    config?.canEdit && (!testWorkflow || config.canConfigure) && (!canvas || canvas.canEdit) && canvasCurrent;
+  const promptVerified =
+    !(testWorkflow || canvas) ||
+    Boolean(
+      preview &&
+      (!canvas ||
+        (preview.snapshot.card.version === canvas.shotVersion &&
+          preview.snapshot.project.version === context?.project.version)),
+    );
   useEffect(() => {
     let active = true;
     void api<CardEditor>(`/shots/${shotId}/card/editor`)
@@ -201,11 +225,13 @@ export function GenerationDialog({
   }
   return (
     <Dialog
-      title={testWorkflow ? '工作流试跑' : '镜头媒体生成'}
+      title={testWorkflow ? '工作流试跑' : canvas ? '画布镜头生成' : '镜头媒体生成'}
       description={
         testWorkflow
           ? '使用此镜头已保存的提示词验证固定修订。结果保存在工作流的试跑记录中。'
-          : '选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。'
+          : canvas
+            ? `${canvas.title} · 固定制作卡 v${canvas.shotVersion} · 结果归档到此镜头的候选`
+            : '选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。'
       }
       busy={busy}
       onClose={onClose}
@@ -221,17 +247,23 @@ export function GenerationDialog({
             {message}
           </p>
         )}
-        {config?.canEdit && (!testWorkflow || config.canConfigure) && (
+        {canvas && context && !canvasCurrent && (
+          <p className="notice" role="status">
+            制作卡已更新。请回到检查器引用当前版本后再提交。
+          </p>
+        )}
+        {canCreateJob && (
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (!confirmed || (testWorkflow && !preview)) return;
+              if (!confirmed || !promptVerified) return;
               void run(async () => {
                 const value = await api<Job>(
                   jobPath,
                   'POST',
                   {
                     ...(testWorkflow ? { shotId } : { workflowId }),
+                    ...(canvas ? { canvasShotVersion: canvas.shotVersion } : {}),
                     promptId,
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
@@ -251,7 +283,9 @@ export function GenerationDialog({
                 {testWorkflow ? `${testWorkflow.name} · v${testWorkflow.revision ?? 1}` : '新建生成任务'}
               </h3>
               {!testWorkflow && !workflows.some((item) => item.enabled) && (
-                <p className="field-hint">请在工作流中心配置或发布可用版本。</p>
+                <p className="field-hint">
+                  {canvas ? '请先在工作流中心试跑并发布可用版本。' : '请在工作流中心配置或发布可用版本。'}
+                </p>
               )}
               {!testWorkflow && (
                 <label>
@@ -364,11 +398,22 @@ export function GenerationDialog({
                       }}
                     >
                       <option value="">选择项目图片版本</option>
-                      {images?.items.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.fileName} · v{item.version} · {new Date(item.createdAt).toLocaleString()}
-                        </option>
-                      ))}
+                      {boardImages.length > 0 && (
+                        <optgroup label="画布固定图片">
+                          {boardImages.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.fileName} · v{item.version}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {images?.items
+                        .filter((item) => !boardImages.some((image) => image.id === item.id))
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.fileName} · v{item.version} · {new Date(item.createdAt).toLocaleString()}
+                          </option>
+                        ))}
                     </select>
                   </label>
                   {(!images || images.nextCursor) && (
@@ -422,9 +467,10 @@ export function GenerationDialog({
                     ))}
                 </select>
               </label>
-              {testWorkflow && !prompts.some((item) => item.cardVersion === context?.shot.version) && (
-                <p className="field-hint">请先为此镜头当前制作卡保存一版提示词。</p>
-              )}
+              {(testWorkflow || canvas) &&
+                !prompts.some((item) => item.cardVersion === context?.shot.version) && (
+                  <p className="field-hint">请先为此镜头当前制作卡保存一版提示词。</p>
+                )}
               <button
                 type="button"
                 disabled={!promptId}
@@ -463,6 +509,7 @@ export function GenerationDialog({
                       {item}
                     </p>
                   ))}
+                  {!promptVerified && <p className="notice">请按当前制作卡和项目设定重新保存提示词。</p>}
                 </>
               )}
               <label className="checkbox-label">
@@ -480,11 +527,7 @@ export function GenerationDialog({
               <button
                 className="primary"
                 disabled={
-                  !workflowId ||
-                  !promptId ||
-                  !confirmed ||
-                  (needsImage && !imageVersionId) ||
-                  Boolean(testWorkflow && !preview)
+                  !workflowId || !promptId || !confirmed || (needsImage && !imageVersionId) || !promptVerified
                 }
               >
                 {testWorkflow ? '加入试跑队列' : '加入生成队列'}
@@ -587,7 +630,7 @@ export function GenerationDialog({
             )}
           </article>
         ))}
-        {config && !testWorkflow && (
+        {config && !testWorkflow && !canvas && (
           <GenerationSettings
             config={config}
             projectPath={projectPath}

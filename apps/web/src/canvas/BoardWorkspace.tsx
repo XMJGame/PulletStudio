@@ -10,9 +10,12 @@ import type {
 } from '../../../../packages/contracts/src/board';
 import { api, ApiError, CursorPage, ProductionUnit } from '../api';
 import { Dialog } from '../components/Dialog';
+import { GenerationDialog } from '../components/GenerationDialog';
+import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
 import { BoardInspector } from './BoardInspector';
 import { BoardSources } from './BoardSources';
+import { ShotTakeCompareDialog } from './ShotTakeCompareDialog';
 import type { CanvasNode } from './board-types';
 import './board.css';
 type History = {
@@ -53,6 +56,12 @@ export default function BoardWorkspace({
   const [compare, setCompare] = useState<BoardView>();
   const [history, setHistory] = useState<History>();
   const [detail, setDetail] = useState<BoardResolved>();
+  const [shotTool, setShotTool] = useState<{
+    type: 'generation' | 'candidates';
+    id: string;
+    version: number;
+    title: string;
+  }>();
   const [newTitle, setNewTitle] = useState('创作探索');
   const [refresh, setRefresh] = useState(0);
   const [pan, setPan] = useState(false);
@@ -75,6 +84,7 @@ export default function BoardWorkspace({
       if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
         setResolved({});
         setDetail(undefined);
+        setShotTool(undefined);
         setCompare(undefined);
         setHistory(undefined);
         if (reason.status === 401) onUnauthorized();
@@ -96,6 +106,7 @@ export default function BoardWorkspace({
     );
     setRemote(undefined);
     setDetail(undefined);
+    setShotTool(undefined);
     setDenied(false);
     setHistory(undefined);
     setError('');
@@ -318,6 +329,29 @@ export default function BoardWorkspace({
     setLayout({ ...layout, nodes: [...layout.nodes, node] });
     setSelected([id]);
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
+    return true;
+  }
+  async function pinCandidate(media: MediaVersion) {
+    if (!editable || !layout) throw new Error('当前画布不可编辑。');
+    const existing = layout.nodes.find(
+      (node) => node.data.ref?.kind === 'media' && node.data.ref.id === media.id,
+    );
+    if (existing) {
+      setSelected([existing.id]);
+      return;
+    }
+    const ref = { kind: 'media', id: media.id } as const;
+    const nodeId = crypto.randomUUID();
+    const values = await api<Record<string, BoardResolved>>(
+      `/projects/${projectId}/board-references/resolve`,
+      'POST',
+      {
+        references: [{ nodeId, ref }],
+      },
+    );
+    const value = values[nodeId];
+    if (!value || value.status === 'unavailable') throw new Error('此候选媒体目前不可引用。');
+    if (!add('reference', { ref, value, ready: true })) throw new Error('此画布已达节点上限。');
   }
   const flowNodes = useMemo<CanvasNode[]>(() => {
     if (!layout) return [];
@@ -425,6 +459,58 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
+  const shotRef = node?.data.ref?.kind === 'shot' ? node.data.ref : undefined;
+  const shotValue = shotRef && node ? resolved[node.id] : undefined;
+  function openShotTool(type: 'generation' | 'candidates') {
+    if (shotRef && shotValue && shotValue.status !== 'unavailable') {
+      setShotTool({ type, id: shotRef.id, version: shotRef.version, title: shotValue.title });
+    }
+  }
+  async function updateShotReference() {
+    if (!node || !shotRef || !shotValue?.currentVersion || !editable) return;
+    const ref = { ...shotRef, version: shotValue.currentVersion };
+    setBusy(true);
+    setError('');
+    try {
+      const values = await api<Record<string, BoardResolved>>(
+        `/projects/${projectId}/board-references/resolve`,
+        'POST',
+        {
+          references: [{ nodeId: node.id, ref }],
+        },
+      );
+      if (values[node.id]?.status !== 'current') {
+        setError('当前制作卡不可引用或已再次更新，请刷新后重试。');
+        return;
+      }
+      update({ ...node, data: { ref } });
+      setResolved((previous) => ({ ...previous, ...values }));
+      setMessage(`已引用制作卡 v${ref.version}，请保存画布。`);
+    } catch (failure) {
+      report(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const canvasImages = useMemo(() => {
+    const images = new Map<string, { id: string; fileName: string; version: number }>();
+    for (const node of layout?.nodes ?? []) {
+      const value = resolved[node.id];
+      if (
+        node.data.ref?.kind !== 'media' ||
+        value?.status === 'unavailable' ||
+        !value?.version ||
+        value.media?.mediaType !== 'image'
+      )
+        continue;
+      images.set(value.media.id, {
+        id: value.media.id,
+        fileName: value.media.fileName,
+        version: value.version,
+      });
+    }
+    return [...images.values()];
+  }, [layout?.nodes, resolved]);
   function close() {
     if (dirty) setLeave(true);
     else onClose();
@@ -666,6 +752,24 @@ export default function BoardWorkspace({
               remove={() => node && remove([node.id])}
               detail={detail}
               closeDetail={() => setDetail(undefined)}
+              shotActions={
+                shotValue &&
+                shotValue.status !== 'unavailable' && (
+                  <div className="creative-shot-actions">
+                    {editable && shotValue.status === 'stale' && (
+                      <button disabled={busy} onClick={() => void updateShotReference()}>
+                        引用当前制作卡
+                      </button>
+                    )}
+                    <button disabled={busy} onClick={() => openShotTool('generation')}>
+                      {editable && shotValue.status === 'current' ? '生成镜头素材' : '查看生成任务'}
+                    </button>
+                    <button disabled={busy} onClick={() => openShotTool('candidates')}>
+                      比较镜头候选
+                    </button>
+                  </div>
+                )
+              }
               onDetail={() => {
                 if (!node?.data.ref) return;
                 void api<Record<string, BoardResolved>>(
@@ -686,6 +790,28 @@ export default function BoardWorkspace({
             /100 节点 · {layout.edges.length}/200 连线
           </div>
         </>
+      )}
+      {shotTool?.type === 'generation' && (
+        <GenerationDialog
+          key={shotTool.id}
+          shotId={shotTool.id}
+          canvas={{
+            shotVersion: shotTool.version,
+            title: shotTool.title,
+            canEdit: editable,
+            images: canvasImages,
+          }}
+          onClose={() => setShotTool(undefined)}
+        />
+      )}
+      {shotTool?.type === 'candidates' && (
+        <ShotTakeCompareDialog
+          key={shotTool.id}
+          shotId={shotTool.id}
+          title={shotTool.title}
+          onPin={editable ? pinCandidate : undefined}
+          onClose={() => setShotTool(undefined)}
+        />
       )}
       {leave && (
         <Dialog
