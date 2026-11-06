@@ -8,6 +8,7 @@ import type { MediaVersion } from '../media-types';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
 export type GenerationJob = {
+  boardExecution?: import('../../../../packages/contracts/src/board').BoardExecution;
   id: string;
   shotId: string | null;
   boardId?: string | null;

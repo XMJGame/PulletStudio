@@ -372,7 +372,7 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   await page.mouse.down();
   await page.mouse.move(box.x + 75, box.y + 80, { steps: 8 });
   await page.mouse.up();
-  const source = (await first.locator('.source').boundingBox())!,
+  const source = (await first.locator('[data-handleid="out"]').boundingBox())!,
     target = (await second.locator('.target').boundingBox())!;
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down();
@@ -429,6 +429,147 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
     (await call('GET', `/boards/${id}`)).layout.nodes.find((node: any) => node.type === 'reference').data.ref
       .id,
   ).toBe(media.id);
+});
+
+test('typed canvas inputs execute one recoverable I2V job and persist one result node', async ({
+  page,
+  browser,
+}) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const value = await project('Executable creation canvas'),
+      image = await uploadMedia(value.id, 'image.png');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Node fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const id = await createBoard(page, 'Station generation');
+    await page.getByRole('button', { name: '添加便签', exact: true }).click();
+    await page.getByLabel('画布文字内容').fill('A quiet dolly across the station');
+    await page.getByRole('button', { name: '媒体', exact: true }).click();
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    let layout = (await call('GET', `/boards/${id}`)).layout;
+    await save(page);
+    layout = (await call('GET', `/boards/${id}`)).layout;
+    const text = layout.nodes.find((n: any) => n.type === 'note'),
+      imageNode = layout.nodes.find((n: any) => n.type === 'reference'),
+      gen = layout.nodes.find((n: any) => n.type === 'generation');
+    await panel.getByLabel('节点提示词输入').selectOption(text.id);
+    await panel.getByLabel('节点首帧输入').selectOption(imageNode.id);
+    await expect(panel.getByRole('button', { name: '执行生成节点', exact: true })).toBeDisabled();
+    await save(page);
+    const chosen = (await call('GET', `/boards/${id}`)).layout.edges;
+    expect(chosen.map((e: any) => e.kind)).toEqual(['input_binding', 'input_binding']);
+    await panel.getByLabel('节点提示词输入').selectOption('');
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="text"]`).hover();
+    const from = (await page
+        .locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="text"]`)
+        .boundingBox())!,
+      to = (await page
+        .locator(`.react-flow__node[data-id="${gen.id}"] [data-handleid="prompt"]`)
+        .boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 18 });
+    await page.mouse.up();
+    await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+    await expect(panel.getByLabel('节点提示词输入')).toHaveValue(text.id);
+    await save(page);
+    let lost = false;
+    await page.route(`**/boards/${id}/nodes/${gen.id}/generation-jobs`, async (route) => {
+      if (route.request().method() === 'POST' && !lost) {
+        lost = true;
+        await route.fetch();
+        await route.abort('failed');
+      } else await route.continue();
+    });
+    remote.mock.mode = 'hold';
+    await panel.getByRole('button', { name: '执行生成节点', exact: true }).click();
+    await expect(panel.getByRole('alert')).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Station generation');
+    await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+    await panel.getByRole('button', { name: '执行生成节点', exact: true }).click();
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    const history = (await call('GET', `/boards/${id}/nodes/${gen.id}/generation-jobs`)).items;
+    expect(history).toHaveLength(1);
+    const job = history[0];
+    expect(job.image.id).toBe(image.id);
+    expect(job.prompt.positivePrompt).toBe(text.data.text);
+    expect(job.boardExecution.bindings).toHaveLength(2);
+    remote.mock.mode = 'normal';
+    await expect
+      .poll(async () => (await call('GET', `/generation-jobs/${job.id}`)).state, { timeout: 15000 })
+      .toBe('completed');
+    await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible();
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await save(page);
+    await expect(panel.getByRole('button', { name: '加入画布结果', exact: true })).toBeDisabled();
+    await page.screenshot({ path: 'test-results/board-execution-desktop.png' });
+    await page.reload();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Station generation');
+    await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible();
+    await expect(panel.getByRole('button', { name: '加入画布结果', exact: true })).toBeDisabled();
+    const saved = await call('GET', `/boards/${id}`);
+    expect(saved.layout.nodes.filter((n: any) => n.type === 'result')).toHaveLength(1);
+    expect(saved.resolved[job.id].media.mediaType).toBe('video');
+    expect(remote.mock.submissions).toHaveLength(1);
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator(`.react-flow__node[data-id="${job.id}"]`).click();
+    await expect(page.locator('.creative-inspector video')).toBeVisible();
+    await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'test-results/board-execution-mobile.png' });
+    expect(
+      await page
+        .getByRole('dialog', { name: '创作画布', exact: true })
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBeTruthy();
+    const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' }),
+      context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    try {
+      const invite = await call('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+        email: 'node-reader@board.test',
+      });
+      const response = await actor.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      });
+      expect(response.ok()).toBeTruthy();
+      const joined = await response.json();
+      await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+      const readonly = await context.newPage();
+      await open(readonly, value, actor, joined.user.id);
+      await readonly.getByRole('button', { name: /Station generation/ }).click();
+      await readonly.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+      const view = readonly.getByRole('region', { name: '生成节点设置', exact: true });
+      await expect(view.getByLabel('节点工作流')).toBeDisabled();
+      await expect(view.getByRole('button', { name: '执行生成节点', exact: true })).toHaveCount(0);
+      await expect(view.getByRole('button', { name: '加入画布结果', exact: true })).toHaveCount(0);
+      await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+      await view.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+      await expect(view.getByRole('alert')).toBeVisible();
+      await expect(view.locator('video')).toHaveCount(0);
+    } finally {
+      await context.close();
+      await actor.dispose();
+    }
+  } finally {
+    await remote.close();
+  }
 });
 
 test('three canvases share project assets and an I2V result without shots or compiler', async ({ page }) => {

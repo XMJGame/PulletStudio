@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 import { Dialog } from '../components/Dialog';
 import { kindLabels, statusLabels } from './board-types';
@@ -96,6 +96,7 @@ export function BoardInspector({
   detail,
   onDetail,
   closeDetail,
+  executionPanel,
 }: {
   node?: BoardNode;
   value?: BoardResolved;
@@ -106,6 +107,7 @@ export function BoardInspector({
   detail?: BoardResolved;
   onDetail: () => void;
   closeDetail: () => void;
+  executionPanel?: ReactNode;
 }) {
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => setMediaError(false), [node?.id, value?.media?.contentUrl]);
@@ -119,11 +121,16 @@ export function BoardInspector({
       )}
       {node && (
         <>
-          {node.type === 'reference' ? (
+          {node.type === 'generation' ? (
+            executionPanel
+          ) : node.type === 'reference' || node.type === 'result' ? (
             <>
               <strong>{value?.title ?? '正在解析引用'}</strong>
               <p className={`creative-reference-state ${value?.status ?? ''}`}>
-                {value && statusLabels[value.status]}
+                {value &&
+                  (node.type === 'result' && value.status === 'draft'
+                    ? '尚未完成'
+                    : statusLabels[value.status])}
                 {value?.version ? ` · 固定v${value.version}` : ''}
               </p>
               {value?.currentVersion && value.currentVersion !== value.version && (

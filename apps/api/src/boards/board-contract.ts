@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { parameterValues } from '../generation/generation-contract';
+import { fieldValuesInput } from '../generation/workflow-fields';
 export const boardReference = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('shot'), id: z.uuid(), version: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('entity'), id: z.uuid(), revisionId: z.uuid() }).strict(),
@@ -14,6 +16,24 @@ const base = {
   parentId: z.uuid().optional(),
 };
 const node = z.discriminatedUnion('type', [
+  z
+    .object({
+      ...base,
+      type: z.literal('generation'),
+      data: z
+        .object({
+          generation: z
+            .object({
+              workflowId: z.uuid().optional(),
+              parameterValues: parameterValues.optional(),
+              fieldValues: fieldValuesInput.optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z.object({ ...base, type: z.literal('result'), data: z.object({ jobId: z.uuid() }).strict() }).strict(),
   z
     .object({
       ...base,
@@ -58,7 +78,20 @@ export const boardLayout = z
       })
       .strict(),
     nodes: z.array(node).max(100),
-    edges: z.array(z.object({ id: z.uuid(), source: z.uuid(), target: z.uuid() }).strict()).max(200),
+    edges: z
+      .array(
+        z
+          .object({
+            id: z.uuid(),
+            source: z.uuid(),
+            target: z.uuid(),
+            kind: z.enum(['annotation', 'input_binding']).optional(),
+            sourcePort: z.enum(['text', 'image']).optional(),
+            targetPort: z.enum(['prompt', 'first_frame']).optional(),
+          })
+          .strict(),
+      )
+      .max(200),
   })
   .strict()
   .superRefine((layout, ctx) => {
@@ -66,8 +99,11 @@ export const boardLayout = z
     const invalid = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (ids.size !== layout.nodes.length) invalid('节点标识不能重复');
     for (const n of layout.nodes)
+      if (n.type === 'result' && n.id !== n.data.jobId) invalid('结果节点使用任务标识，不能重复加入同一结果');
+    for (const n of layout.nodes)
       if (n.parentId && (n.type === 'group' || ids.get(n.parentId)?.type !== 'group'))
         invalid('分组须引用本画布的一级分组');
+    const occupied = new Set<string>();
     const pairs = new Set<string>(),
       edgeIds = new Set<string>();
     for (const edge of layout.edges) {
@@ -77,11 +113,30 @@ export const boardLayout = z
         !ids.has(edge.target) ||
         ids.get(edge.source)?.type === 'group' ||
         ids.get(edge.target)?.type === 'group' ||
-        pairs.has(`${edge.source}:${edge.target}`) ||
+        pairs.has(`${edge.source}:${edge.target}:${edge.kind ?? 'annotation'}:${edge.targetPort ?? ''}`) ||
         edgeIds.has(edge.id)
       )
         invalid('连线端点或类型无效');
-      pairs.add(`${edge.source}:${edge.target}`);
+      if (edge.kind === 'input_binding') {
+        const source = ids.get(edge.source),
+          target = ids.get(edge.target),
+          slot = `${edge.target}:${edge.targetPort}`;
+        if (target?.type !== 'generation' || occupied.has(slot))
+          invalid('生成节点的每个输入端口只能绑定一个来源');
+        if (
+          edge.targetPort === 'prompt'
+            ? edge.sourcePort !== 'text' || source?.type !== 'note'
+            : edge.targetPort !== 'first_frame' ||
+              edge.sourcePort !== 'image' ||
+              !(
+                source?.type === 'result' ||
+                (source?.type === 'reference' && source.data.ref.kind === 'media')
+              )
+        )
+          invalid('输入连线端口类型不匹配');
+        occupied.add(slot);
+      } else if (edge.sourcePort || edge.targetPort) invalid('注释连线不能携带执行端口');
+      pairs.add(`${edge.source}:${edge.target}:${edge.kind ?? 'annotation'}:${edge.targetPort ?? ''}`);
       edgeIds.add(edge.id);
     }
     if (Buffer.byteLength(JSON.stringify(layout)) > 262144) invalid('画布布局超过256KiB，请拆分画布');

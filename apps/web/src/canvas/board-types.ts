@@ -20,4 +20,6 @@ export const kindLabels: Record<string, string> = {
   note: '文本便签',
   brief: '创作说明',
   group: '分组',
+  generation: '生成节点',
+  result: '生成结果',
 };

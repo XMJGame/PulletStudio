@@ -1,6 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { PromptLibraryService } from '../prompt-library/prompt-library.service';
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import type { BoardExecution } from '../../../../packages/contracts/src/board';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
@@ -44,6 +45,7 @@ export type Job = typeof generationJobs.$inferSelect;
 export type Workflow = typeof generationWorkflows.$inferSelect;
 type Connection = typeof generationConnections.$inferSelect;
 export type GenerationSnapshot = {
+  boardExecution?: BoardExecution & { requestHash: string };
   graph: WorkflowInput['graph'];
   approvals: { revisionId: string; decisionId: string | null }[];
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
@@ -420,7 +422,7 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, parameterValues, fieldValues, prompt, promptLibrary } = JSON.parse(
+    const { image, parameterValues, fieldValues, prompt, promptLibrary, boardExecution } = JSON.parse(
       row.snapshotJson,
     ) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
@@ -434,6 +436,12 @@ export class GenerationService {
       boardId: row.boardId,
       prompt,
       promptLibrary,
+      boardExecution: boardExecution && {
+        boardId: boardExecution.boardId,
+        revision: boardExecution.revision,
+        nodeId: boardExecution.nodeId,
+        bindings: boardExecution.bindings,
+      },
       inLibrary: result
         ? (this.database.db
             .select({ value: mediaAssets.inLibrary })
@@ -484,6 +492,15 @@ export class GenerationService {
   ) {
     return this.enqueue(user, { projectId }, input, key, purpose);
   }
+  createBoardJob(
+    user: CurrentUser,
+    projectId: string,
+    input: CreateProjectJobInput,
+    key: string,
+    execution: NonNullable<GenerationSnapshot['boardExecution']>,
+  ) {
+    return this.enqueue(user, { projectId }, input, key, 'production', execution);
+  }
   private enqueue(
     user: CurrentUser,
     context: { shotId: string; projectId?: never } | { projectId: string; shotId?: never },
@@ -497,6 +514,7 @@ export class GenerationService {
     },
     key: string,
     purpose: Job['purpose'],
+    boardExecution?: GenerationSnapshot['boardExecution'],
   ) {
     return this.database.db.transaction(
       () => {
@@ -542,6 +560,8 @@ export class GenerationService {
           const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
           const requested = resolveParameters(definition, input.parameterValues);
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
+          if (snapshot.boardExecution?.requestHash !== boardExecution?.requestHash)
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他画布执行');
           if (snapshot.promptLibrary?.revisionId !== input.promptLibraryRevisionId)
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他提示词库版本');
           if (
@@ -681,6 +701,7 @@ export class GenerationService {
             creatorId: user.id,
             requestKey: key,
             snapshotJson: JSON.stringify({
+              boardExecution,
               promptLibrary,
               graph,
               approvals,
@@ -733,7 +754,7 @@ export class GenerationService {
       .all();
     return rows.map((row) => this.view(row, user, access));
   }
-  projectJobs(user: CurrentUser, projectId: string, boardId?: string, cursor?: string) {
+  projectJobs(user: CurrentUser, projectId: string, boardId?: string, cursor?: string, nodeId?: string) {
     const access = this.production.access(user, projectId);
     if (
       boardId &&
@@ -749,6 +770,9 @@ export class GenerationService {
       isNull(generationJobs.shotId),
       eq(generationJobs.purpose, 'production'),
       boardId ? eq(generationJobs.boardId, boardId) : undefined,
+      nodeId
+        ? sql`json_extract(${generationJobs.snapshotJson},'$.boardExecution.nodeId')=${nodeId}`
+        : undefined,
     );
     const boundary = cursor
       ? this.database.db

@@ -10,6 +10,7 @@ import {
   mediaVersions,
   mediaAssets,
   shots,
+  generationJobs,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { cardRecord } from '../production/shot-cards';
@@ -42,6 +43,33 @@ export class BoardReferencesService {
     return Object.fromEntries(
       references.map((item) => [item.nodeId, this.resolve(user, projectId, item.ref)]),
     );
+  }
+  result(user: CurrentUser, projectId: string, id: string, strict = false): BoardResolved {
+    this.authz.project(user, projectId);
+    const row = this.database.db
+      .select()
+      .from(generationJobs)
+      .where(and(eq(generationJobs.id, id), eq(generationJobs.projectId, projectId)))
+      .get();
+    if (!row || row.purpose !== 'production' || row.shotId) {
+      if (strict) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '生成结果不存在或无权访问');
+      return { status: 'unavailable', title: '结果不可用' };
+    }
+    if (row.state !== 'completed' || !row.mediaVersionId) {
+      const states: Record<string, string> = {
+        queued: '排队中',
+        preparing: '准备生成',
+        submitting: '正在提交',
+        submitted: '正在生成',
+        fetching: '正在保存结果',
+        failed: '任务失败，请查看任务记录',
+        canceled: '已取消',
+        needs_reconciliation: '需要核对远端任务',
+      };
+      return { status: 'draft', title: '生成结果', summary: states[row.state] ?? '请查看生成任务记录' };
+    }
+    const value = this.resolve(user, projectId, { kind: 'media', id: row.mediaVersionId }, strict);
+    return { ...value, title: value.status === 'unavailable' ? value.title : `生成结果 · ${value.title}` };
   }
   resolve(user: CurrentUser, projectId: string, ref: BoardReference, strict = false): BoardResolved {
     this.authz.project(user, projectId);

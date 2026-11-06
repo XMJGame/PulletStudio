@@ -16,6 +16,8 @@ import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
+import { BoardExecutionPanel } from './BoardExecutionPanel';
+import type { GenerationJob } from '../components/GenerationDialog';
 import { BoardInspector } from './BoardInspector';
 import { BoardSources } from './BoardSources';
 import type { CanvasNode } from './board-types';
@@ -185,13 +187,15 @@ export default function BoardWorkspace({
       setResolved((existing) =>
         Object.fromEntries(
           (current.current.layout?.nodes ?? [])
-            .filter((node) => node.data.ref)
+            .filter((node) => node.data.ref || node.type === 'result')
             .map((node) => {
               const old = state.layout!.nodes.find((item) => item.id === node.id);
               return [
                 node.id,
                 JSON.stringify(old?.data.ref) === JSON.stringify(node.data.ref)
-                  ? (values[node.id] ?? unavailable)
+                  ? node.type === 'result'
+                    ? (head.resolved[node.id] ?? existing[node.id] ?? unavailable)
+                    : (values[node.id] ?? unavailable)
                   : (existing[node.id] ?? unavailable),
               ];
             }),
@@ -336,7 +340,7 @@ export default function BoardWorkspace({
         ? { ref: source.ref }
         : type === 'group'
           ? { label: '创作分组', collapsed: false }
-          : (noteData ?? { text: '' }),
+          : (noteData ?? (type === 'generation' ? { generation: {} } : { text: '' })),
     };
     setLayout({ ...layout, nodes: [...layout.nodes, node] });
     setSelected([id]);
@@ -394,8 +398,10 @@ export default function BoardWorkspace({
     () =>
       (layout?.edges ?? []).map((edge) => ({
         ...edge,
-        sourceHandle: 'out',
-        targetHandle: 'in',
+        sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
+        targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
+        label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
+        style: edge.kind === 'input_binding' ? { stroke: '#67bdcf', strokeWidth: 2 } : undefined,
         hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
       })),
     [layout?.edges, flowNodes],
@@ -448,6 +454,39 @@ export default function BoardWorkspace({
   }
   function connect(connection: Connection) {
     if (!editable || !layout) return;
+    if (['prompt', 'first_frame'].includes(connection.targetHandle ?? '')) {
+      const target = layout.nodes.find((n) => n.id === connection.target),
+        source = layout.nodes.find((n) => n.id === connection.source),
+        port = connection.targetHandle as 'prompt' | 'first_frame';
+      if (
+        target?.type !== 'generation' ||
+        source?.id === target.id ||
+        (port === 'prompt'
+          ? source?.type !== 'note' || connection.sourceHandle !== 'text'
+          : !(
+              (source?.type === 'result' || source?.data.ref?.kind === 'media') &&
+              resolved[source.id]?.media?.mediaType === 'image' &&
+              connection.sourceHandle === 'image'
+            ))
+      ) {
+        setError('输入端口类型不匹配，请连接文本 TEXT 或图片 IMAGE 输出。');
+        return;
+      }
+      if (
+        layout.edges.some(
+          (e) => e.kind === 'input_binding' && e.target === target.id && e.targetPort === port,
+        )
+      ) {
+        setError('此输入已有来源，请先解除连接或在设置中替换。');
+        return;
+      }
+      bindInput(target.id, port, source!.id);
+      return;
+    }
+    if (['text', 'image'].includes(connection.sourceHandle ?? '')) {
+      setError('具名输出只能连接匹配的生成输入端口。');
+      return;
+    }
     if (
       connection.source === connection.target ||
       layout.nodes.some(
@@ -471,6 +510,72 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
+  function bindInput(target: string, port: 'prompt' | 'first_frame', source: string) {
+    if (!editable || !layout) return;
+    const edges = layout.edges.filter(
+      (e) => !(e.kind === 'input_binding' && e.target === target && e.targetPort === port),
+    );
+    if (source && edges.length >= 200) {
+      setError('每个画布最多200条连线。');
+      return;
+    }
+    setError('');
+    setLayout({
+      ...layout,
+      edges: source
+        ? [
+            ...edges,
+            {
+              id: crypto.randomUUID(),
+              source,
+              target,
+              kind: 'input_binding',
+              sourcePort: port === 'prompt' ? 'text' : 'image',
+              targetPort: port,
+            },
+          ]
+        : edges,
+    });
+  }
+  function addResult(job: GenerationJob) {
+    if (!editable || !layout) return;
+    const existing = layout.nodes.find((n) => n.type === 'result' && n.data.jobId === job.id);
+    if (existing) {
+      setSelected([existing.id]);
+      return;
+    }
+    if (layout.nodes.length >= 100) {
+      setError('画布已达节点上限。');
+      return;
+    }
+    const producer = layout.nodes.find((n) => n.id === job.boardExecution?.nodeId);
+    setLayout({
+      ...layout,
+      nodes: [
+        ...layout.nodes,
+        {
+          id: job.id,
+          type: 'result',
+          position: {
+            x: clamp((producer?.position.x ?? 0) + 320, -50000, 50000),
+            y: producer?.position.y ?? 0,
+          },
+          width: 250,
+          height: 280,
+          data: { jobId: job.id },
+        },
+      ],
+    });
+    setResolved((old) => ({
+      ...old,
+      [job.id]: {
+        status: job.state === 'completed' ? 'current' : 'draft',
+        title: '生成结果',
+        summary: job.state,
+      },
+    }));
+    setMessage('结果已加入画布草稿，请保存画布。');
+  }
   function leaveBoard(target: 'project' | 'boards') {
     setLeave(false);
     if (target === 'project') {
@@ -651,6 +756,9 @@ export default function BoardWorkspace({
                 <button onClick={() => add('brief')} disabled={!editable}>
                   创作说明
                 </button>
+                <button onClick={() => add('generation')} disabled={!editable}>
+                  添加生成节点
+                </button>
                 <button onClick={() => add('group')} disabled={!editable}>
                   添加分组
                 </button>
@@ -758,6 +866,24 @@ export default function BoardWorkspace({
               nodes={layout.nodes}
               editable={editable}
               update={update}
+              executionPanel={
+                node?.type === 'generation' ? (
+                  <BoardExecutionPanel
+                    key={`${base.id}:${node.id}`}
+                    board={base}
+                    userId={userId}
+                    node={node}
+                    layout={layout}
+                    resolved={resolved}
+                    editable={editable}
+                    dirty={dirty}
+                    update={update}
+                    bind={(port, source) => bindInput(node.id, port, source)}
+                    onResult={addResult}
+                    onOpenTasks={() => setFreeGeneration(true)}
+                  />
+                ) : undefined
+              }
               remove={() => node && remove([node.id])}
               detail={detail}
               closeDetail={() => setDetail(undefined)}
@@ -777,7 +903,8 @@ export default function BoardWorkspace({
             />
           </div>
           <div className="creative-help">
-            Space 拖动平移 · Shift 多选 · Delete 移除所选节点/连线 · 连线仅作创作引用 · {layout.nodes.length}
+            Space 拖动平移 · Shift 多选 · Delete 移除所选节点/连线 · 普通连线为注释，具名输入连线用于生成 ·{' '}
+            {layout.nodes.length}
             /100 节点 · {layout.edges.length}/200 连线
           </div>
         </>

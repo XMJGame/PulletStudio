@@ -4,7 +4,7 @@ export type BoardReference =
   | { kind: 'media'; id: string };
 export type BoardNode = {
   id: string;
-  type: 'note' | 'brief' | 'reference' | 'group';
+  type: 'note' | 'brief' | 'reference' | 'group' | 'generation' | 'result';
   position: { x: number; y: number };
   width: number;
   height: number;
@@ -14,6 +14,12 @@ export type BoardNode = {
     label?: string;
     collapsed?: boolean;
     ref?: BoardReference;
+    jobId?: string;
+    generation?: {
+      workflowId?: string;
+      parameterValues?: Partial<Record<'aspectRatio' | 'durationSeconds' | 'seed', string | number>>;
+      fieldValues?: Record<string, string | number | boolean>;
+    };
     prompt?: { negativePrompt: string; source: string; promptLibraryRevisionId?: string };
   };
 };
@@ -21,7 +27,21 @@ export type BoardLayout = {
   schemaVersion: 'studio.board.v1';
   viewport: { x: number; y: number; zoom: number };
   nodes: BoardNode[];
-  edges: { id: string; source: string; target: string }[];
+  edges: BoardEdge[];
+};
+export type BoardEdge = {
+  id: string;
+  source: string;
+  target: string;
+  kind?: 'annotation' | 'input_binding';
+  sourcePort?: 'text' | 'image';
+  targetPort?: 'prompt' | 'first_frame';
+};
+export type BoardExecution = {
+  boardId: string;
+  revision: number;
+  nodeId: string;
+  bindings: { port: 'prompt' | 'first_frame'; sourceNodeId: string }[];
 };
 export type BoardResolved = {
   status: 'current' | 'stale' | 'draft' | 'revoked' | 'unavailable';

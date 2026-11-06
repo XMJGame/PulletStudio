@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { BoardLayout, BoardView } from '../../../../packages/contracts/src/board';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
-import { boards, boardRevisions, auditEvents, episodes, users } from '../db/schema';
+import { boards, boardRevisions, auditEvents, episodes, users, generationWorkflows } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
 import { BoardReferencesService } from './board-references.service';
@@ -101,7 +101,9 @@ export class BoardsService {
       const layout = JSON.parse(revision.layoutJson) as BoardLayout;
       const resolved: BoardView['resolved'] = {};
       for (const node of layout.nodes)
-        if (node.type === 'reference' && node.data.ref)
+        if (node.type === 'result')
+          resolved[node.id] = this.references.result(user, board.projectId, node.data.jobId!);
+        else if (node.type === 'reference' && node.data.ref)
           resolved[node.id] = this.references.resolve(user, board.projectId, node.data.ref);
       const unit = board.unitId
         ? this.database.db
@@ -238,6 +240,30 @@ export class BoardsService {
           .where(and(eq(boardRevisions.boardId, id), eq(boardRevisions.version, row.version)))
           .get()!;
         const previous = JSON.parse(current.layoutJson) as BoardLayout;
+        for (const node of input.layout.nodes) {
+          if (
+            node.type === 'generation' &&
+            node.data.generation?.workflowId &&
+            !this.database.db
+              .select({ id: generationWorkflows.id })
+              .from(generationWorkflows)
+              .where(
+                and(
+                  eq(generationWorkflows.id, node.data.generation.workflowId),
+                  eq(generationWorkflows.projectId, row.projectId),
+                ),
+              )
+              .get()
+          )
+            fail(404, 'NOT_FOUND', '生成节点工作流不属于当前项目');
+          if (node.type === 'result')
+            this.references.result(
+              user,
+              row.projectId,
+              node.data.jobId!,
+              !previous.nodes.some((n) => n.type === 'result' && n.data.jobId === node.data.jobId),
+            );
+        }
         for (const node of input.layout.nodes)
           if (node.type === 'note' && node.data.prompt?.promptLibraryRevisionId)
             this.promptLibrary.reference(

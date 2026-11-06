@@ -38,9 +38,11 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
       />
       <span className="creative-node-kind">{kindLabels[value?.kind ?? domain.type] ?? '业务引用'}</span>
       <strong>
-        {domain.type === 'reference' ? (value?.title ?? '正在读取引用…') : kindLabels[domain.type]}
+        {domain.type === 'reference' || domain.type === 'result'
+          ? (value?.title ?? '正在读取引用…')
+          : kindLabels[domain.type]}
       </strong>
-      {domain.type === 'reference' ? (
+      {domain.type === 'reference' || domain.type === 'result' ? (
         <>
           {poster && !broken && (
             <img
@@ -58,10 +60,15 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
             </p>
           )}
           <footer>
-            {value && statusLabels[value.status]}
+            {value &&
+              (domain.type === 'result' && value.status === 'draft'
+                ? '尚未完成'
+                : statusLabels[value.status])}
             {value?.version ? ` · v${value.version}` : ''}
           </footer>
         </>
+      ) : domain.type === 'generation' ? (
+        <p className="creative-note-text">选择工作流，连接文字与首帧后保存并执行。</p>
       ) : (
         <p className="creative-note-text">{domain.data.text || '选择后在检查器填写创作内容'}</p>
       )}
@@ -71,6 +78,49 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
         id="out"
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输出`}
       />
+      {domain.type === 'note' && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="text"
+          style={{ top: '75%' }}
+          aria-label="提示词 TEXT 输出"
+        />
+      )}
+      {((domain.type === 'reference' && domain.data.ref?.kind === 'media') || domain.type === 'result') &&
+        value?.media?.mediaType === 'image' && (
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="image"
+            style={{ top: '75%' }}
+            aria-label="图片 IMAGE 输出"
+          />
+        )}
+      {domain.type === 'generation' && (
+        <>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="prompt"
+            style={{ top: '65%' }}
+            aria-label="提示词 TEXT 输入"
+          />
+          <span className="creative-port-label" style={{ top: '62%' }}>
+            提示词 · TEXT
+          </span>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="first_frame"
+            style={{ top: '85%' }}
+            aria-label="首帧 IMAGE 输入"
+          />
+          <span className="creative-port-label" style={{ top: '82%' }}>
+            首帧 · IMAGE
+          </span>
+        </>
+      )}
     </article>
   );
 });
