@@ -87,7 +87,9 @@ npm run db:backup
 
 ## 当前验收界限
 
-工作流中心使用 `npm run test:workflows` 构建并运行 4 项图解析测试和 7 项浏览器验收。场景使用独立 Worker 和 ComfyUI Mock，包含双实例诊断及试跑和正式生成归档。test:workflows 与 test:boards 共用隔离端口 3112/5192，须顺序执行。
+工作流中心使用 `npm run test:workflows` 构建并运行 4 项图解析测试和 8 项浏览器验收。场景使用独立 Worker 和 ComfyUI Mock，包含实例诊断、手动路由及试跑和正式生成归档。test:workflows 与 test:boards 共用隔离端口 3112/5192，须顺序执行。
+
+启用 G2-C2 前同时升级 API、Web 和 Generation Worker。数据库保护路由任务，旧 Worker 无法取得这类任务的租约。已经入队的绑定任务仍按原连接执行。
 
 工作流字段或试跑功能更新后，重新构建并同时更新 API 与 Generation Worker。旧 Worker 读取到试跑任务时无法完成试跑归档，数据库会阻止把试跑产物登记为生产素材。升级前先备份。在忽略的独立目录生成迁移并补齐 SQL 和保护，再放入正式 SQL 和快照，最后登记 journal。
 

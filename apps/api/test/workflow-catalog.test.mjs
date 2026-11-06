@@ -815,6 +815,168 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         }
       },
     );
+    await t.test('pool reservations serialize capacity and recover on the assigned instance', async () => {
+      const a = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+      const b = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+      try {
+        const register = async (name, remote) => {
+          const created = await owner('POST', `/projects/${project.id}/generation-connections`, {
+            name,
+            baseUrl: remote.baseUrl,
+            trustedPrivate: true,
+          });
+          assert.equal(created.status, 201);
+          assert.equal(
+            (
+              await owner('PATCH', `/generation-connections/${created.data.id}/pool`, {
+                expectedPoolVersion: 1,
+                poolEnabled: true,
+                maxRunning: 1,
+                maxPending: 1,
+              })
+            ).status,
+            200,
+          );
+          return created.data.id;
+        };
+        const aId = await register('Routing A', a),
+          bId = await register('Routing B', b);
+        const created = await create(fixtureWorkflow(aId));
+        assert.equal(created.status, 201);
+        const workflowId = created.data.id;
+        const check = (id) => owner('POST', `/generation-workflows/${workflowId}/instance-checks/${id}`, {});
+        a.mock.queue = { queue_running: [[]], queue_pending: [] };
+        assert.equal((await check(aId)).data.capacity, 'busy');
+        assert.equal((await check(bId)).data.capacity, 'available');
+        const optionsPath = `/generation-workflows/${workflowId}/routing-options`;
+        assert.deepEqual(
+          (await owner('GET', optionsPath)).data.items.map(({ id, available }) => [id, available]).sort(),
+          [
+            [aId, false],
+            [bId, true],
+          ].sort(),
+        );
+        assert.equal((await reader('GET', optionsPath)).status, 403);
+        assert.equal((await outsider('GET', optionsPath)).status, 404);
+        const makeShot = async (description) => {
+          const basic = (await owner('POST', `/projects/${project.id}/shots`, { description })).data;
+          const editor = (await owner('GET', `/shots/${basic.id}/card/editor`)).data;
+          const shot = (
+            await owner('PATCH', `/shots/${basic.id}/card`, {
+              expectedVersion: basic.version,
+              body: editor.body,
+            })
+          ).data.shot;
+          const prompt = (
+            await owner('POST', `/shots/${shot.id}/prompts/compile`, {
+              mode: 'commit',
+              expectedShotVersion: shot.version,
+              expectedProjectVersion: project.version,
+              profileRevisionId: null,
+            })
+          ).data;
+          return { shot, prompt };
+        };
+        const submit = (input, routing, key = randomUUID()) =>
+          owner(
+            'POST',
+            `/shots/${input.shot.id}/generation-jobs`,
+            {
+              workflowId,
+              promptId: input.prompt.id,
+              routing,
+              confirmed: true,
+            },
+            { 'Idempotency-Key': key },
+          );
+        const first = await makeShot('First routed shot');
+        const second = await makeShot('Second routed shot');
+        const third = await makeShot('Third routed shot');
+        const fourth = await makeShot('Parallel instance shot');
+        assert.equal(
+          (await submit(first, { mode: 'manual', connectionId: aId })).data.code,
+          'MANUAL_INSTANCE_UNAVAILABLE',
+        );
+        const key = randomUUID();
+        const automatic = await submit(first, { mode: 'auto' }, key);
+        assert.equal(automatic.status, 201, JSON.stringify(automatic.data));
+        assert.deepEqual(automatic.data.instance, { id: bId, name: 'Routing B', mode: 'auto' });
+        const manualB = { mode: 'manual', connectionId: bId };
+        const attempts = await Promise.all([submit(second, manualB), submit(third, manualB)]);
+        const accepted = attempts.find((result) => result.status === 201);
+        assert.ok(accepted, JSON.stringify(attempts));
+        assert.equal(attempts.filter((result) => result.status === 201).length, 1);
+        assert.equal(
+          attempts.find((result) => result.status === 409).data.code,
+          'MANUAL_INSTANCE_UNAVAILABLE',
+        );
+        assert.equal((await submit(first, { mode: 'auto' }, key)).data.id, automatic.data.id);
+        assert.equal((await submit(first, manualB, key)).data.code, 'IDEMPOTENCY_CONFLICT');
+        assert.throws(
+          () =>
+            db()
+              .prepare('UPDATE generation_jobs SET lease_id=? WHERE id=?')
+              .run(randomUUID(), automatic.data.id),
+          /requires updated generation worker/,
+        );
+        assert.throws(
+          () =>
+            db()
+              .prepare('UPDATE generation_job_routes SET connection_id=? WHERE job_id=?')
+              .run(aId, automatic.data.id),
+          /immutable/,
+        );
+        const tick = async (id) => {
+          db()
+            .prepare('UPDATE generation_jobs SET next_at=? WHERE state=? AND id<>?')
+            .run(Date.now() + 120000, 'queued', id);
+          db().prepare('UPDATE generation_jobs SET next_at=0 WHERE id=?').run(id);
+          await app.get(GenerationWorker).tick();
+          return (await owner('GET', `/generation-jobs/${id}`)).data;
+        };
+        b.mock.queue = { queue_running: [[]], queue_pending: [] };
+        let state = await tick(automatic.data.id);
+        assert.equal(state.state, 'queued');
+        assert.equal(state.errorCode, 'INSTANCE_WAITING');
+        assert.equal(b.mock.submissions.length, 0);
+        b.mock.queue = { queue_running: [], queue_pending: [] };
+        b.mock.mode = 'lost';
+        state = await tick(automatic.data.id);
+        assert.equal(state.state, 'needs_reconciliation');
+        assert.equal(state.instance.id, bId);
+        assert.equal((await tick(accepted.data.id)).errorCode, 'INSTANCE_WAITING');
+        a.mock.queue = { queue_running: [], queue_pending: [] };
+        await check(aId);
+        const parallel = await submit(fourth, { mode: 'auto' });
+        assert.equal(parallel.data.instance.id, aId);
+        assert.equal((await tick(parallel.data.id)).state, 'submitted');
+        assert.equal((await tick(parallel.data.id)).state, 'fetching');
+        assert.equal((await tick(parallel.data.id)).state, 'completed');
+        assert.equal(a.mock.submissions.length, 1);
+        await app.close();
+        await start();
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${automatic.data.id}/reconcile`, {})).status,
+          201,
+        );
+        assert.equal((await tick(automatic.data.id)).state, 'fetching');
+        state = await tick(automatic.data.id);
+        assert.equal(state.state, 'completed');
+        assert.ok(state.takeId);
+        assert.equal(state.instance.id, bId);
+        assert.equal(b.mock.submissions.length, 1);
+        assert.equal(a.mock.submissions.length, 1);
+        await owner('PATCH', `/generation-connections/${bId}`, { expectedVersion: 1, enabled: false });
+        state = await tick(accepted.data.id);
+        assert.equal(state.state, 'failed');
+        assert.equal(state.errorCode, 'CONNECTION_DISABLED');
+        assert.equal(state.instance.id, bId);
+        assert.equal(a.mock.submissions.length, 1);
+        assert.equal(b.mock.submissions.length, 1);
+      } finally {
+        await Promise.all([a.close(), b.close()]);
+      }
+    });
     await t.test(
       'history pagination and independent backup preserve catalogs and immutable definitions',
       async () => {
@@ -851,13 +1013,16 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
             'generation_jobs',
             'workflow_release_events',
             'generation_instance_checks',
+            'generation_job_routes',
           ]) {
             const key =
-              name === 'workflow_catalog_revisions'
-                ? 'workflow_id'
-                : name === 'generation_instance_checks'
-                  ? 'workflow_id,connection_id'
-                  : 'id';
+              name === 'generation_job_routes'
+                ? 'job_id'
+                : name === 'workflow_catalog_revisions'
+                  ? 'workflow_id'
+                  : name === 'generation_instance_checks'
+                    ? 'workflow_id,connection_id'
+                    : 'id';
             assert.deepEqual(
               restored.sqlite.prepare(`SELECT * FROM ${name} ORDER BY ${key}`).all(),
               db().prepare(`SELECT * FROM ${name} ORDER BY ${key}`).all(),

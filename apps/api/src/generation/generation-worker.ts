@@ -11,6 +11,7 @@ import { AppConfig } from '../config';
 import { GenerationError } from './comfy-provider';
 import { GenerationService, GenerationSnapshot, Job } from './generation.service';
 import { resultDescriptor, WorkflowInput } from './generation-contract';
+import { checkReservedInstance, instanceLoad, jobRoute, type JobRoute } from './generation-routing';
 
 const leaseMs = 45_000;
 const pollMs = 3000;
@@ -56,7 +57,27 @@ export class GenerationWorker {
           .limit(1)
           .get();
         if (!row) return null;
-        const leaseId = randomUUID();
+        const route = jobRoute(this.database, row.id);
+        if (route && row.state === 'queued') {
+          const connection = this.jobs.connection(route.connectionId, row.workspaceId);
+          if (
+            connection.version === row.connectionVersion &&
+            checkReservedInstance(this.database, connection, row.workflowId, route) &&
+            instanceLoad(this.database, connection.id).running >= connection.maxRunning
+          ) {
+            this.database.db
+              .update(generationJobs)
+              .set({
+                nextAt: now + pollMs,
+                errorCode: 'INSTANCE_WAITING',
+                updatedAt,
+              })
+              .where(eq(generationJobs.id, row.id))
+              .run();
+            return null;
+          }
+        }
+        const leaseId = route ? `pool:${randomUUID()}` : randomUUID();
         return this.database.db
           .update(generationJobs)
           .set({
@@ -98,15 +119,24 @@ export class GenerationWorker {
     if (!row) throw new GenerationError('CREATOR_UNAVAILABLE');
     return row;
   }
-  private checkInputs(user: CurrentUser, job: Job, connectionId: string, snapshot: GenerationSnapshot) {
+  private checkInputs(
+    user: CurrentUser,
+    job: Job,
+    connectionId: string,
+    snapshot: GenerationSnapshot,
+    route?: JobRoute,
+  ) {
     this.owns(job);
     if (job.purpose === 'workflow_test') this.jobs.manage(user, job.workspaceId);
+    const connection = this.jobs.connection(connectionId, job.workspaceId);
     if (
       this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
       this.production.project(user, job.projectId).version !== job.projectVersion ||
-      this.jobs.connection(connectionId).version !== job.connectionVersion
+      connection.version !== job.connectionVersion
     )
       throw new GenerationError('GENERATION_INPUT_CHANGED');
+    if (route && !checkReservedInstance(this.database, connection, job.workflowId, route))
+      throw new GenerationError('INSTANCE_CHECK_EXPIRED');
     if (JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals))
       throw new GenerationError('GENERATION_APPROVAL_CHANGED');
   }
@@ -182,25 +212,36 @@ export class GenerationWorker {
       shot = this.production.shot(user, job.shotId, 'edit');
     const workflow = this.jobs.workflow(job.workflowId),
       definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
-    const connection = this.jobs.connection(workflow.connectionId, job.workspaceId);
+    const route = jobRoute(this.database, job.id);
+    const connection = this.jobs.connection(route?.connectionId ?? workflow.connectionId, job.workspaceId);
     if (!connection.enabled) throw new GenerationError('CONNECTION_DISABLED');
     if (job.state === 'preparing') {
+      const snapshot = JSON.parse(job.snapshotJson) as GenerationSnapshot;
+      if (route)
+        this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
       const storage = await this.media.status(user, job.projectId);
       if (!storage.available) throw new GenerationError('MEDIA_NOT_READY');
       const provider = await this.jobs.provider(connection);
       await provider.probe(signal);
-      const snapshot = JSON.parse(job.snapshotJson) as GenerationSnapshot;
-      if (definition.fields?.length) await provider.validate({ ...definition, graph: snapshot.graph });
+      if (route) {
+        const load = await provider.queueStatus(signal);
+        if (load.running >= connection.maxRunning || load.pending >= connection.maxPending) {
+          this.release(job, { state: 'queued', nextAt: Date.now() + pollMs, errorCode: 'INSTANCE_WAITING' });
+          return;
+        }
+      }
+      if (route || definition.fields?.length)
+        await provider.validate({ ...definition, graph: snapshot.graph });
       if (definition.image) {
         if (!snapshot.image) throw new GenerationError('REFERENCE_IMAGE_INVALID');
         const image = await this.readImage(user, snapshot.image, signal);
-        this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot));
+        this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
         const path = await provider.uploadImage(job.id, snapshot.image.mime, image, signal);
         snapshot.graph[definition.image.node].inputs[definition.image.input] = path;
       }
       this.database.db.transaction(
         () => {
-          this.checkInputs(user, job, connection.id, snapshot);
+          this.checkInputs(user, job, connection.id, snapshot, route);
           this.update(job, { state: 'submitting' });
         },
         { behavior: 'immediate' },

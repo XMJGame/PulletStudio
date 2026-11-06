@@ -7,6 +7,7 @@ import {
   auditEvents,
   generationConnections,
   generationJobs,
+  generationJobRoutes,
   generationWorkflows,
   promptArtifacts,
   shots,
@@ -23,6 +24,7 @@ import { MediaService } from '../assets/media.service';
 import { catalogState, registerWorkflow, workflowHash, workflowReplay } from './workflow-catalog-state';
 import { FieldValues, resolveFields } from './workflow-fields';
 import { latestCompatibleRevision, latestRelease } from './workflow-release-state';
+import { jobRoute, reserveInstance, routingOptions } from './generation-routing';
 import { ComfyProvider, GenerationError } from './comfy-provider';
 import {
   CreateJobInput,
@@ -202,10 +204,37 @@ export class GenerationService {
       canConfigure,
       canEdit: access.canEdit,
       canReview: access.canReview,
+      poolConfigured: Boolean(
+        this.database.db
+          .select({ id: generationConnections.id })
+          .from(generationConnections)
+          .where(
+            and(
+              eq(generationConnections.workspaceId, project.workspaceId),
+              eq(generationConnections.poolEnabled, true),
+            ),
+          )
+          .get(),
+      ),
       workflows,
       productionWorkflows,
       connections,
     };
+  }
+  routingOptions(user: CurrentUser, workflowId: string) {
+    const workflow = this.workflow(workflowId);
+    this.authz.project(user, workflow.projectId, 'edit');
+    const catalog = catalogState(this.database, workflowId);
+    const release = catalog && latestRelease(this.database, catalog.familyId);
+    const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
+    if (
+      catalog?.archived ||
+      (release
+        ? release.action !== 'publish' || release.workflowId !== workflowId
+        : definition.reviewRequired)
+    )
+      fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
+    return { items: routingOptions(this.database, workflow) };
   }
   images(user: CurrentUser, projectId: string, cursor?: string) {
     this.authz.project(user, projectId, 'edit');
@@ -383,9 +412,11 @@ export class GenerationService {
     const { image, parameterValues, fieldValues } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
+    const route = jobRoute(this.database, row.id);
     return {
       id: row.id,
       purpose: row.purpose,
+      instance: route ? { id: route.connectionId, name: route.instanceName, mode: route.mode } : null,
       shotId: row.shotId,
       shotVersion: row.shotVersion,
       promptId: row.promptId,
@@ -436,8 +467,11 @@ export class GenerationService {
           )
           .get();
         if (replay) {
+          const route = jobRoute(this.database, replay.id);
           if (
             replay.purpose !== purpose ||
+            route?.mode !== input.routing?.mode ||
+            (input.routing?.mode === 'manual' && route?.connectionId !== input.routing.connectionId) ||
             replay.workflowId !== input.workflowId ||
             replay.promptId !== input.promptId ||
             (input.canvasShotVersion !== undefined && replay.shotVersion !== input.canvasShotVersion) ||
@@ -472,8 +506,8 @@ export class GenerationService {
           )
             fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
         }
-        const connection = this.connection(workflow.connectionId, project.workspaceId);
-        if (!connection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
+        const boundConnection = this.connection(workflow.connectionId, project.workspaceId);
+        if (!input.routing && !boundConnection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
         const prompt = this.database.db
           .select()
           .from(promptArtifacts)
@@ -538,6 +572,8 @@ export class GenerationService {
         );
         const id = randomUUID(),
           createdAt = now();
+        const reservation = input.routing && reserveInstance(this.database, workflow, input.routing);
+        const connection = reservation ? reservation.connection : boundConnection;
         const row = this.database.db
           .insert(generationJobs)
           .values({
@@ -561,6 +597,20 @@ export class GenerationService {
           })
           .returning()
           .get()!;
+        if (input.routing && reservation) {
+          this.database.db
+            .insert(generationJobRoutes)
+            .values({
+              jobId: id,
+              workspaceId: project.workspaceId,
+              connectionId: connection.id,
+              instanceName: connection.name,
+              mode: input.routing.mode,
+              poolVersion: connection.poolVersion,
+              checkedAt: reservation.check.checkedAt,
+            })
+            .run();
+        }
         this.audit(
           user,
           project.workspaceId,

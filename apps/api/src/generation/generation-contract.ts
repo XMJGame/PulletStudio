@@ -143,6 +143,10 @@ export const workflowInput = z
     }
     validateFieldTargets(value.fields ?? [], value.graph, occupied, issue);
   });
+const routingInput = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('auto') }).strict(),
+  z.object({ mode: z.literal('manual'), connectionId: z.uuid() }).strict(),
+]);
 export const createJobInput = z
   .object({
     workflowId: z.uuid(),
@@ -151,6 +155,7 @@ export const createJobInput = z
     parameterValues: parameterValues.optional(),
     fieldValues: fieldValuesInput.optional(),
     canvasShotVersion: z.number().int().positive().optional(),
+    routing: routingInput.optional(),
     confirmed: z.literal(true),
   })
   .strict();

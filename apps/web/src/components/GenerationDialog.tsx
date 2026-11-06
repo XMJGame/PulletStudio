@@ -18,6 +18,7 @@ export type GenerationJob = {
   shotVersion: number;
   workflowName: string;
   workflowRevision: number;
+  instance: { id: string; name: string; mode: 'auto' | 'manual' } | null;
   creativeParameters: { label: string; value: string | number | boolean }[];
   errorCode: string | null;
   remoteId: string | null;
@@ -39,6 +40,7 @@ export type GenerationJob = {
 type Job = GenerationJob;
 type Prompt = { id: string; createdAt: string; cardVersion: number };
 type ReferenceImage = { id: string; fileName: string; version: number; createdAt: string };
+type InstanceOption = { id: string; name: string; available: boolean };
 type CanvasGeneration = {
   shotVersion: number;
   title: string;
@@ -80,6 +82,8 @@ const errors: Record<string, string> = {
   REFERENCE_IMAGE_INVALID: '首帧图片无法读取或校验，请核对项目素材。',
   COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
   WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
+  INSTANCE_WAITING: '所选实例达到负载阈值，任务将继续等待此实例。',
+  INSTANCE_CHECK_EXPIRED: '实例检查已过期或设置已变化，请重新检查后提交。',
 };
 
 export function GenerationDialog({
@@ -111,10 +115,16 @@ export function GenerationDialog({
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [remoteIds, setRemoteIds] = useState<Record<string, string>>({});
+  const [routingMode, setRoutingMode] = useState<'auto' | 'manual'>('auto');
+  const [instanceId, setInstanceId] = useState('');
+  const [instanceOptions, setInstanceOptions] = useState<InstanceOption[]>();
+  const [optionsError, setOptionsError] = useState('');
+  const [optionsRefresh, setOptionsRefresh] = useState(0);
   const jobPath = testWorkflow
     ? `/generation-workflows/${testWorkflow.id}/test-jobs`
     : `/shots/${shotId}/generation-jobs`;
   const projectPath = `/projects/${context?.shot.projectId}`;
+  const poolRouting = Boolean(config?.poolConfigured && !testWorkflow);
   const availableWorkflows = (config?.productionWorkflows ?? []).filter(
     (workflow) => !canvas || workflow.releaseState === 'published',
   );
@@ -130,6 +140,8 @@ export function GenerationDialog({
       : []),
   ];
   const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
+  const selectableWorkflows = workflows.filter((item) => (poolRouting ? !item.archived : item.enabled));
+  const manualChoiceRequired = poolRouting && routingMode === 'manual' && !instanceId;
   const selectedParameters: ParameterValues = Object.fromEntries(
     (selectedWorkflow?.parameters ?? []).map((binding) => {
       const value = parameterOverrides[binding.key] ?? String(binding.defaultValue);
@@ -174,6 +186,22 @@ export function GenerationDialog({
       active = false;
     };
   }, [shotId, jobPath]);
+  useEffect(() => {
+    if (!poolRouting || !workflowId || !canCreateJob) return;
+    let active = true;
+    setInstanceOptions(undefined);
+    setOptionsError('');
+    void api<{ items: InstanceOption[] }>(`/generation-workflows/${workflowId}/routing-options`)
+      .then((value) => {
+        if (active) setInstanceOptions(value.items);
+      })
+      .catch((failure) => {
+        if (active) setOptionsError(failure instanceof Error ? failure.message : '无法读取实例选项');
+      });
+    return () => {
+      active = false;
+    };
+  }, [poolRouting, workflowId, canCreateJob, optionsRefresh]);
   useEffect(() => {
     if (!context) return;
     let active = true;
@@ -256,7 +284,7 @@ export function GenerationDialog({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (!confirmed || !promptVerified) return;
+              if (!confirmed || !promptVerified || manualChoiceRequired) return;
               void run(async () => {
                 const value = await api<Job>(
                   jobPath,
@@ -264,6 +292,14 @@ export function GenerationDialog({
                   {
                     ...(testWorkflow ? { shotId } : { workflowId }),
                     ...(canvas ? { canvasShotVersion: canvas.shotVersion } : {}),
+                    ...(poolRouting
+                      ? {
+                          routing:
+                            routingMode === 'manual'
+                              ? { mode: 'manual', connectionId: instanceId }
+                              : { mode: 'auto' },
+                        }
+                      : {}),
                     promptId,
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
@@ -282,7 +318,7 @@ export function GenerationDialog({
               <h3>
                 {testWorkflow ? `${testWorkflow.name} · v${testWorkflow.revision ?? 1}` : '新建生成任务'}
               </h3>
-              {!testWorkflow && !workflows.some((item) => item.enabled) && (
+              {!testWorkflow && !selectableWorkflows.length && (
                 <p className="field-hint">
                   {canvas ? '请先在工作流中心试跑并发布可用版本。' : '请在工作流中心配置或发布可用版本。'}
                 </p>
@@ -301,6 +337,7 @@ export function GenerationDialog({
                       setParameterOverrides({});
                       setFieldOverrides({});
                       setImageVersionId('');
+                      setInstanceId('');
                       resetRequest();
                       if (
                         workflows.find((item) => item.id === id)?.capability === 'video.image_to_video' &&
@@ -314,16 +351,66 @@ export function GenerationDialog({
                     }}
                   >
                     <option value="">选择工作流</option>
-                    {workflows
-                      .filter((item) => item.enabled)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
-                          {new Date(item.createdAt).toLocaleString()}
-                        </option>
-                      ))}
+                    {selectableWorkflows.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
+                        {new Date(item.createdAt).toLocaleString()}
+                      </option>
+                    ))}
                   </select>
                 </label>
+              )}
+              {poolRouting && selectedWorkflow && (
+                <section aria-label="实例调度">
+                  <label>
+                    实例调度方式
+                    <select
+                      aria-label="实例调度方式"
+                      value={routingMode}
+                      onChange={(event) => {
+                        setRoutingMode(event.target.value === 'manual' ? 'manual' : 'auto');
+                        resetRequest();
+                      }}
+                    >
+                      <option value="auto">自动选机</option>
+                      <option value="manual">手动指定</option>
+                    </select>
+                  </label>
+                  {routingMode === 'manual' && (
+                    <label>
+                      生成实例
+                      <select
+                        aria-label="生成实例"
+                        value={instanceId}
+                        required
+                        onChange={(event) => {
+                          setInstanceId(event.target.value);
+                          resetRequest();
+                        }}
+                      >
+                        <option value="">选择匹配实例</option>
+                        {instanceOptions?.map((item) => (
+                          <option value={item.id} key={item.id} disabled={!item.available}>
+                            {item.name}
+                            {item.available ? '' : ' · 暂无容量'}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {optionsError ? (
+                    <p className="field-hint">{optionsError}</p>
+                  ) : instanceOptions ? (
+                    <p className="field-hint">
+                      {instanceOptions.filter((item) => item.available).length} 个匹配实例当前可预留
+                    </p>
+                  ) : (
+                    <p className="field-hint">正在读取实例检查结果…</p>
+                  )}
+                  <button type="button" onClick={() => setOptionsRefresh((value) => value + 1)}>
+                    刷新实例选项
+                  </button>
+                </section>
               )}
               {selectedWorkflow && (
                 <>
@@ -527,7 +614,12 @@ export function GenerationDialog({
               <button
                 className="primary"
                 disabled={
-                  !workflowId || !promptId || !confirmed || (needsImage && !imageVersionId) || !promptVerified
+                  !workflowId ||
+                  !promptId ||
+                  !confirmed ||
+                  (needsImage && !imageVersionId) ||
+                  !promptVerified ||
+                  manualChoiceRequired
                 }
               >
                 {testWorkflow ? '加入试跑队列' : '加入生成队列'}
@@ -543,6 +635,11 @@ export function GenerationDialog({
               <strong>
                 {job.workflowName} · 工作流 v{job.workflowRevision} · 制作卡 v{job.shotVersion}
               </strong>
+              {job.instance && (
+                <p className="field-hint">
+                  实例 {job.instance.name} · {job.instance.mode === 'auto' ? '自动选机' : '手动指定'}
+                </p>
+              )}
               {job.image && (
                 <p className="field-hint">
                   首帧 {job.image.fileName} · v{job.image.version}

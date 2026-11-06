@@ -47,6 +47,6 @@
 
 新表boards/board_revisions，范围外键、连续版本/head/不可变SQL保护、请求哈希及事务内审计。0032建表；0033为空的已应用历史文件，保留原字节；0034加保护，不改旧迁移或旧表。[实施合同](modules/CANVAS-G1-IMPLEMENTATION.md)记录兼容和备份。
 
-G2-B 使用现有镜头引用节点作为生成入口，并沿用 Board v1。下一阶段实施多独立实例调度。[G2-B 合同](modules/CANVAS-G2-B.md) · [多实例边界](ADR-010-comfy-instances-and-board-boundary.md)
+G2-B 使用现有镜头引用节点作为生成入口，并沿用 Board v1。画布和镜头工作台共用实例池选机能力。[G2-B 合同](modules/CANVAS-G2-B.md) · [实例池生成](WORKFLOW-CENTER.md#使用实例池生成)
 
 验收命令为 `npm run test:boards`。测试使用独立 SQLite、媒体目录、Worker 和 ComfyUI Mock，端口为 3112/5192。[验收记录](history/CANVAS-G2-B-2026-11-06.md)

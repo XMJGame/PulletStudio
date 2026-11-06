@@ -1,6 +1,6 @@
 # ComfyUI 单镜头生成
 
-工作流当前绑定单连接，Studio 通过 ComfyUI 原生 POST /prompt 提交任务。创作画布与镜头工作台共用 Generation Job。画布提交额外校验当前制作卡版本和工作流发布状态。下一阶段接入多个独立实例。[ADR-010](ADR-010-comfy-instances-and-board-boundary.md) · [画布生成](CREATIVE-CANVAS.md#镜头生成候选比较与选片)
+Studio 通过 ComfyUI 原生 POST /prompt 提交任务。创作画布与镜头工作台共用 Generation Job。画布提交额外校验当前制作卡版本和工作流发布状态。有池工作区可使用自动选机和指定实例，无池工作区使用工作流绑定连接。[实例池生成](WORKFLOW-CENTER.md#使用实例池生成) · [画布生成](CREATIVE-CANVAS.md#镜头生成候选比较与选片)
 
 在 Studio 的制作结构中打开一个镜头，选择“媒体生成”。管理员先添加 ComfyUI 连接及项目工作流。创作者选择当前制作卡的已保存提示词，核对文本，确认发送及生成资源消耗后加入队列。
 

@@ -78,7 +78,7 @@ generation-config 的 workflows 列出目录当前修订。productionWorkflows �
 3. 选择固定工作流修订，逐台点击「检查」。界面分别显示健康、声明匹配和队列负载，展开可看缺失节点、模型选项或输入问题。
 4. 用「刷新实例池」读取已记录的结果。结果从检查开始起保留 15 分钟的有效期，连接状态或池设置版本变动后需要重新检查。负载计数来自远端队列快照，两项都低于阈值时显示「负载低于阈值」。
 
-本阶段用原生 `/system_stats`、`/queue` 和 `/object_info/{node_class}` 获取观测，服务端只保留负载计数和诊断结果。声明匹配、负载余量和真实试跑分别记录。正式生成目前按工作流绑定的连接执行，C2 接入自动与指定实例路由。[ComfyUI 原生接口](https://docs.comfy.org/development/comfyui-server/comms_routes)
+实例检查用原生 `/system_stats`、`/queue` 和 `/object_info/{node_class}` 获取观测，服务端保留负载计数和诊断结果。声明匹配、负载余量和真实试跑分别记录。[ComfyUI 原生接口](https://docs.comfy.org/development/comfyui-server/comms_routes)
 
 | 方法和路径 | 合同 |
 |---|---|
@@ -86,4 +86,12 @@ generation-config 的 workflows 列出目录当前修订。productionWorkflows �
 | GET `/generation-workflows/:id/instance-checks` | 按固定修订读取同工作区实例池检查 |
 | POST `/generation-workflows/:id/instance-checks/:connectionId` | 核对启用的池实例，记录连接与池版本及观察时间 |
 
-`npm run test:workflows` 包含图解析与 7 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。[C1 实施合同](modules/COMFY-INSTANCES-G2-C1.md) · [C1 验收](history/COMFY-INSTANCES-G2-C1-2026-11-06.md)
+### 使用实例池生成
+
+有实例池的工作区在镜头和画布生成表单默认使用「自动选机」。选择固定工作流修订后可查看当前可预留的匹配实例数。切到「手动指定」可从匹配实例中选定一台，调整实例需再次确认资源消耗。没有合适实例时，提交会返回原因，可在实例池更新检查后重试。
+
+自动选机按远端观测负载加本地未完成任务的容量占比排序。接受任务时在同一事务内预留容量并锁定实例。开始提交前，Worker 复核检查和配置版本，并读取所选实例的即时队列。负载达到阈值时等待原实例，检查过期时提示重新检查。提交响应丢失后使用同一实例核对远端历史。任务记录显示实际实例名称和选机方式。
+
+生产任务 API 支持可选 `routing`，取值 `{mode:"auto"}` 或 `{mode:"manual", connectionId}`。省略时沿用工作流绑定连接。无实例池的表单及工作流试跑也使用绑定连接。部署实例池调度时，API 与 Generation Worker 使用同一构建版本。
+
+`npm run test:workflows` 包含图解析与 8 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。[C2 实施合同](modules/COMFY-INSTANCES-G2-C2.md) · [C2 验收](history/COMFY-INSTANCES-G2-C2-2026-11-06.md)

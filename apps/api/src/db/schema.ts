@@ -1386,6 +1386,29 @@ export const generationJobs = sqliteTable(
   ],
 );
 
+export const generationJobRoutes = sqliteTable(
+  'generation_job_routes',
+  {
+    jobId: text('job_id')
+      .primaryKey()
+      .references(() => generationJobs.id),
+    connectionId: text('connection_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    instanceName: text('instance_name').notNull(),
+    mode: text('mode', { enum: ['auto', 'manual'] }).notNull(),
+    poolVersion: integer('pool_version').notNull(),
+    checkedAt: integer('checked_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.connectionId, t.workspaceId],
+      foreignColumns: [generationConnections.id, generationConnections.workspaceId],
+    }),
+    index('generation_job_route_instance').on(t.connectionId),
+    check('generation_job_route_mode', sql`${t.mode} IN ('auto','manual')`),
+  ],
+);
+
 export const workflowReleaseEvents = sqliteTable(
   'workflow_release_events',
   {

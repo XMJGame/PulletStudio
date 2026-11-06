@@ -7,10 +7,10 @@ import { AuthorizationService } from '../production/authorization.service';
 import { GenerationError } from './comfy-provider';
 import { WorkflowInput } from './generation-contract';
 import { GenerationService } from './generation.service';
+import { freshInstanceCheck } from './generation-routing';
 import { DependencyReport } from './workflow-inspection';
 
 const poolLimit = 12;
-const checkLifetimeMs = 15 * 60 * 1000;
 type Connection = typeof generationConnections.$inferSelect;
 type Check = typeof generationInstanceChecks.$inferSelect;
 export type PoolSettings = Pick<Connection, 'poolEnabled' | 'maxRunning' | 'maxPending'> & {
@@ -47,14 +47,7 @@ export class GenerationInstancesService {
   }
 
   private view(connection: Connection, check?: Check) {
-    const fresh = Boolean(
-      check &&
-      connection.enabled &&
-      connection.poolEnabled &&
-      check.connectionVersion === connection.version &&
-      check.poolVersion === connection.poolVersion &&
-      Date.now() - check.checkedAt < checkLifetimeMs,
-    );
+    const fresh = freshInstanceCheck(connection, check);
     let capacity: 'available' | 'busy' | 'unverified' = 'unverified';
     if (fresh && check?.reachable && check.running !== null && check.pending !== null) {
       capacity =

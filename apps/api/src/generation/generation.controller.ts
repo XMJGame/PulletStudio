@@ -61,6 +61,10 @@ export class GenerationController {
   jobs(@Req() req: StudioRequest, @Param('id') id: string) {
     return this.generation.jobs(req.user, parse(uuid, id));
   }
+  @Get('generation-workflows/:id/routing-options')
+  routingOptions(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.routingOptions(req.user, parse(uuid, id));
+  }
   @Post('shots/:id/generation-jobs')
   submit(
     @Req() req: StudioRequest,

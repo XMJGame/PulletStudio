@@ -1,6 +1,7 @@
 import { expect, test, request, type APIRequestContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { startComfyMock, fixtureWorkflow, fixtureCreativeFields } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
@@ -484,5 +485,74 @@ test('workspace pool enrolls two instances and displays different workflow check
     await page.screenshot({ path: 'test-results/workflow-instance-pool-mobile.png' });
   } finally {
     await alternate.close();
+  }
+});
+
+test('generation defaults to automatic routing and records the manually selected instance', async ({
+  page,
+}) => {
+  const image = await readFile(resolve('test-results/workflow-fixtures/image.png'));
+  const first = await startComfyMock({ 'image.png': image });
+  const second = await startComfyMock({ 'image.png': image });
+  try {
+    const value = await project('Pool generation controls');
+    const register = async (name: string, baseUrl: string) => {
+      const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+        name,
+        baseUrl,
+        trustedPrivate: true,
+      });
+      await api('PATCH', `/generation-connections/${connection.id}/pool`, {
+        expectedPoolVersion: 1,
+        poolEnabled: true,
+        maxRunning: 1,
+        maxPending: 2,
+      });
+      return connection.id;
+    };
+    const aId = await register('Render A', first.baseUrl);
+    const bId = await register('Render B', second.baseUrl);
+    const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, fixtureWorkflow(aId));
+    for (const id of [aId, bId])
+      await api('POST', `/generation-workflows/${workflow.id}/instance-checks/${id}`, {});
+    const basic = await api('POST', `/projects/${value.id}/shots`, { description: 'A lamp lights a hall.' });
+    const editor = await api('GET', `/shots/${basic.id}/card/editor`);
+    const shot = (
+      await api('PATCH', `/shots/${basic.id}/card`, { expectedVersion: basic.version, body: editor.body })
+    ).shot;
+    const prompt = await api('POST', `/shots/${shot.id}/prompts/compile`, {
+      mode: 'commit',
+      expectedShotVersion: shot.version,
+      expectedProjectVersion: value.version,
+      profileRevisionId: null,
+    });
+    await open(page, value);
+    await page.getByRole('button', { name: '关闭工作流中心' }).click();
+    await page.getByRole('button', { name: '制作结构', exact: true }).click();
+    await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
+    await page.getByRole('button', { name: '媒体生成', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '镜头媒体生成', exact: true });
+    await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+    const mode = dialog.getByLabel('实例调度方式', { exact: true });
+    await expect(mode).toHaveValue('auto');
+    await expect(dialog.getByText('2 个匹配实例当前可预留')).toBeVisible();
+    await mode.selectOption('manual');
+    await dialog.getByLabel('已保存提示词', { exact: true }).selectOption(prompt.id);
+    await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
+    const submit = dialog.getByRole('button', { name: '加入生成队列', exact: true });
+    await expect(submit).toBeDisabled();
+    await dialog.getByLabel('生成实例', { exact: true }).selectOption(bId);
+    await expect(submit).toBeDisabled();
+    await dialog.getByLabel('确认发送所选提示词到该工作流并消耗生成资源').check();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/generation-instance-routing-mobile.png' });
+    await submit.click();
+    await expect(dialog.getByText('实例 Render B · 手动指定', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('已归档为镜头候选', { exact: true })).toBeVisible({ timeout: 15000 });
+    expect(first.mock.submissions).toHaveLength(0);
+    expect(second.mock.submissions).toHaveLength(1);
+  } finally {
+    await Promise.all([first.close(), second.close()]);
   }
 });
