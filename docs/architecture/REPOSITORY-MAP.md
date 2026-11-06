@@ -58,6 +58,8 @@ G2-A2在generation/追加workflow-catalog.service/controller/state管理原不�
 
 当前正式入口为 `apps/web/index.html`，项目直接进入普通 Board 主视图，与项目首页互斥挂载。`canvas/BoardMediaFrame` 负责媒体画面与按需单节点播放；`BoardWorkspace` 继续管理保存与执行。隔离评审入口 `studio-review.html` 及 `features/canvas/StudioCanvas*`、`StudioComposer`、`studio-canvas*` 冻结为历史设计样例，示例资源位于 `design-review/`，不继续维护第二套生产画布。正式浏览器套件位于 `tests/e2e/`、`tests/boards/`、`tests/workflows/`，评审套件只记录历史设计。源码按实际职责渐进提取，不为目录整齐搬移业务或数据。
 
+`canvas/useBoardSources` 管理资源查询、分页与过期响应隔离，`BoardSources` 只处理展示和筛选。`prompts/PromptLibraryPicker` 负责就地选用固定版本，`PromptLibraryDialog` 保留编辑管理，两者共用原 Prompt Library API 与类型；固定应用逻辑在 BoardWorkspace 复用。`tests/fixtures/browser-zoom.mjs` 仅在独立测试配置目录创建临时扩展和浏览器，用于实际页面缩放，不进入产品构建。
+
 ## 本轮实际整理
 
 1. 完成标准交付包并单独提交，业务与文档整理分开追溯。

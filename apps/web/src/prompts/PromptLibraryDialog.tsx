@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, CursorPage } from '../api';
 import { Dialog } from '../components/Dialog';
 import type { GenerationConfig } from '../workflows/workflow-types';
-import { LibraryRevision, LibraryView, PromptDraft } from './prompt-library-types';
+import { LibraryRevision, LibraryView, PromptDraft, LibrarySummary } from './prompt-library-types';
 import { StudioButton } from '../shared/ui/StudioUI';
 import { StudioLibraryNav, type LibraryPane } from '../shared/ui/StudioLibraryNav';
 import './prompt-library.css';
@@ -14,8 +14,7 @@ type Body = {
   tags: string[];
   workflowId: string | null;
 };
-type Summary = { id: string; title: string; version: number; tags: string[]; preview: string };
-type Listing = CursorPage<Summary> & { canEdit: boolean };
+type Listing = CursorPage<LibrarySummary> & { canEdit: boolean };
 type History = { items: { version: number; title: string; createdAt: string }[]; nextCursor: number | null };
 const bodyFrom = (value?: PromptDraft): Body => ({
   title: value?.title ?? '',

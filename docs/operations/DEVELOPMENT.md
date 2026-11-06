@@ -91,6 +91,8 @@ npm run db:backup
 
 ## 当前验收界限
 
+Board 套件包含实际浏览器 125%/150% 缩放场景：使用 `tests/fixtures/browser-zoom.mjs` 在独立测试 profile 中调用浏览器 [tabs.setZoom/getZoom](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-setZoom)，读回倍率并验证固定 1440×900 下的 innerWidth 和 devicePixelRatio，再操作画布、提示词选择及保存。临时扩展只存在于忽略的测试输出目录，不使用用户浏览器配置，也不加入应用。此证据区别于等效 CSS 视口，当前覆盖创作主路径，不代表所有页面与状态均完成缩放验收。
+
 工作流中心使用 `npm run test:workflows` 构建并运行图解析测试和浏览器验收。场景使用独立 Worker 和 Mock ComfyUI，包含实例诊断、手动路由及试跑和生成归档。已有构建时可分别运行 `npm run test:workflow-graph` 和工作流 Playwright 配置。
 
 启用 G2-C2 前同时升级 API、Web 和 Generation Worker。数据库保护路由任务，旧 Worker 无法取得这类任务的租约。已经入队的绑定任务仍按原连接执行。

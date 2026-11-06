@@ -21,3 +21,4 @@ export type LibraryRevision = {
   createdAt: string;
 };
 export type LibraryView = { currentVersion: number; canEdit: boolean; revision: LibraryRevision };
+export type LibrarySummary = { id: string; title: string; version: number; tags: string[]; preview: string };

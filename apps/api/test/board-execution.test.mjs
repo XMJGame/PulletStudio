@@ -280,6 +280,23 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
         assert.equal(db().prepare('SELECT count(*) n FROM takes').get().n, 0);
       },
     );
+    await t.test(
+      'canvas media library excludes unfiled candidates until explicit archival without changing result references',
+      async () => {
+        const sources = `/projects/${project.id}/board-sources?kind=media&mediaType=video`;
+        assert.ok(
+          !(await owner('GET', sources)).data.items.some((item) => item.ref.id === queued.mediaVersionId),
+        );
+        const pinned = (await owner('GET', `/boards/${board.id}`)).data.resolved[queued.id].media.id;
+        assert.equal(pinned, queued.mediaVersionId);
+        const stored = await owner('POST', `/generation-jobs/${queued.id}/save-to-library`, {});
+        assert.equal(stored.status, 201, JSON.stringify(stored.data));
+        assert.ok(
+          (await owner('GET', sources)).data.items.some((item) => item.ref.id === queued.mediaVersionId),
+        );
+        assert.equal((await owner('GET', `/boards/${board.id}`)).data.resolved[queued.id].media.id, pinned);
+      },
+    );
     await t.test('foreign workflows, results and sources cannot bypass project permissions', async () => {
       const foreign = (await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Private' }))
           .data,

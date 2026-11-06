@@ -233,6 +233,60 @@ test('formal boards persist immutable references with project permissions and co
       },
     );
     await t.test(
+      'source filters preserve project and private-media boundaries and search before pagination',
+      async () => {
+        const path = `/projects/${project.id}/board-sources`;
+        for (const [type, name] of [
+          ['image', 'image.png'],
+          ['video', 'clip.mp4'],
+          ['audio', 'sound.wav'],
+        ]) {
+          const result = await owner('GET', `${path}?kind=media&mediaType=${type}`);
+          assert.equal(result.status, 200);
+          assert.deepEqual(
+            result.data.items.map((item) => item.value.title),
+            [name],
+          );
+          assert.equal(result.data.nextCursor, null);
+          const reader = await viewer('GET', `${path}?kind=media&mediaType=${type}`);
+          assert.equal(reader.status, 200);
+          if (type === 'audio') assert.equal(reader.data.items.length, 0);
+        }
+        assert.equal((await owner('GET', `${path}?kind=media&mediaType=video&q=image`)).data.items.length, 0);
+        assert.equal((await owner('GET', `${path}?kind=media&mediaType=other`)).status, 400);
+        assert.equal((await owner('GET', `${path}?kind=entities&mediaType=image`)).status, 400);
+        assert.equal((await outsider('GET', `${path}?kind=media&mediaType=image`)).status, 404);
+        const searchable = [];
+        for (let i = 0; i < 24; i++) {
+          const result = await owner(
+            'POST',
+            `/projects/${project.id}/entities`,
+            {
+              kind: 'prop',
+              body: { name: `Shelf item ${i}`, description: 'Search fixture' },
+            },
+            { 'Idempotency-Key': randomUUID() },
+          );
+          assert.equal(result.status, 201, JSON.stringify(result.data));
+          searchable.push(result.data);
+        }
+        const target = searchable.sort((a, b) => a.id.localeCompare(b.id)).at(-1);
+        const all = (await owner('GET', `${path}?kind=entities`)).data;
+        assert.equal(all.items.length, 20);
+        assert.ok(all.nextCursor);
+        assert.ok(!all.items.some((item) => item.ref.id === target.id));
+        const found = await owner(
+          'GET',
+          `${path}?kind=entities&q=${encodeURIComponent(target.revision.name)}`,
+        );
+        assert.deepEqual(
+          found.data.items.map((item) => item.ref.id),
+          [target.id],
+        );
+        assert.equal(found.data.nextCursor, null);
+      },
+    );
+    await t.test(
       'stale writers get 409 and response-loss replays retain the exact saved revision',
       async () => {
         const old = structuredClone(board),

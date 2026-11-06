@@ -99,6 +99,38 @@
   border-radius: var(--r-card);
   box-shadow: var(--shadow);
 }
+.creative-media-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+}
+.creative-media-filters button {
+  padding: 5px 2px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+.studio-live-board .creative-source-tabs button[aria-pressed='true'],
+.creative-media-filters button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.creative-library-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 4px;
+  text-align: center;
+  color: var(--muted);
+}
+.creative-library-empty strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+.creative-library-empty p {
+  font-size: 12px;
+}
 .v2-live-tools {
   position: absolute;
   z-index: 6;

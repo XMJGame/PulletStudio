@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { startComfyMock, fixtureI2V, fixtureWorkflow } from '../fixtures/comfy-mock.mjs';
+import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
 async function call(method: string, path: string, data?: unknown, actor = owner) {
   const me = await actor.get('/api/v1/auth/me');
@@ -151,6 +152,195 @@ test('project main view keeps drafts and isolates modal focus and clipboard inpu
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
 });
+test('resource filters search the full project and ignore stale pages after a category switch', async ({
+  page,
+}) => {
+  const value = await project('Filtered resource library');
+  for (let i = 0; i < 21; i++) await uploadMedia(value.id, 'image.png');
+  await uploadMedia(value.id, 'clip.mp4');
+  await uploadMedia(value.id, 'sound.wav');
+  await open(page, value);
+  await createBoard(page, 'Filtered references');
+  const sources = page.getByRole('complementary', { name: '正式项目资源' });
+  const cards = sources.locator('.creative-source-list > button');
+  await expect(sources.getByRole('button', { name: '媒体', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(cards).toHaveCount(20);
+  const filters = sources.getByRole('group', { name: '媒体类型筛选' });
+  await filters.getByRole('button', { name: '视频', exact: true }).click();
+  await expect(cards).toHaveCount(1);
+  await expect(cards).toContainText('clip.mp4');
+  await sources.getByLabel('搜索画布资源').fill('image');
+  await expect(cards).toHaveCount(0);
+  await expect(sources.getByText('没有匹配的资源', { exact: true })).toBeVisible();
+  await sources.getByLabel('搜索画布资源').clear();
+  await filters.getByRole('button', { name: '音频', exact: true }).click();
+  await expect(cards).toHaveCount(1);
+  await expect(cards).toContainText('sound.wav');
+  await filters.getByRole('button', { name: '全部', exact: true }).click();
+  await expect(cards).toHaveCount(20);
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pending = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  await page.route('**/board-sources?*', async (route) => {
+    if (!new URL(route.request().url()).searchParams.has('cursor')) return route.continue();
+    const response = await route.fetch();
+    started();
+    await gate;
+    await route.fulfill({ response });
+  });
+  try {
+    await sources.getByRole('button', { name: '更多项目资源', exact: true }).click();
+    await pending;
+    await filters.getByRole('button', { name: '视频', exact: true }).click();
+    await expect(cards).toHaveCount(1);
+    const response = page.waitForResponse(
+      (r) => r.url().includes('board-sources') && new URL(r.url()).searchParams.has('cursor'),
+    );
+    release();
+    await response;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
+    await expect(cards).toHaveCount(1);
+    await expect(cards).toContainText('clip.mp4');
+    await expect(sources.getByRole('button', { name: '更多项目资源', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: 'test-results/resource-library-filtered.png' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '资源库', exact: true }).click();
+    await expect(filters.getByRole('button', { name: '视频', exact: true })).toBeInViewport();
+    await page.screenshot({ path: 'test-results/resource-library-mobile.png' });
+  } finally {
+    release();
+  }
+});
+
+test('inline prompt selection pins the displayed revision and keeps drafts on failed reads', async ({
+  page,
+}) => {
+  const value = await project('Inline prompt choices');
+  const positive = 'A camera moves gently through an empty coastal station. '.repeat(80);
+  const body = {
+    title: 'Coastal dolly',
+    positivePrompt: positive,
+    negativePrompt: 'No lettering or watermarks',
+    source: 'Visual studies',
+  };
+  const entry = await call('POST', `/projects/${value.id}/prompt-library`, body);
+  await open(page, value);
+  const boardId = await createBoard(page, 'Prompt choices');
+  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  const panel = page.getByRole('region', { name: '生成节点设置' });
+  // No workflow is required to prepare a prompt; configuration still loads from the real API.
+  await expect(panel.getByLabel('生成提示词')).toBeEnabled();
+  await panel.getByLabel('生成提示词').fill('Keep this local draft');
+  await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+  const picker = panel.getByRole('region', { name: '快速选择提示词' });
+  await expect(page.getByRole('dialog', { name: '项目提示词库' })).toHaveCount(0);
+  await picker.getByLabel('快速搜索提示词').fill('coastal');
+  await picker.getByRole('button', { name: /Coastal dolly/ }).click();
+  await expect(picker.locator('.v2-prompt-picker-preview > p')).toHaveText(positive.trim());
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await picker.getByRole('button', { name: '复制正向', exact: true }).click();
+  await expect(picker.getByRole('status')).toContainText('已复制完整提示词');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(positive.trim());
+  await call('POST', `/prompt-library/${entry.revision.entryId}/revisions`, {
+    ...body,
+    expectedVersion: 1,
+    positivePrompt: 'A different second revision',
+  });
+  await page.screenshot({ path: 'test-results/prompt-inline-desktop.png' });
+  await picker.getByRole('button', { name: '应用到当前节点', exact: true }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(panel.getByLabel('生成提示词')).toHaveValue(positive.trim());
+  await save(page);
+  const board = await call('GET', `/boards/${boardId}`);
+  const promptBinding = board.layout.edges.find((item: any) => item.targetPort === 'prompt');
+  const note = board.layout.nodes.find((item: any) => item.id === promptBinding.source);
+  expect(note.data.prompt.promptLibraryRevisionId).toBe(entry.revision.id);
+  expect(note.data.prompt.negativePrompt).toBe(body.negativePrompt);
+  expect((await call('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
+  await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+  await picker.getByRole('button', { name: /Coastal dolly/ }).click();
+  await page.route(`**/prompt-library/${entry.revision.entryId}/revisions/2`, (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'FORBIDDEN', message: '此提示词已不可访问' }),
+    }),
+  );
+  await picker.getByRole('button', { name: '应用到当前节点', exact: true }).click();
+  await expect(picker.getByRole('alert')).toContainText('此提示词已不可访问');
+  await expect(picker.locator('.v2-prompt-picker-preview')).toHaveCount(0);
+  await expect(panel.getByLabel('生成提示词')).toHaveValue(positive.trim());
+  await page.unroute(`**/prompt-library/${entry.revision.entryId}/revisions/2`);
+  await picker.getByRole('button', { name: '重新加载提示词', exact: true }).click();
+  await picker.getByRole('button', { name: /Coastal dolly/ }).click();
+  await expect(picker.getByRole('alert')).toHaveCount(0);
+  await picker.getByRole('button', { name: '收起提示词选择', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+  await picker.getByRole('button', { name: /Coastal dolly/ }).click();
+  await picker.getByRole('button', { name: '应用到当前节点', exact: true }).scrollIntoViewIfNeeded();
+  await expect(picker.getByRole('button', { name: '应用到当前节点', exact: true })).toBeInViewport();
+  await page.screenshot({ path: 'test-results/prompt-inline-mobile.png' });
+});
+
+test('actual browser zoom preserves canvas, inline prompts and save at 125 and 150 percent', async ({
+  playwright,
+}, testInfo) => {
+  const value = await project('Browser zoom acceptance');
+  await uploadMedia(value.id, 'image.png');
+  await call('POST', `/projects/${value.id}/prompt-library`, {
+    title: 'Window light',
+    positivePrompt: 'A quiet coastal station in soft morning light',
+    negativePrompt: 'no lettering',
+  });
+  const { context, setZoom } = await zoomBrowser(playwright.chromium, testInfo.outputPath('zoom-browser'));
+  try {
+    const page = await context.newPage();
+    await open(page, value);
+    await createBoard(page, 'Zoomed creation');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    for (const factor of [1.25, 1.5]) {
+      expect(await setZoom(page.url(), factor)).toBe(factor);
+      expect(page.viewportSize()).toEqual({ width: 1440, height: 900 });
+      await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(Math.round(1440 / factor));
+      await expect.poll(() => page.evaluate(() => window.devicePixelRatio)).toBe(factor);
+      await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+      const picker = panel.getByRole('region', { name: '快速选择提示词' });
+      await picker.getByRole('button', { name: /Window light/ }).click();
+      await picker.getByRole('button', { name: '应用到当前节点', exact: true }).click();
+      await expect(panel.getByLabel('生成提示词')).toHaveValue(
+        'A quiet coastal station in soft morning light',
+      );
+      await expect(page.getByRole('button', { name: '保存画布', exact: true })).toBeInViewport();
+      await save(page);
+      await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+      await picker.getByRole('button', { name: /Window light/ }).click();
+      await picker.getByRole('button', { name: '应用到当前节点', exact: true }).scrollIntoViewIfNeeded();
+      await expect(picker.getByRole('button', { name: '应用到当前节点', exact: true })).toBeInViewport();
+      await expect(page.locator('.creative-surface')).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `test-results/browser-zoom-${Math.round(factor * 100)}.png` });
+      await picker.getByRole('button', { name: '收起提示词选择', exact: true }).click();
+      if (factor === 1.25) await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 test('project gallery restores its own board when a link points to another project', async ({ page }) => {
   const first = await project('Gallery station');
   const second = await project('Gallery skyline');
@@ -1069,10 +1259,9 @@ test('light canvas can drag a resource, compose next to it, save and generate, t
     await panel.getByLabel('生成提示词').fill('A first draft written directly on the canvas');
     await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeEnabled();
     await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
-    page.once('dialog', (dialog) => dialog.accept());
-    const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+    const library = panel.getByRole('region', { name: '快速选择提示词', exact: true });
     await library.getByRole('button', { name: /Slow camera movement/ }).click();
-    await library.getByRole('button', { name: '应用此版本', exact: true }).click();
+    await library.getByRole('button', { name: '应用到当前节点', exact: true }).click();
     await expect(panel.getByLabel('生成提示词')).toHaveValue(prompt.revision.positivePrompt);
     await page.screenshot({ path: 'test-results/canvas-creation-light.png' });
     const head = await call('GET', `/boards/${id}`);
@@ -1148,6 +1337,7 @@ test('three canvases share project assets and an I2V result without shots or com
     );
     await open(page, value);
     const a = await createBoard(page, 'Character study');
+    await page.getByRole('button', { name: '资产', exact: true }).click();
     await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
     await save(page);
     await page.getByRole('button', { name: '自由生成', exact: true }).click();
@@ -1176,6 +1366,7 @@ test('three canvases share project assets and an I2V result without shots or com
     await generation.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
     const b = await createBoard(page, 'Scene study');
+    await page.getByRole('button', { name: '资产', exact: true }).click();
     await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
     await page.getByRole('button', { name: '媒体', exact: true }).click();
     await page.getByRole('button', { name: '添加 clip.mp4', exact: true }).click();
@@ -1187,6 +1378,7 @@ test('three canvases share project assets and an I2V result without shots or com
     await save(page);
     await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
     const c = await createBoard(page, 'Video study');
+    await page.getByRole('button', { name: '资产', exact: true }).click();
     await page.getByRole('button', { name: '添加 Traveler', exact: true }).click();
     await save(page);
     await page.reload();

@@ -14,7 +14,7 @@ import { Dialog } from '../components/Dialog';
 import { GenerationDialog } from '../components/GenerationDialog';
 import { MediaDialog } from '../components/MediaDialog';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
-import type { PromptDraft } from '../prompts/prompt-library-types';
+import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
 import { CanvasImportDialog } from './CanvasImportDialog';
@@ -453,6 +453,28 @@ export default function BoardWorkspace({
     setSelected([id]);
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
     return true;
+  }
+  function applyLibraryRevision(revision: LibraryRevision, target?: string) {
+    if (revision.projectId !== projectId || !current.current.canEdit)
+      throw new Error('当前提示词或画布已不可编辑，草稿已保留');
+    const draft = {
+      positivePrompt: revision.positivePrompt,
+      negativePrompt: revision.negativePrompt,
+      source: revision.source,
+      promptLibraryRevisionId: revision.id,
+    };
+    const inserted = target
+      ? setNodePrompt(target, draft, true)
+      : add('note', undefined, {
+          text: revision.positivePrompt,
+          prompt: {
+            negativePrompt: revision.negativePrompt,
+            source: revision.source,
+            promptLibraryRevisionId: revision.id,
+          },
+        });
+    if (!inserted) throw new Error('无法插入提示词，请检查画布容量与编辑权限');
+    setMessage('已插入固定版本提示词，请保存画布。');
   }
   function setNodePrompt(target: string, draft: PromptDraft, replace = false) {
     if (!editable || !layout) return false;
@@ -1259,6 +1281,7 @@ export default function BoardWorkspace({
                         save={title.trim() ? save : undefined}
                         onPromptChange={(draft) => setNodePrompt(node.id, draft)}
                         onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
+                        onApplyPrompt={(revision) => applyLibraryRevision(revision, node.id)}
                         onSavedToLibrary={() => setRefresh((value) => value + 1)}
                         update={update}
                         bind={(port, source) => bindInput(node.id, port, source)}
@@ -1395,30 +1418,8 @@ export default function BoardWorkspace({
           onApply={
             editable
               ? (revision) => {
-                  if (
-                    !(promptLibrary.target
-                      ? setNodePrompt(
-                          promptLibrary.target,
-                          {
-                            positivePrompt: revision.positivePrompt,
-                            negativePrompt: revision.negativePrompt,
-                            source: revision.source,
-                            promptLibraryRevisionId: revision.id,
-                          },
-                          true,
-                        )
-                      : add('note', undefined, {
-                          text: revision.positivePrompt,
-                          prompt: {
-                            negativePrompt: revision.negativePrompt,
-                            source: revision.source,
-                            promptLibraryRevisionId: revision.id,
-                          },
-                        }))
-                  )
-                    throw new Error('无法插入提示词，请检查画布容量与编辑权限');
+                  applyLibraryRevision(revision, promptLibrary.target);
                   setPromptLibrary(undefined);
-                  setMessage('已插入固定版本提示词，请保存画布。');
                 }
               : undefined
           }

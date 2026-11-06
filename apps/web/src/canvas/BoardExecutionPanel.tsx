@@ -10,7 +10,8 @@ import { GenerationJob, generationStates } from '../components/GenerationDialog'
 import { parameterLabels } from '../components/GenerationParameters';
 import { CreativeParameters } from '../workflows/CreativeParameters';
 import { GenerationConfig, capabilityLabels } from '../workflows/workflow-types';
-import type { PromptDraft } from '../prompts/prompt-library-types';
+import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
+import { PromptLibraryPicker } from '../prompts/PromptLibraryPicker';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import '../features/canvas/studio-live-composer.css';
 
@@ -25,6 +26,7 @@ export function BoardExecutionPanel({
   save,
   onPromptChange,
   onPromptLibrary,
+  onApplyPrompt,
   onSavedToLibrary,
   update,
   bind,
@@ -43,6 +45,7 @@ export function BoardExecutionPanel({
   save?: () => Promise<number | undefined>;
   onPromptChange: (draft: PromptDraft) => void;
   onPromptLibrary: (draft?: PromptDraft) => void;
+  onApplyPrompt: (revision: LibraryRevision) => void;
   onSavedToLibrary: () => void;
   update: (node: BoardNode) => void;
   bind: (port: 'prompt' | 'first_frame', source: string) => void;
@@ -55,6 +58,7 @@ export function BoardExecutionPanel({
     [jobs, setJobs] = useState<CursorPage<GenerationJob>>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const [showPrompts, setShowPrompts] = useState(false);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto'),
     [instance, setInstance] = useState(''),
     [instances, setInstances] = useState<{ id: string; name: string; available: boolean }[]>([]);
@@ -292,7 +296,12 @@ export function BoardExecutionPanel({
               />
             </label>
             <div className="v2-live-inline">
-              <StudioButton variant="ghost" icon="book" onClick={() => onPromptLibrary()}>
+              <StudioButton
+                variant="ghost"
+                icon="book"
+                aria-expanded={showPrompts}
+                onClick={() => setShowPrompts((value) => !value)}
+              >
                 应用提示词库
               </StudioButton>
               {text && (
@@ -305,6 +314,15 @@ export function BoardExecutionPanel({
               )}
             </div>
           </div>
+          {showPrompts && (
+            <PromptLibraryPicker
+              projectId={board.projectId}
+              editable={editable}
+              onApply={onApplyPrompt}
+              onManage={() => onPromptLibrary()}
+              onClose={() => setShowPrompts(false)}
+            />
+          )}
           <details className="creative-advanced">
             <summary>
               <StudioIcon name="sliders" size={16} />
