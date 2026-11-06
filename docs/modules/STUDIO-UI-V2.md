@@ -29,7 +29,7 @@
 3. 逐块接项目/Board/Assets/Prompt/Workflow/Generation，校验权限、版本、保存冲突与断线。清理被替代的旧 UI，走全套回归。
 4. 分支评审与 PR。通过视觉、功能及用户最终验收后才合并。
 
-评审原型由 Vite 开发服务器单独提供。重建分支的正式入口已完成[接入 A](STUDIO-UI-V2-INTEGRATION-A.md)。下一阶段改造生成区及结果交互，复用当前执行服务。
+评审原型由 Vite 开发服务器单独提供。重建分支的正式入口已完成[接入 A](STUDIO-UI-V2-INTEGRATION-A.md)与[接入 B](STUDIO-UI-V2-INTEGRATION-B.md)。下一阶段迁移工作流中心与提示词库的管理界面。
 
 ## 打开评审原型
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 import { Dialog } from '../components/Dialog';
 import { kindLabels, statusLabels } from './board-types';
@@ -96,7 +96,6 @@ export function BoardInspector({
   detail,
   onDetail,
   closeDetail,
-  executionPanel,
   onDismiss,
   onUseImage,
 }: {
@@ -109,7 +108,6 @@ export function BoardInspector({
   detail?: BoardResolved;
   onDetail: () => void;
   closeDetail: () => void;
-  executionPanel?: ReactNode;
   onDismiss: () => void;
   onUseImage?: () => void;
 }) {
@@ -119,7 +117,7 @@ export function BoardInspector({
     <aside className="creative-inspector" aria-label="画布检查器">
       <div className="creative-pane-heading">
         <div>
-          <span className="creative-kicker">{node?.type === 'generation' ? 'CREATION' : 'CANVAS ITEM'}</span>
+          <span className="creative-kicker">CANVAS ITEM</span>
           <h3>{node ? (kindLabels[value?.kind ?? node.type] ?? '业务引用') : '创作检查器'}</h3>
         </div>
         <button className="creative-icon-button" aria-label="关闭节点面板" onClick={onDismiss}>
@@ -138,9 +136,7 @@ export function BoardInspector({
       )}
       {node && (
         <>
-          {node.type === 'generation' ? (
-            executionPanel
-          ) : node.type === 'reference' || node.type === 'result' ? (
+          {node.type === 'reference' || node.type === 'result' ? (
             <>
               <strong>{value?.title ?? '正在解析引用'}</strong>
               <p className={`creative-reference-state ${value?.status ?? ''}`}>
@@ -292,36 +288,7 @@ export function BoardInspector({
               </label>
             </details>
           )}
-          {node.type !== 'group' && (
-            <details className="creative-advanced">
-              <summary>布局设置</summary>
-              <label>
-                所属分组
-                <select
-                  aria-label="所属分组"
-                  disabled={!editable}
-                  value={node.parentId ?? ''}
-                  onChange={(e) =>
-                    update({ ...node, parentId: e.target.value || undefined, position: { x: 30, y: 70 } })
-                  }
-                >
-                  <option value="">画布根层</option>
-                  {nodes
-                    .filter((n) => n.type === 'group')
-                    .map((n) => (
-                      <option key={n.id} value={n.id}>
-                        {n.data.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {editable && (
-                <button className="creative-remove" onClick={remove}>
-                  移除画布节点
-                </button>
-              )}
-            </details>
-          )}
+          {node.type !== 'group' && <BoardNodeLayout {...{ node, nodes, editable, update, remove }} />}
           {editable && node.type === 'group' && (
             <button className="creative-remove" onClick={remove}>
               移除画布节点
@@ -348,5 +315,50 @@ export function BoardInspector({
         </Dialog>
       )}
     </aside>
+  );
+}
+
+export function BoardNodeLayout({
+  node,
+  nodes,
+  editable,
+  update,
+  remove,
+}: {
+  node: BoardNode;
+  nodes: BoardNode[];
+  editable: boolean;
+  update: (node: BoardNode) => void;
+  remove: () => void;
+}) {
+  return (
+    <details className="creative-advanced">
+      <summary>布局设置</summary>
+      <label>
+        所属分组
+        <select
+          aria-label="所属分组"
+          disabled={!editable}
+          value={node.parentId ?? ''}
+          onChange={(e) =>
+            update({ ...node, parentId: e.target.value || undefined, position: { x: 30, y: 70 } })
+          }
+        >
+          <option value="">画布根层</option>
+          {nodes
+            .filter((n) => n.type === 'group')
+            .map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.data.label}
+              </option>
+            ))}
+        </select>
+      </label>
+      {editable && (
+        <button className="creative-remove" onClick={remove}>
+          移除画布节点
+        </button>
+      )}
+    </details>
   );
 }

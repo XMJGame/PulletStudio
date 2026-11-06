@@ -121,13 +121,20 @@
     width: 100%;
   }
   .v2-live-actions .creative-save-state {
+    min-width: 0;
+    overflow: hidden;
     padding-inline: 2px;
     font-size: 10px;
+    text-overflow: ellipsis;
   }
   .v2-live-actions .v2-button {
     --h-control: 34px;
     padding-inline: 6px;
     font-size: 12px;
+  }
+  .v2-live-save {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
   .v2-live-menu {
     margin-left: auto;

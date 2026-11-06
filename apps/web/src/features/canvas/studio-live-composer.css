@@ -1,0 +1,219 @@
+.studio-live-board .creative-context-composer {
+  inset-inline: 0;
+  bottom: 16px;
+  width: min(560px, calc(100% - 32px));
+  max-height: min(73%, 610px);
+  margin-inline: auto;
+}
+.v2-live-composer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--paper);
+  box-shadow: var(--lift);
+}
+.v2-live-composer-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.v2-live-composer-mark {
+  display: grid;
+  flex: 0 0 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--r-control);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.v2-live-composer-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.v2-live-composer-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--caption);
+}
+.v2-live-composer-header-actions {
+  margin-left: auto;
+}
+.v2-live-composer-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 10px;
+  scrollbar-gutter: stable;
+}
+.v2-live-composer-body :is(label, .checkbox-label) {
+  margin: 8px 0;
+  font-size: var(--caption);
+}
+.v2-live-composer-body label {
+  gap: 3px;
+}
+.v2-live-composer-body :is(input, textarea, select) {
+  margin-top: 4px;
+}
+.v2-live-composer-body .notice {
+  margin: 10px 0;
+}
+.v2-live-frame-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+.v2-live-frame-row label {
+  flex: 1 1 115px;
+  min-width: 0;
+  margin: 0;
+}
+.creative-frame-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(260px, 100%);
+  padding: 5px;
+  border-radius: var(--r-control);
+  background: var(--soft);
+}
+.creative-frame-chip img {
+  width: 46px;
+  height: 38px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.creative-frame-chip div {
+  min-width: 0;
+}
+.creative-frame-chip strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--caption);
+}
+.creative-frame-chip small,
+.v2-live-candidate small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.v2-live-prompt {
+  padding: 0 9px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--ground);
+}
+.v2-live-prompt label {
+  margin-bottom: 0;
+}
+.studio-live-board .v2-live-prompt textarea {
+  min-height: 70px;
+  padding: 4px 0;
+  border-color: transparent;
+  background: transparent;
+}
+.v2-live-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.v2-live-composer .v2-button {
+  --h-control: 34px;
+  padding-inline: 8px;
+  font-size: var(--caption);
+}
+.v2-live-composer .v2-button[data-icon] {
+  padding-inline: 0;
+}
+.v2-live-composer summary {
+  padding: 4px 0;
+}
+.v2-live-composer summary:has(> svg) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.v2-live-composer summary span {
+  flex: 1;
+}
+.v2-live-composer details[open] > summary svg:last-child {
+  transform: rotate(180deg);
+}
+.v2-live-composer-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+}
+.v2-live-composer-status {
+  color: var(--muted);
+  font-size: var(--caption);
+}
+.v2-live-composer-footer .v2-live-inline {
+  margin-left: auto;
+}
+.v2-live-candidates h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+.v2-live-candidate {
+  margin-top: 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--ground);
+}
+.v2-live-candidate header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  font-size: var(--caption);
+}
+.v2-live-candidate strong[data-state='completed'] {
+  color: var(--accent);
+}
+.v2-live-candidate :is(img, video) {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin: 8px auto;
+  border-radius: var(--r-control);
+}
+.v2-live-candidate video {
+  width: min(100%, 320px);
+  aspect-ratio: 16 / 9;
+  background: #15231e;
+}
+@media (max-width: 760px) {
+  .studio-live-board .creative-context-composer {
+    z-index: 7;
+    bottom: 7px;
+    width: calc(100% - 16px);
+    max-height: 76%;
+  }
+  .v2-live-composer-body {
+    padding-inline: 10px;
+  }
+  .v2-live-composer-footer {
+    padding-inline: 8px;
+  }
+}

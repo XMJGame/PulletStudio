@@ -102,10 +102,6 @@
   max-height: min(65%, 580px);
   display: flex;
 }
-.creative-context-composer {
-  width: min(484px, calc(100% - 78px));
-  max-height: 76%;
-}
 .creative-sources,
 .creative-inspector {
   min-width: 0;
@@ -427,8 +423,7 @@
     width: min(250px, 85vw);
     box-shadow: var(--board-shadow);
   }
-  .creative-context,
-  .creative-context-composer {
+  .creative-context {
     left: 10px;
     right: 10px;
     bottom: 8px;
@@ -617,19 +612,6 @@
   margin: 0 0 15px;
   color: var(--board-muted);
 }
-.creative-context-composer .creative-inspector label {
-  margin-top: 9px;
-  margin-bottom: 8px;
-}
-.creative-context-composer .creative-inspector {
-  padding: 12px 15px;
-}
-.creative-context-composer .creative-pane-heading h3 {
-  margin-bottom: 4px;
-}
-.creative-context-composer .creative-inspector :is(input, select, textarea) {
-  margin-top: 4px;
-}
 .creative-advanced {
   margin-top: 10px;
   border-top: 1px solid var(--board-line);
@@ -639,74 +621,4 @@
   cursor: pointer;
   color: var(--board-muted);
   font-size: 12px;
-}
-.creative-composer-input textarea {
-  min-height: 62px;
-}
-.creative-frame-chip {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 5px;
-  border-radius: 9px;
-  background: var(--board-ground);
-}
-.creative-frame-chip img {
-  width: 46px;
-  height: 40px;
-  object-fit: cover;
-  border-radius: 6px;
-}
-.creative-frame-chip small,
-.creative-job small {
-  display: block;
-  color: var(--board-muted);
-  font-size: 11px;
-}
-.creative-frame-chip strong {
-  font-size: 12px;
-}
-.creative-inline-actions,
-.creative-composer-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.creative-composer-actions {
-  margin-top: 10px;
-}
-.creative-inline-actions button,
-.creative-composer-actions button:not(.primary),
-.creative-job button {
-  font-size: 12px;
-  padding: 6px 9px;
-}
-.creative-job {
-  border-top: 1px solid var(--board-line);
-  margin-top: 12px;
-  padding-top: 9px;
-}
-.creative-job video,
-.creative-job img {
-  display: block;
-  max-height: 210px;
-  border-radius: 8px;
-  margin: 8px 0;
-}
-.creative-job button {
-  margin: 4px 5px 0 0;
-}
-@media (max-width: 760px) {
-  .creative-context-composer {
-    max-height: 72%;
-  }
-  .creative-composer-actions {
-    position: sticky;
-    z-index: 2;
-    bottom: -12px;
-    padding-block: 5px;
-    background: var(--board-panel);
-  }
 }

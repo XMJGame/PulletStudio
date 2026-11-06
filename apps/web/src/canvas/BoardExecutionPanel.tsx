@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   BoardLayout,
   BoardNode,
@@ -11,6 +11,8 @@ import { parameterLabels } from '../components/GenerationParameters';
 import { CreativeParameters } from '../workflows/CreativeParameters';
 import { GenerationConfig, capabilityLabels } from '../workflows/workflow-types';
 import type { PromptDraft } from '../prompts/prompt-library-types';
+import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
+import '../features/canvas/studio-live-composer.css';
 
 export function BoardExecutionPanel({
   board,
@@ -28,6 +30,8 @@ export function BoardExecutionPanel({
   bind,
   onResult,
   onOpenTasks,
+  onDismiss,
+  children,
 }: {
   board: BoardView;
   userId: string;
@@ -44,6 +48,8 @@ export function BoardExecutionPanel({
   bind: (port: 'prompt' | 'first_frame', source: string) => void;
   onResult: (job: GenerationJob) => void;
   onOpenTasks: () => void;
+  onDismiss: () => void;
+  children: ReactNode;
 }) {
   const [config, setConfig] = useState<GenerationConfig>(),
     [jobs, setJobs] = useState<CursorPage<GenerationJob>>(),
@@ -54,6 +60,7 @@ export function BoardExecutionPanel({
     [instances, setInstances] = useState<{ id: string; name: string; available: boolean }[]>([]);
   const attempt = useRef({ body: '', key: '' }),
     expanded = useRef(false),
+    candidates = useRef<HTMLElement>(null),
     attemptKey = `pullet.board.run.${userId}.${board.id}.${node.id}`,
     settings = node.data.generation ?? {},
     workflow = config?.workflows.find((w) => w.id === settings.workflowId),
@@ -144,12 +151,17 @@ export function BoardExecutionPanel({
   const prompt = layout.nodes.find((item) => item.id === source('prompt'))?.data;
   const text = prompt?.text?.trim();
   const needsFrame = workflow?.capability === 'video.image_to_video';
-  const ready =
-    !!text &&
-    !!workflow &&
-    !workflow.archived &&
-    (workflow.enabled || config?.poolConfigured) &&
-    (needsFrame ? resolved[firstFrame]?.media?.mediaType === 'image' : !firstFrame);
+  const frame = resolved[firstFrame];
+  let blocked = '';
+  if (!config) blocked = error ? '工作流暂不可用。' : '正在读取工作流与权限…';
+  else if (!editable || !config.canEdit) blocked = '此节点为只读。';
+  else if (!workflow || workflow.archived || (!workflow.enabled && !config.poolConfigured))
+    blocked = '选择一个可用工作流。';
+  else if (needsFrame && frame?.media?.mediaType !== 'image') blocked = '图生视频需要选择一张首帧。';
+  else if (!needsFrame && firstFrame) blocked = '当前工作流仅使用文字，请移除首帧。';
+  else if (!text) blocked = '填写提示词或连接文本便签。';
+  else if (config.poolConfigured && mode === 'manual' && !instance) blocked = '选择一台可用实例。';
+  else if (dirty && !save) blocked = '填写画布名称后才能保存并生成。';
   const fieldOverrides = Object.fromEntries(
     Object.entries(settings.fieldValues ?? {}).map(([id, value]) => [
       id,
@@ -157,320 +169,420 @@ export function BoardExecutionPanel({
     ]),
   );
   return (
-    <section aria-label="生成节点设置">
-      {error && (
-        <p role="alert" className="notice error">
-          {error}
-        </p>
-      )}
-      <fieldset className="plain-fieldset" disabled={!editable || busy || !config?.canEdit}>
-        <label>
-          节点工作流
-          <select
-            aria-label="节点工作流"
-            value={settings.workflowId ?? ''}
-            onChange={(e) =>
-              update({ ...node, data: { generation: { workflowId: e.target.value || undefined } } })
-            }
-          >
-            <option value="">选择已保存工作流</option>
-            {settings.workflowId && (!workflow || workflow.archived) && (
-              <option value={settings.workflowId}>固定工作流不可用</option>
-            )}
-            {config?.workflows
-              .filter((w) => !w.archived)
-              .map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} · v{w.revision ?? 1} · {capabilityLabels[w.capability]}
-                </option>
-              ))}
-          </select>
-        </label>
-        <div className="creative-composer-input">
-          {resolved[firstFrame]?.media?.mediaType === 'image' && (
-            <div className="creative-frame-chip">
-              <img src={resolved[firstFrame].media.contentUrl} alt="" loading="lazy" />
-              <div>
-                <small>首帧</small>
-                <strong>{resolved[firstFrame].title}</strong>
-              </div>
-              <button
-                className="creative-icon-button"
-                aria-label="移除首帧"
-                onClick={() => bind('first_frame', '')}
-              >
-                ×
-              </button>
+    <section className="v2-live-composer" aria-label="生成节点设置">
+      <header className="v2-live-composer-header">
+        <span className="v2-live-composer-mark">
+          <StudioIcon name="spark" />
+        </span>
+        <div>
+          <h3>生成节点</h3>
+          <p>{workflow ? capabilityLabels[workflow.capability] : '选择工作流后开始创作'}</p>
+        </div>
+        <div className="v2-live-inline v2-live-composer-header-actions">
+          {!!jobs?.items.length && (
+            <StudioButton
+              variant="ghost"
+              icon="clock"
+              onClick={() => {
+                candidates.current?.scrollIntoView({ block: 'start' });
+                candidates.current?.focus({ preventScroll: true });
+              }}
+            >
+              本节点任务
+            </StudioButton>
+          )}
+          <StudioButton
+            variant="ghost"
+            icon="close"
+            aria-label="关闭节点面板"
+            title="关闭节点面板"
+            onClick={onDismiss}
+          />
+        </div>
+      </header>
+      <div className="v2-live-composer-body">
+        {error && (
+          <p role="alert" className="notice error">
+            {error}
+          </p>
+        )}
+        <fieldset className="plain-fieldset" disabled={!editable || busy || !config?.canEdit}>
+          <label>
+            节点工作流
+            <select
+              aria-label="节点工作流"
+              value={settings.workflowId ?? ''}
+              onChange={(e) =>
+                update({ ...node, data: { generation: { workflowId: e.target.value || undefined } } })
+              }
+            >
+              <option value="">选择已保存工作流</option>
+              {settings.workflowId && (!workflow || workflow.archived) && (
+                <option value={settings.workflowId}>固定工作流不可用</option>
+              )}
+              {config?.workflows
+                .filter((w) => !w.archived)
+                .map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} · v{w.revision ?? 1} · {capabilityLabels[w.capability]}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {(needsFrame || firstFrame) && (
+            <div className="v2-live-frame-row">
+              {frame?.media?.mediaType === 'image' && (
+                <div className="creative-frame-chip">
+                  <img src={frame.media.contentUrl} alt="" loading="lazy" />
+                  <div>
+                    <small>首帧参考</small>
+                    <strong>{frame.title}</strong>
+                  </div>
+                  <StudioButton
+                    icon="close"
+                    variant="ghost"
+                    aria-label="移除首帧"
+                    title="移除首帧"
+                    onClick={() => bind('first_frame', '')}
+                  />
+                </div>
+              )}
+              <label>
+                {frame?.media?.mediaType === 'image' ? '更换首帧' : '首帧输入'}
+                <select
+                  aria-label="节点首帧输入"
+                  value={firstFrame}
+                  onChange={(e) => bind('first_frame', e.target.value)}
+                >
+                  <option value="">不连接首帧</option>
+                  {firstFrame && frame?.media?.mediaType !== 'image' && (
+                    <option value={firstFrame}>当前首帧不可用</option>
+                  )}
+                  {layout.nodes
+                    .filter(
+                      (n) =>
+                        (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
+                        resolved[n.id]?.media?.mediaType === 'image',
+                    )
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {resolved[n.id]?.title}
+                      </option>
+                    ))}
+                </select>
+              </label>
             </div>
           )}
-          <label>
-            提示词
-            <textarea
-              aria-label="生成提示词"
-              rows={3}
-              maxLength={16000}
-              value={prompt?.text ?? ''}
-              placeholder="描述画面、动作或镜头如何变化…"
-              onChange={(event) =>
-                onPromptChange({
-                  positivePrompt: event.target.value,
-                  negativePrompt: prompt?.prompt?.negativePrompt,
-                  source: prompt?.prompt?.source,
-                })
-              }
-            />
-          </label>
-          <div className="creative-inline-actions">
-            <button onClick={() => onPromptLibrary()}>应用提示词库</button>
-            {text && (
-              <button
-                onClick={() => onPromptLibrary({ positivePrompt: prompt?.text ?? '', ...prompt?.prompt })}
-              >
-                存入提示词库
-              </button>
-            )}
-          </div>
-        </div>
-        <details className="creative-advanced">
-          <summary>输入绑定与参数</summary>
-          <label>
-            负向提示词
-            <textarea
-              rows={2}
-              maxLength={16000}
-              value={prompt?.prompt?.negativePrompt ?? ''}
-              onChange={(event) =>
-                onPromptChange({
-                  positivePrompt: prompt?.text ?? '',
-                  negativePrompt: event.target.value,
-                  source: prompt?.prompt?.source,
-                })
-              }
-            />
-          </label>
-          <label>
-            提示词输入
-            <select
-              aria-label="节点提示词输入"
-              value={source('prompt')}
-              onChange={(e) => bind('prompt', e.target.value)}
-            >
-              <option value="">连接文本便签</option>
-              {layout.nodes
-                .filter((n) => n.type === 'note')
-                .map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.data.text?.slice(0, 50) || '空便签'}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            首帧输入
-            <select
-              aria-label="节点首帧输入"
-              value={source('first_frame')}
-              onChange={(e) => bind('first_frame', e.target.value)}
-            >
-              <option value="">不连接首帧</option>
-              {firstFrame && resolved[firstFrame]?.media?.mediaType !== 'image' && (
-                <option value={firstFrame}>当前首帧不可用</option>
-              )}
-              {layout.nodes
-                .filter(
-                  (n) =>
-                    (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
-                    resolved[n.id]?.media?.mediaType === 'image',
-                )
-                .map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {resolved[n.id]?.title}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <p className="field-hint">图生视频需要一张首帧。文字生成请解除首帧连接。</p>
-          {workflow?.parameters.map((p) => (
-            <label key={p.key}>
-              {parameterLabels[p.key]}
-              {p.key === 'aspectRatio' ? (
-                <select
-                  aria-label={`节点${parameterLabels[p.key]}`}
-                  value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
-                  onChange={(e) =>
-                    update({
-                      ...node,
-                      data: {
-                        generation: {
-                          ...settings,
-                          parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
-                        },
-                      },
-                    })
-                  }
+          <div className="v2-live-prompt">
+            <label>
+              提示词
+              <textarea
+                aria-label="生成提示词"
+                rows={3}
+                maxLength={16000}
+                value={prompt?.text ?? ''}
+                placeholder="描述画面、动作或镜头如何变化…"
+                onChange={(event) =>
+                  onPromptChange({
+                    positivePrompt: event.target.value,
+                    negativePrompt: prompt?.prompt?.negativePrompt,
+                    source: prompt?.prompt?.source,
+                  })
+                }
+              />
+            </label>
+            <div className="v2-live-inline">
+              <StudioButton variant="ghost" icon="book" onClick={() => onPromptLibrary()}>
+                应用提示词库
+              </StudioButton>
+              {text && (
+                <StudioButton
+                  variant="ghost"
+                  onClick={() => onPromptLibrary({ positivePrompt: prompt?.text ?? '', ...prompt?.prompt })}
                 >
-                  {p.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
+                  存入提示词库
+                </StudioButton>
+              )}
+            </div>
+          </div>
+          <details className="creative-advanced">
+            <summary>
+              <StudioIcon name="sliders" size={16} />
+              <span>输入绑定与参数</span>
+              <StudioIcon name="chevron" size={15} />
+            </summary>
+            <label>
+              负向提示词
+              <textarea
+                rows={2}
+                maxLength={16000}
+                value={prompt?.prompt?.negativePrompt ?? ''}
+                onChange={(event) =>
+                  onPromptChange({
+                    positivePrompt: prompt?.text ?? '',
+                    negativePrompt: event.target.value,
+                    source: prompt?.prompt?.source,
+                  })
+                }
+              />
+            </label>
+            <label>
+              提示词输入
+              <select
+                aria-label="节点提示词输入"
+                value={source('prompt')}
+                onChange={(e) => bind('prompt', e.target.value)}
+              >
+                <option value="">连接文本便签</option>
+                {layout.nodes
+                  .filter((n) => n.type === 'note')
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.data.text?.slice(0, 50) || '空便签'}
                     </option>
                   ))}
-                </select>
-              ) : (
-                <input
-                  aria-label={`节点${parameterLabels[p.key]}`}
-                  type="number"
-                  min={p.min}
-                  max={p.max}
-                  step={p.step}
-                  value={settings.parameterValues?.[p.key] ?? p.defaultValue}
-                  onChange={(e) =>
-                    update({
-                      ...node,
-                      data: {
-                        generation: {
-                          ...settings,
-                          parameterValues: { ...settings.parameterValues, [p.key]: Number(e.target.value) },
-                        },
-                      },
-                    })
-                  }
-                />
-              )}
-            </label>
-          ))}
-          <CreativeParameters
-            fields={workflow?.fields ?? []}
-            overrides={fieldOverrides}
-            change={(id, value) => {
-              const field = workflow?.fields?.find((f) => f.id === id);
-              update({
-                ...node,
-                data: {
-                  generation: {
-                    ...settings,
-                    fieldValues: {
-                      ...settings.fieldValues,
-                      [id]: field?.type === 'number' ? Number(value) : value,
-                    },
-                  },
-                },
-              });
-            }}
-          />
-        </details>
-      </fieldset>
-      {config?.poolConfigured && editable && (
-        <fieldset className="plain-fieldset" disabled={busy}>
-          <label>
-            节点调度
-            <select
-              aria-label="节点调度"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as 'auto' | 'manual')}
-            >
-              <option value="auto">自动选机</option>
-              <option value="manual">手动指定</option>
-            </select>
-          </label>
-          {mode === 'manual' && (
-            <label>
-              节点实例
-              <select aria-label="节点实例" value={instance} onChange={(e) => setInstance(e.target.value)}>
-                <option value="">选择可用实例</option>
-                {instances.map((i) => (
-                  <option key={i.id} value={i.id} disabled={!i.available}>
-                    {i.name}
-                  </option>
-                ))}
               </select>
             </label>
-          )}
+            {workflow?.parameters.map((p) => (
+              <label key={p.key}>
+                {parameterLabels[p.key]}
+                {p.key === 'aspectRatio' ? (
+                  <select
+                    aria-label={`节点${parameterLabels[p.key]}`}
+                    value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
+                    onChange={(e) =>
+                      update({
+                        ...node,
+                        data: {
+                          generation: {
+                            ...settings,
+                            parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
+                          },
+                        },
+                      })
+                    }
+                  >
+                    {p.options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    aria-label={`节点${parameterLabels[p.key]}`}
+                    type="number"
+                    min={p.min}
+                    max={p.max}
+                    step={p.step}
+                    value={settings.parameterValues?.[p.key] ?? p.defaultValue}
+                    onChange={(e) =>
+                      update({
+                        ...node,
+                        data: {
+                          generation: {
+                            ...settings,
+                            parameterValues: { ...settings.parameterValues, [p.key]: Number(e.target.value) },
+                          },
+                        },
+                      })
+                    }
+                  />
+                )}
+              </label>
+            ))}
+            <CreativeParameters
+              fields={workflow?.fields ?? []}
+              overrides={fieldOverrides}
+              change={(id, value) => {
+                const field = workflow?.fields?.find((f) => f.id === id);
+                update({
+                  ...node,
+                  data: {
+                    generation: {
+                      ...settings,
+                      fieldValues: {
+                        ...settings.fieldValues,
+                        [id]: field?.type === 'number' ? Number(value) : value,
+                      },
+                    },
+                  },
+                });
+              }}
+            />
+            {config?.poolConfigured && editable && (
+              <div>
+                <label>
+                  节点调度
+                  <select
+                    aria-label="节点调度"
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as 'auto' | 'manual')}
+                  >
+                    <option value="auto">自动选机</option>
+                    <option value="manual">手动指定</option>
+                  </select>
+                </label>
+                {mode === 'manual' && (
+                  <label>
+                    节点实例
+                    <select
+                      aria-label="节点实例"
+                      value={instance}
+                      onChange={(e) => setInstance(e.target.value)}
+                    >
+                      <option value="">选择可用实例</option>
+                      {instances.map((i) => (
+                        <option key={i.id} value={i.id} disabled={!i.available}>
+                          {i.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            )}
+          </details>
         </fieldset>
-      )}
-      <div className="creative-composer-actions">
-        {editable && (
-          <button
-            className="primary"
-            disabled={
-              busy ||
-              (dirty && !save) ||
-              !config?.canEdit ||
-              !ready ||
-              (config.poolConfigured && mode === 'manual' && !instance)
-            }
-            onClick={async () => {
-              setBusy(true);
+        {children}
+        {jobs && (jobs.items.length > 0 || jobs.nextCursor) ? (
+          <section className="v2-live-candidates" aria-label="节点任务与候选" ref={candidates} tabIndex={-1}>
+            <h4>任务与候选</h4>
+            {jobs.items.slice(0, 1).map(renderJob)}
+            {(jobs.items.length > 1 || jobs.nextCursor) && (
+              <details className="creative-advanced">
+                <summary>历史任务</summary>
+                {jobs.items.slice(1).map(renderJob)}
+                {jobs.nextCursor && (
+                  <StudioButton
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void api<CursorPage<GenerationJob>>(`${path}?cursor=${jobs.nextCursor}`)
+                        .then((more) => {
+                          expanded.current = true;
+                          setJobs((old) => ({
+                            ...more,
+                            items: [
+                              ...(old?.items ?? []),
+                              ...more.items.filter((item) => !old?.items.some((row) => row.id === item.id)),
+                            ],
+                          }));
+                        })
+                        .catch(report)
+                    }
+                  >
+                    更多节点任务
+                  </StudioButton>
+                )}
+              </details>
+            )}
+          </section>
+        ) : null}
+      </div>
+      <footer className="v2-live-composer-footer">
+        <div className="v2-live-composer-status">
+          {busy ? (
+            <span role="status">正在处理…</span>
+          ) : (
+            blocked || (dirty ? '提交前保存当前画布' : '使用已保存的画布版本')
+          )}
+        </div>
+        <div className="v2-live-inline">
+          <StudioButton variant="ghost" icon="clock" onClick={onOpenTasks}>
+            查看任务与候选
+          </StudioButton>
+          <StudioButton
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
               setError('');
-              const revision = dirty ? await save?.() : board.revision;
-              if (revision === undefined) {
-                setBusy(false);
-                return;
-              }
-              const body = {
-                  expectedRevision: revision,
-                  confirmed: true,
-                  ...(config?.poolConfigured
-                    ? { routing: mode === 'auto' ? { mode } : { mode, connectionId: instance } }
-                    : {}),
-                },
-                serialized = JSON.stringify(body);
-              if (attempt.current.body !== serialized) {
-                let pendingKey = '';
-                try {
-                  const stored = JSON.parse(sessionStorage.getItem(attemptKey) ?? 'null');
-                  if (stored?.body === serialized && typeof stored.key === 'string') pendingKey = stored.key;
-                } catch {
-                  // The current tab can still retry using the in-memory key.
-                }
-                attempt.current = { body: serialized, key: pendingKey || crypto.randomUUID() };
-                try {
-                  sessionStorage.setItem(attemptKey, JSON.stringify(attempt.current));
-                } catch {
-                  // Browser storage is optional.
-                }
-              }
-              void api<GenerationJob>(path, 'POST', body, { 'Idempotency-Key': attempt.current.key })
-                .then(async () => {
-                  await load();
-                  attempt.current = { body: '', key: '' };
-                  try {
-                    sessionStorage.removeItem(attemptKey);
-                  } catch {
-                    // The task already exists in the server history.
-                  }
-                })
-                .catch(report)
-                .finally(() => setBusy(false));
+              void load().catch(report);
             }}
           >
-            {dirty ? '保存并生成' : '执行生成节点'}
-          </button>
-        )}
-        <button
-          disabled={busy}
-          onClick={() => {
-            setError('');
-            void load().catch(report);
-          }}
-        >
-          刷新节点任务
-        </button>
-      </div>
-      {(jobs?.items ?? []).map((job) => (
-        <article className="creative-job" key={job.id}>
-          <strong>{generationStates[job.state] ?? job.state}</strong>
+            刷新节点任务
+          </StudioButton>
+          {editable && (
+            <StudioButton
+              variant="primary"
+              icon="spark"
+              disabled={busy || Boolean(blocked)}
+              onClick={async () => {
+                setBusy(true);
+                setError('');
+                const revision = dirty ? await save?.() : board.revision;
+                if (revision === undefined) {
+                  setBusy(false);
+                  return;
+                }
+                const body = {
+                    expectedRevision: revision,
+                    confirmed: true,
+                    ...(config?.poolConfigured
+                      ? { routing: mode === 'auto' ? { mode } : { mode, connectionId: instance } }
+                      : {}),
+                  },
+                  serialized = JSON.stringify(body);
+                if (attempt.current.body !== serialized) {
+                  let pendingKey = '';
+                  try {
+                    const stored = JSON.parse(sessionStorage.getItem(attemptKey) ?? 'null');
+                    if (stored?.body === serialized && typeof stored.key === 'string')
+                      pendingKey = stored.key;
+                  } catch {
+                    // The current tab can still retry using the in-memory key.
+                  }
+                  attempt.current = { body: serialized, key: pendingKey || crypto.randomUUID() };
+                  try {
+                    sessionStorage.setItem(attemptKey, JSON.stringify(attempt.current));
+                  } catch {
+                    // Browser storage is optional.
+                  }
+                }
+                void api<GenerationJob>(path, 'POST', body, { 'Idempotency-Key': attempt.current.key })
+                  .then(async () => {
+                    await load();
+                    attempt.current = { body: '', key: '' };
+                    try {
+                      sessionStorage.removeItem(attemptKey);
+                    } catch {
+                      // The task already exists in the server history.
+                    }
+                  })
+                  .catch(report)
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {dirty ? '保存并生成' : '执行生成节点'}
+            </StudioButton>
+          )}
+        </div>
+      </footer>
+    </section>
+  );
+
+  function renderJob(job: GenerationJob) {
+    return (
+      <article className="v2-live-candidate" key={job.id}>
+        <header>
+          <strong data-state={job.state} aria-live="polite">
+            {generationStates[job.state] ?? job.state}
+          </strong>
           <small>
             画布 v{job.boardExecution?.revision} · {new Date(job.createdAt).toLocaleString()}
           </small>
-          {job.errorCode && <p role="status">生成遇到问题，请在任务与候选中查看并处理。</p>}
-          {job.result &&
-            (job.result.mediaType === 'image' ? (
-              <img src={job.result.contentUrl} alt="节点生成结果" style={{ maxWidth: '100%' }} />
-            ) : (
-              <video src={job.result.contentUrl} controls preload="metadata" style={{ maxWidth: '100%' }} />
-            ))}
+        </header>
+        {job.errorCode && <p role="status">生成遇到问题，请在任务与候选中查看并处理。</p>}
+        {job.result &&
+          (job.result.mediaType === 'image' ? (
+            <img src={job.result.contentUrl} alt="节点生成结果" loading="lazy" />
+          ) : (
+            <video src={job.result.contentUrl} aria-label="节点生成视频" controls preload="metadata" />
+          ))}
+        <div className="v2-live-inline">
           {editable && (
-            <button
+            <StudioButton
+              icon="plus"
               disabled={
                 busy ||
                 layout.nodes.some((n) => n.type === 'result' && n.data.jobId === job.id) ||
@@ -479,10 +591,11 @@ export function BoardExecutionPanel({
               onClick={() => onResult(job)}
             >
               加入画布结果
-            </button>
+            </StudioButton>
           )}
           {editable && job.state === 'completed' && !job.inLibrary && (
-            <button
+            <StudioButton
+              icon="folder"
               disabled={busy}
               onClick={() => {
                 setBusy(true);
@@ -505,33 +618,11 @@ export function BoardExecutionPanel({
               }}
             >
               存入素材库
-            </button>
+            </StudioButton>
           )}
           {job.inLibrary && <small>已存入素材库</small>}
-          <button onClick={onOpenTasks}>查看任务与候选</button>
-        </article>
-      ))}
-      {jobs?.nextCursor && (
-        <button
-          disabled={busy}
-          onClick={() =>
-            void api<CursorPage<GenerationJob>>(`${path}?cursor=${jobs.nextCursor}`)
-              .then((more) => {
-                expanded.current = true;
-                setJobs((old) => ({
-                  ...more,
-                  items: [
-                    ...(old?.items ?? []),
-                    ...more.items.filter((item) => !old?.items.some((row) => row.id === item.id)),
-                  ],
-                }));
-              })
-              .catch(report)
-          }
-        >
-          更多节点任务
-        </button>
-      )}
-    </section>
-  );
+        </div>
+      </article>
+    );
+  }
 }

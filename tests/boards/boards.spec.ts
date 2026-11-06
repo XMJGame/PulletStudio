@@ -547,6 +547,10 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       .toBe('completed');
     await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
     await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible();
+    const preview = panel.getByLabel('节点生成视频');
+    await expect
+      .poll(() => preview.evaluate((video: HTMLVideoElement) => video.videoWidth))
+      .toBeGreaterThan(0);
     await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
     await save(page);
     await expect(panel.getByRole('button', { name: '加入画布结果', exact: true })).toBeDisabled();
@@ -567,7 +571,16 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: 'test-results/board-execution-mobile.png' });
+    const submit = panel.getByRole('button', { name: /^(保存并生成|执行生成节点)$/ });
+    await expect(submit).toBeInViewport();
+    await panel.getByText('输入绑定与参数', { exact: true }).click();
+    await panel.getByLabel('节点提示词输入').scrollIntoViewIfNeeded();
+    await expect(submit).toBeInViewport();
+    await panel.getByText('输入绑定与参数', { exact: true }).click();
+    await panel.getByRole('button', { name: '本节点任务', exact: true }).click();
+    await expect(panel.getByRole('region', { name: '节点任务与候选' })).toBeFocused();
+    await expect(preview).toBeInViewport();
+    await page.screenshot({ path: 'test-results/board-execution-mobile.png', animations: 'disabled' });
     expect(
       await page
         .getByRole('dialog', { name: '创作画布', exact: true })
@@ -625,11 +638,12 @@ test('light canvas can drag a resource, compose next to it, save and generate, t
       baseUrl: remote.baseUrl,
       trustedPrivate: true,
     });
-    const workflow = await call(
-      'POST',
-      `/projects/${value.id}/generation-workflows`,
-      fixtureI2V(connection.id),
-    );
+    const fixture = fixtureI2V(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, {
+      ...fixture,
+      graph: { ...fixture.graph, 8: { class_type: 'SeedInput', inputs: { noise_seed: 37 } } },
+      parameters: [{ key: 'seed', node: '8', input: 'noise_seed', min: 0, max: 100, step: 1 }],
+    });
     await open(page, value);
     const id = await createBoard(page, 'Station light');
     await expect(page.locator('.creative-theme-light')).toBeVisible();
@@ -645,6 +659,14 @@ test('light canvas can drag a resource, compose next to it, save and generate, t
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await expect(panel.locator('.creative-frame-chip')).toContainText('image.png');
+    const frame = panel.getByLabel('节点首帧输入');
+    const frameNode = await frame.inputValue();
+    await panel.getByRole('button', { name: '移除首帧' }).click();
+    await expect(panel.getByText('图生视频需要选择一张首帧。')).toBeVisible();
+    await frame.selectOption(frameNode);
+    await panel.getByText('输入绑定与参数', { exact: true }).click();
+    await panel.getByLabel('节点Seed', { exact: true }).fill('42');
+    await panel.getByText('输入绑定与参数', { exact: true }).click();
     await panel.getByLabel('生成提示词').fill('A first draft written directly on the canvas');
     await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeEnabled();
     await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
@@ -679,6 +701,7 @@ test('light canvas can drag a resource, compose next to it, save and generate, t
     expect(job.promptLibrary.revisionId).toBe(prompt.revision.id);
     expect(job.image.id).toBe(image.id);
     expect(job.prompt.negativePrompt).toBe('no lettering');
+    expect(job.parameterValues.seed).toBe(42);
     expect(remote.mock.submissions).toHaveLength(1);
     await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
     await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
@@ -686,7 +709,8 @@ test('light canvas can drag a resource, compose next to it, save and generate, t
     await save(page);
     await page.getByRole('button', { name: '深色画布', exact: true }).click();
     await expect(page.locator('.creative-theme-dark')).toBeVisible();
-    await page.screenshot({ path: 'test-results/canvas-creation-dark.png' });
+    await expect(page.getByRole('button', { name: /添加 .*\.mp4/ })).toBeVisible();
+    await page.screenshot({ path: 'test-results/canvas-creation-dark.png', animations: 'disabled' });
     await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
     const second = await createBoard(page, 'Alternate edit');
     await page.getByRole('button', { name: '媒体', exact: true }).click();

@@ -19,7 +19,7 @@ import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
 import { BoardExecutionPanel } from './BoardExecutionPanel';
 import type { GenerationJob } from '../components/GenerationDialog';
-import { BoardInspector } from './BoardInspector';
+import { BoardInspector, BoardNodeLayout } from './BoardInspector';
 import { BoardSources } from './BoardSources';
 import type { CanvasNode } from './board-types';
 import './board.css';
@@ -1182,59 +1182,67 @@ export default function BoardWorkspace({
                   <div
                     className={`creative-context ${node.type === 'generation' ? 'creative-context-composer' : ''}`}
                   >
-                    <BoardInspector
-                      node={node}
-                      value={node && resolved[node.id]}
-                      nodes={layout.nodes}
-                      editable={editable}
-                      update={update}
-                      onDismiss={() => setSelected([])}
-                      onUseImage={
-                        editable &&
-                        (node.type === 'result' || node.data.ref?.kind === 'media') &&
-                        resolved[node.id]?.media?.mediaType === 'image'
-                          ? () => add('generation', undefined, undefined, undefined, node)
-                          : undefined
-                      }
-                      executionPanel={
-                        node?.type === 'generation' ? (
-                          <BoardExecutionPanel
-                            key={`${base.id}:${node.id}`}
-                            board={base}
-                            userId={userId}
-                            node={node}
-                            layout={layout}
-                            resolved={resolved}
-                            editable={editable}
-                            dirty={dirty}
-                            save={title.trim() ? save : undefined}
-                            onPromptChange={(draft) => setNodePrompt(node.id, draft)}
-                            onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
-                            onSavedToLibrary={() => setRefresh((value) => value + 1)}
-                            update={update}
-                            bind={(port, source) => bindInput(node.id, port, source)}
-                            onResult={addResult}
-                            onOpenTasks={() => setFreeGeneration(true)}
-                          />
-                        ) : undefined
-                      }
-                      remove={() => node && remove([node.id])}
-                      detail={detail}
-                      closeDetail={() => setDetail(undefined)}
-                      onDetail={() => {
-                        if (!node?.data.ref) return;
-                        void api<Record<string, BoardResolved>>(
-                          `/projects/${projectId}/board-references/resolve`,
-                          'POST',
-                          { references: [{ nodeId: node.id, ref: node.data.ref }] },
-                        )
-                          .then((values) => {
-                            setResolved((current) => ({ ...current, ...values }));
-                            if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
-                          })
-                          .catch(report);
-                      }}
-                    />
+                    {node.type === 'generation' ? (
+                      <BoardExecutionPanel
+                        key={`${base.id}:${node.id}`}
+                        board={base}
+                        userId={userId}
+                        node={node}
+                        layout={layout}
+                        resolved={resolved}
+                        editable={editable}
+                        dirty={dirty}
+                        save={title.trim() ? save : undefined}
+                        onPromptChange={(draft) => setNodePrompt(node.id, draft)}
+                        onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
+                        onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                        update={update}
+                        bind={(port, source) => bindInput(node.id, port, source)}
+                        onResult={addResult}
+                        onOpenTasks={() => setFreeGeneration(true)}
+                        onDismiss={() => setSelected([])}
+                      >
+                        <BoardNodeLayout
+                          node={node}
+                          nodes={layout.nodes}
+                          editable={editable}
+                          update={update}
+                          remove={() => remove([node.id])}
+                        />
+                      </BoardExecutionPanel>
+                    ) : (
+                      <BoardInspector
+                        node={node}
+                        value={node && resolved[node.id]}
+                        nodes={layout.nodes}
+                        editable={editable}
+                        update={update}
+                        onDismiss={() => setSelected([])}
+                        onUseImage={
+                          editable &&
+                          (node.type === 'result' || node.data.ref?.kind === 'media') &&
+                          resolved[node.id]?.media?.mediaType === 'image'
+                            ? () => add('generation', undefined, undefined, undefined, node)
+                            : undefined
+                        }
+                        remove={() => node && remove([node.id])}
+                        detail={detail}
+                        closeDetail={() => setDetail(undefined)}
+                        onDetail={() => {
+                          if (!node?.data.ref) return;
+                          void api<Record<string, BoardResolved>>(
+                            `/projects/${projectId}/board-references/resolve`,
+                            'POST',
+                            { references: [{ nodeId: node.id, ref: node.data.ref }] },
+                          )
+                            .then((values) => {
+                              setResolved((current) => ({ ...current, ...values }));
+                              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
+                            })
+                            .catch(report);
+                        }}
+                      />
+                    )}
                   </div>
                 ) : layout.nodes.length ? undefined : (
                   <div className="creative-empty">
