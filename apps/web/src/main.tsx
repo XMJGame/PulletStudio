@@ -368,104 +368,108 @@ function App() {
   return (
     <StudioTheme.Provider value={theme}>
       <div className="studio-v2" data-theme={theme}>
-        <StudioProjectGallery
-          key={workspaceId}
-          projects={projects.map((item) => ({
-            id: item.id,
-            title: item.title,
-            category: item.aspectRatio,
-            updated: item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : '',
-          }))}
-          recentIds={recentIds}
-          onOpen={(item) => openProject(item.id)}
-          requestCreate={
-            workspaceManager
-              ? () => {
-                  setError('');
-                  setProjectForm(true);
-                }
-              : undefined
-          }
-          dark={theme === 'dark'}
-          toggleTheme={toggleTheme}
-          emptyText={workspaceManager ? '创建一个项目，从第一帧开始。' : '管理员分配给你的项目会显示在这里。'}
-          notice={
-            !dialogOpen &&
-            !project &&
-            (error ? (
-              <p className="v2-project-notice" role="alert">
-                {error}
-              </p>
-            ) : message ? (
-              <p className="v2-project-notice" role="status">
-                {message}
-              </p>
-            ) : undefined)
-          }
-          topActions={
-            <div className="v2-project-top-actions">
-              {workspaces.length > 1 && (
-                <WorkspaceMenu
-                  workspaces={workspaces}
-                  value={workspaceId}
-                  disabled={busy}
-                  canCreate={user.instanceAdmin}
-                  onChange={selectWorkspace}
-                  onCreate={() => setWorkspaceForm(true)}
-                  onJoin={() => setShowJoin(true)}
-                />
-              )}
-              <details
-                className="v2-account-menu"
-                onBlur={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-                }}
-                onClick={(event) => {
-                  if (event.target instanceof Element && event.target.closest('button'))
-                    event.currentTarget.open = false;
-                }}
-              >
-                <summary>{user.name}</summary>
-                <div>
-                  <StudioButton variant="ghost" disabled={busy} onClick={() => setShowJoin(true)}>
-                    加入工作区
-                  </StudioButton>
-                  {user.instanceAdmin && (
-                    <StudioButton variant="ghost" disabled={busy} onClick={() => setWorkspaceForm(true)}>
-                      新建工作区
-                    </StudioButton>
-                  )}
-                  {workspaceManager && (
-                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
-                      团队协作
-                    </StudioButton>
-                  )}
-                  {workspaceId && (
-                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTrash(true)}>
-                      项目回收站
-                    </StudioButton>
-                  )}
-                  <StudioButton className="v2-mobile-theme" variant="ghost" onClick={toggleTheme}>
-                    {theme === 'dark' ? '浅色界面' : '深色界面'}
-                  </StudioButton>
-                  <StudioButton
-                    variant="ghost"
+        {!project && (
+          <StudioProjectGallery
+            key={workspaceId}
+            projects={projects.map((item) => ({
+              id: item.id,
+              title: item.title,
+              category: item.aspectRatio,
+              updated: item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : '',
+            }))}
+            recentIds={recentIds}
+            onOpen={(item) => openProject(item.id)}
+            requestCreate={
+              workspaceManager
+                ? () => {
+                    setError('');
+                    setProjectForm(true);
+                  }
+                : undefined
+            }
+            dark={theme === 'dark'}
+            toggleTheme={toggleTheme}
+            emptyText={
+              workspaceManager ? '创建一个项目，从第一帧开始。' : '管理员分配给你的项目会显示在这里。'
+            }
+            notice={
+              !dialogOpen &&
+              !project &&
+              (error ? (
+                <p className="v2-project-notice" role="alert">
+                  {error}
+                </p>
+              ) : message ? (
+                <p className="v2-project-notice" role="status">
+                  {message}
+                </p>
+              ) : undefined)
+            }
+            topActions={
+              <div className="v2-project-top-actions">
+                {workspaces.length > 1 && (
+                  <WorkspaceMenu
+                    workspaces={workspaces}
+                    value={workspaceId}
                     disabled={busy}
-                    onClick={() =>
-                      void act(async () => {
-                        await api('/auth/logout', 'POST');
-                        leaveProject();
-                        setUser(undefined);
-                      })
-                    }
-                  >
-                    退出
-                  </StudioButton>
-                </div>
-              </details>
-            </div>
-          }
-        />
+                    canCreate={user.instanceAdmin}
+                    onChange={selectWorkspace}
+                    onCreate={() => setWorkspaceForm(true)}
+                    onJoin={() => setShowJoin(true)}
+                  />
+                )}
+                <details
+                  className="v2-account-menu"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+                  }}
+                  onClick={(event) => {
+                    if (event.target instanceof Element && event.target.closest('button'))
+                      event.currentTarget.open = false;
+                  }}
+                >
+                  <summary>{user.name}</summary>
+                  <div>
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowJoin(true)}>
+                      加入工作区
+                    </StudioButton>
+                    {user.instanceAdmin && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => setWorkspaceForm(true)}>
+                        新建工作区
+                      </StudioButton>
+                    )}
+                    {workspaceManager && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
+                        团队协作
+                      </StudioButton>
+                    )}
+                    {workspaceId && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTrash(true)}>
+                        项目回收站
+                      </StudioButton>
+                    )}
+                    <StudioButton className="v2-mobile-theme" variant="ghost" onClick={toggleTheme}>
+                      {theme === 'dark' ? '浅色界面' : '深色界面'}
+                    </StudioButton>
+                    <StudioButton
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          await api('/auth/logout', 'POST');
+                          leaveProject();
+                          setUser(undefined);
+                        })
+                      }
+                    >
+                      退出
+                    </StudioButton>
+                  </div>
+                </details>
+              </div>
+            }
+          />
+        )}
         {project && (
           <Suspense fallback={<p role="status">正在打开创作画布…</p>}>
             <BoardWorkspace

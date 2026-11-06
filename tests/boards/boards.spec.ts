@@ -80,7 +80,7 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
   );
   await page.goto('/');
   await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toBeVisible();
+  await expect(page.getByRole('main', { name: '创作画布', exact: true })).toBeVisible();
 }
 async function createBoard(page: Page, title: string) {
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill(title);
@@ -88,6 +88,69 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('project main view keeps drafts and isolates modal focus and clipboard input', async ({ page }) => {
+  const value = await project('Project workspace');
+  await open(page, value);
+  const workspace = page.getByRole('main', { name: '创作画布', exact: true });
+  await expect(workspace).toBeFocused();
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.locator('.v2-project-shell')).toHaveCount(0);
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  const id = await createBoard(page, 'Main view');
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(new RegExp(`#canvas/${id}$`));
+  for (const viewport of [
+    { width: 1920, height: 1080 },
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.getByRole('button', { name: '返回工作台', exact: true })).toBeInViewport();
+    await expect(page.locator('.creative-surface')).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/project-main-${viewport.width}.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const prompts = page.getByRole('button', { name: '提示词库', exact: true });
+  await prompts.click();
+  const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+  await expect(library).toBeVisible();
+  const transfer = await localTransfer(page, [
+    { name: 'modal-clipboard.png', fixture: 'image.png', type: 'image/png' },
+  ]);
+  await library.evaluate((element, transfer) => {
+    element.dispatchEvent(
+      new ClipboardEvent('paste', {
+        clipboardData: transfer,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }, transfer);
+  await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(library).toHaveCount(0);
+  await expect(prompts).toBeFocused();
+  await expect(workspace).toBeVisible();
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  const leave = page.getByRole('dialog', { name: '保留当前创作', exact: true });
+  await expect(leave).toBeVisible();
+  await leave.getByRole('button', { name: '继续编辑', exact: true }).click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await save(page);
+  await page.reload();
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Main view');
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.screenshot({ path: 'test-results/project-main-dark.png' });
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true })).toBeVisible();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
+});
 test('project gallery restores its own board when a link points to another project', async ({ page }) => {
   const first = await project('Gallery station');
   const second = await project('Gallery skyline');
@@ -214,6 +277,52 @@ test('local media drops and image paste create fixed references while text contr
   const media = await call('GET', `/projects/${value.id}/media-assets`);
   expect(media.items).toHaveLength(5);
   await page.screenshot({ path: 'test-results/canvas-direct-import.png' });
+});
+
+test('video cards load on demand, release the previous player and preserve fixed references', async ({
+  page,
+}) => {
+  const value = await project('Video card previews');
+  await open(page, value);
+  const id = await createBoard(page, 'Video references');
+  const transfer = await localTransfer(page, [
+    { name: 'preview-one.mp4', fixture: 'clip.mp4', type: 'video/mp4' },
+    { name: 'preview-two.mp4', fixture: 'clip.mp4', type: 'video/mp4' },
+  ]);
+  await dropFiles(page, transfer);
+  await expect(page.getByRole('status').filter({ hasText: '素材已导入并加入画布' })).toBeVisible();
+  await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+  await save(page);
+  const before = await call('GET', `/boards/${id}`);
+  const surface = page.locator('.creative-surface');
+  await expect(surface.locator('video')).toHaveCount(0);
+  await expect(surface.locator('.creative-media-duration')).toHaveText(['0:01', '0:01']);
+  await surface.getByRole('button', { name: '播放 preview-one.mp4', exact: true }).click();
+  const first = surface.locator('video[aria-label="视频预览 preview-one.mp4"]');
+  await expect
+    .poll(() => first.evaluate((element: HTMLVideoElement) => element.readyState))
+    .toBeGreaterThanOrEqual(2);
+  expect(await first.evaluate((element: HTMLVideoElement) => element.videoWidth)).toBe(96);
+  await surface.getByRole('button', { name: '播放 preview-two.mp4', exact: true }).click();
+  await expect(surface.locator('video')).toHaveCount(1);
+  await expect(page.locator('.creative-inspector')).toHaveCount(0);
+  await expect(page.locator('video')).toHaveCount(1);
+  await expect(first).toHaveCount(0);
+  await expect(surface.getByRole('button', { name: '播放 preview-one.mp4', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/project-video-inline.png' });
+  await surface.getByRole('button', { name: '关闭预览 preview-two.mp4', exact: true }).click();
+  await expect(surface.locator('video')).toHaveCount(0);
+  const media = Object.values(before.resolved).find((item: any) => item.title === 'preview-one.mp4') as any;
+  await page.route(`**${media.media.contentUrl}`, (route) => route.abort());
+  await surface.getByRole('button', { name: '播放 preview-one.mp4', exact: true }).click();
+  await expect(surface.getByRole('status')).toContainText('视频无法播放');
+  await expect(surface.locator('video')).toHaveCount(0);
+  expect((await call('GET', `/boards/${id}`)).layout).toEqual(before.layout);
+  await page.unroute(`**${media.media.contentUrl}`);
+  await page.reload();
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Video references');
+  await expect(surface.locator('video')).toHaveCount(0);
+  expect((await call('GET', `/boards/${id}`)).layout).toEqual(before.layout);
 });
 
 test('direct imports reuse upload intents after failed and lost responses', async ({ page }) => {
@@ -654,13 +763,13 @@ test('readonly board, protected voice metadata, and revoked project access', asy
     await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
     expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(1);
     await expect(page.locator('.creative-surface')).toContainText('引用不可用');
-    await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).not.toContainText(
+    await expect(page.getByRole('main', { name: '创作画布', exact: true })).not.toContainText(
       'PRIVATE VOICE IDENTITY',
     );
     await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
     await page.getByText('更多操作', { exact: true }).click();
     await page.getByRole('button', { name: '刷新引用', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toContainText(
+    await expect(page.getByRole('main', { name: '创作画布', exact: true })).toContainText(
       '画布或项目已不可访问',
     );
     expect(await page.locator('.creative-surface').count()).toBe(0);
@@ -873,7 +982,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     await page.screenshot({ path: 'test-results/board-execution-mobile.png', animations: 'disabled' });
     expect(
       await page
-        .getByRole('dialog', { name: '创作画布', exact: true })
+        .getByRole('main', { name: '创作画布', exact: true })
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBeTruthy();
     const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' }),

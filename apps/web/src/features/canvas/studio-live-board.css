@@ -1,4 +1,4 @@
-.studio-dialog.creative-board-dialog.studio-live-board {
+.creative-board-dialog.studio-live-board {
   --board-panel: var(--paper);
   --board-ground: var(--ground);
   --board-ink: var(--ink);
@@ -11,6 +11,9 @@
   --board-card-shadow: var(--shadow);
   width: 100vw;
   height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   margin: 0;
   padding: 0;
   border: 0;
@@ -82,6 +85,11 @@
 .studio-live-board .creative-workspace {
   position: relative;
   background: var(--ground);
+}
+.studio-live-board .notice.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--line);
 }
 .studio-live-board .creative-sources {
   align-self: start;

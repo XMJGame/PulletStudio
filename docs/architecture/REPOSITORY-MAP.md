@@ -2,7 +2,7 @@
 
 > 2026-11-06 后续决定：[ADR-012](../ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
 
-2026-11-06 V2：`components/CreationWorkspace.tsx` 为默认项目入口，`GenerationDialog.tsx` 仅保留项目通用生成/试跑；API仍复用 `generation/`、`assets/` 和同一队列。新增 API `prompt-library/` 与 Web `prompts/`，普通文本库独立于旧 `prompt/` 编译器。原 `scripts/analysis/prompt/timeline` 只保留后台历史依赖，G0与旧创作UI已删除。不批量移动源码、运行数据或历史迁移。后续按实际边界拆分执行节点，不增第二套Generation/Storage。
+2026-11-06 当前入口：`main.tsx` 按项目选择呈现 `features/projects/StudioProjectGallery` 或 `canvas/BoardWorkspace` 普通主视图，旧 `CreationWorkspace` 已删除。`GenerationDialog` 保留项目通用生成/试跑；API 复用 `generation/`、`assets/` 和同一队列。API `prompt-library/` 与 Web `prompts/` 管理普通文本库，独立于旧 `prompt/` 编译器。原 `scripts/analysis/prompt/timeline` 保留后台历史依赖，G0 与旧创作 UI 已删除。不批量移动源码、运行数据或历史迁移；按实际职责提取，不增第二套 Generation/Storage。
 
 审计：2026-11-05，整理时基线e828d8c为82个API源文件、43个Web源文件、18个API测试文件、13个E2E文件；统计不含node_modules/dist/data。G0随后增加独立canvas-lab及tests/canvas，详见下方增量。文件数量仅供定位，不作为持续进度指标。
 
@@ -56,7 +56,7 @@ PulletStudio/
 
 G2-A2在generation/追加workflow-catalog.service/controller/state管理原不可变定义的目录关联，workflow-fields负责标量合同，workflow-inspection负责有界声明诊断。仅新增0035的两张关联表；不拆迁旧定义/Job，不新建队列。packages/contracts/src/workflow.d.ts共享Web字段声明，API以Zod为运行校验事实。模块合同/使用/验收分别放modules/、根指南和history/。
 
-当前正式入口为 `apps/web/index.html`，项目直接进入 Board。隔离评审入口为 `apps/web/studio-review.html`，示例资源位于 `design-review/`。正式浏览器套件分别位于 `tests/e2e/`、`tests/boards/`、`tests/workflows/`，评审套件位于 `tests/design-review/`。按需从 `canvas/` 迁移稳定视觉职责到 `features/`，保存与执行仍共用原业务状态。
+当前正式入口为 `apps/web/index.html`，项目直接进入普通 Board 主视图，与项目首页互斥挂载。`canvas/BoardMediaFrame` 负责媒体画面与按需单节点播放；`BoardWorkspace` 继续管理保存与执行。隔离评审入口 `studio-review.html` 及 `features/canvas/StudioCanvas*`、`StudioComposer`、`studio-canvas*` 冻结为历史设计样例，示例资源位于 `design-review/`，不继续维护第二套生产画布。正式浏览器套件位于 `tests/e2e/`、`tests/boards/`、`tests/workflows/`，评审套件只记录历史设计。源码按实际职责渐进提取，不为目录整齐搬移业务或数据。
 
 ## 本轮实际整理
 

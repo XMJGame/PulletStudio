@@ -1,13 +1,13 @@
 # Pullet Studio 文档导航
 
-更新：2026-11-06。当前主线见 [PRODUCT-V2](PRODUCT-V2.md)、[资产与多画布方案](PROJECT-ASSETS-AND-MULTICANVAS.md)与 [ADR-012](ADR-012-remove-retired-creation-ui.md)。旧创作 UI 与 G0 已删除；历史数据和后台依赖保留。先看当前状态再进入模块。
+更新：2026-11-06。最高产品基线为[最终产品与工程执行合同](PRODUCT-EXECUTION-CONTRACT.md)，冲突处覆盖旧规划。现有产品 V2、资产方案和有效 ADR 保留兼容背景。先读[实时状态](IMPLEMENTATION-STATUS.md)中的 P0 正式 UI 收敛，再进入业务工作包；[DX OS 参考取舍](architecture/DXOS-REFERENCE-REVIEW.md)不引入第三方产物或替换技术栈。
 
 ## 先读哪几份
 
 | 要解决的问题 | 唯一入口 | 用法 |
 |---|---|---|
 | 现在能做什么、缺什么、下一步是什么 | [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md) | 唯一实时状态与实施顺序；不把历史测试数当最新结果 |
-| 产品最终范围、长期需求 | [PRODUCT-V2](PRODUCT-V2.md)、[V2审计](architecture/PRODUCT-V2-AUDIT.md) | 资产/画布优先；[MASTER-PLAN](MASTER-PLAN.md)及旧团队蓝图保留参考，冲突处由V2替代 |
+| 产品最终范围、长期需求 | [正式执行合同](PRODUCT-EXECUTION-CONTRACT.md) | Web 创作空间、正式 UI 收敛、资产/画布/工作流/生成/复用；旧 V2、MASTER-PLAN 与团队蓝图冲突处由该合同覆盖 |
 | 为什么这样设计 | ADR-001至012，先看[删除旧UI与多画布ADR-012](ADR-012-remove-retired-creation-ui.md)、[轻量创作ADR-011](ADR-011-asset-led-creation.md) | 旧强制生产前置由V2覆盖，旧UI保留决定由ADR-012覆盖 |
 | 本地怎样运行、测试、备份 | [开发运行手册](operations/DEVELOPMENT.md) | 当前有效命令；完整媒体恢复转[LOCAL-MEDIA](LOCAL-MEDIA.md) |
 | 代码/数据/文档各在哪里 | [工程目录与整理规则](architecture/REPOSITORY-MAP.md) | 当前模块映射、保留和渐进拆分规则 |

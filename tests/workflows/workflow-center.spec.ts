@@ -92,7 +92,7 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
     .getByRole('dialog', { name: '工作流中心', exact: true })
     .getByRole('button', { name: '关闭工作流中心', exact: true })
     .click();
-  await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toBeVisible();
+  await expect(page.getByRole('main', { name: '创作画布', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'AI 分镜', exact: true })).not.toBeVisible();
   await page.screenshot({ path: 'test-results/light-project-desktop.png', fullPage: true });
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Prompt study');

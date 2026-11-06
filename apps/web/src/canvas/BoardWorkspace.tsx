@@ -88,7 +88,11 @@ export default function BoardWorkspace({
   const [entityLibrary, setEntityLibrary] = useState(false);
   const [fileImport, setFileImport] = useState<{ files: File[]; position?: BoardNode['position'] }>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const [initialLoading, setInitialLoading] = useState(true);
+  useEffect(() => {
+    workspaceRef.current?.focus();
+  }, []);
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 760px)');
     const collapse = (event: MediaQueryListEvent) => {
@@ -805,20 +809,19 @@ export default function BoardWorkspace({
     else leaveBoard(target);
   }
   return (
-    <Dialog
-      title="创作画布"
-      description={projectTitle}
-      busy={busy}
-      onClose={() => close()}
+    <main
+      ref={workspaceRef}
+      aria-label="创作画布"
+      tabIndex={-1}
       className={`creative-board-dialog creative-theme-${theme} studio-v2 studio-live-board`}
-      hideHeader
-      theme={theme}
+      data-theme={theme}
       onPaste={(event) => {
         const target = event.target;
         if (
           !editable ||
           !(target instanceof Element) ||
-          target.closest('dialog') !== event.currentTarget ||
+          target.closest('dialog') ||
+          target.closest('.studio-live-board') !== event.currentTarget ||
           target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
         )
           return;
@@ -1208,6 +1211,7 @@ export default function BoardWorkspace({
               )}
             </nav>
             <BoardSurface
+              onPreviewStart={() => setSelected([])}
               nodes={flowNodes}
               edges={flowEdges}
               viewport={layout.viewport}
@@ -1525,6 +1529,6 @@ export default function BoardWorkspace({
           </div>
         </Dialog>
       )}
-    </Dialog>
+    </main>
   );
 }
