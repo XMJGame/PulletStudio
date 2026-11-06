@@ -727,7 +727,7 @@ export default function BoardWorkspace({
       bindInput(target.id, port, source!.id);
       return;
     }
-    if (['text', 'image'].includes(connection.sourceHandle ?? '')) {
+    if (['text', 'image', 'video', 'audio'].includes(connection.sourceHandle ?? '')) {
       setError('具名输出只能连接匹配的生成输入端口。');
       return;
     }
@@ -756,6 +756,8 @@ export default function BoardWorkspace({
   const node = layout?.nodes.find((item) => item.id === selected[0]);
   function bindInput(target: string, port: BoardInputPort, source: string) {
     if (!editable || !layout) return;
+    const sourcePort = port === 'prompt' ? 'text' : resolved[source]?.media?.mediaType;
+    if (source && (!sourcePort || (port === 'first_frame' && sourcePort !== 'image'))) return;
     const edges = layout.edges.filter(
       (e) => !(e.kind === 'input_binding' && e.target === target && e.targetPort === port),
     );
@@ -774,7 +776,7 @@ export default function BoardWorkspace({
               source,
               target,
               kind: 'input_binding',
-              sourcePort: port === 'prompt' ? 'text' : 'image',
+              sourcePort,
               targetPort: port,
             },
           ]

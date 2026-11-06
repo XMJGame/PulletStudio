@@ -41,6 +41,7 @@ import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
 import { AssetApprovalService } from './assets/asset-approval.service';
 import { ComfyProvider } from './generation/comfy-provider';
+import { ModelScopeProvider } from './generation/modelscope-provider';
 import { GenerationService } from './generation/generation.service';
 import { GenerationController } from './generation/generation.controller';
 import { GenerationWorker } from './generation/generation-worker';
@@ -114,6 +115,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     EntitiesService,
     AssetApprovalService,
     ComfyProvider,
+    ModelScopeProvider,
     GenerationService,
     GenerationWorker,
     TakeReviewService,

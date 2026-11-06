@@ -8,6 +8,8 @@ import {
   fixtureI2V,
   fixtureWorkflow,
   fixtureReferenceImages,
+  fixtureOptionalImages,
+  fixtureRequiredMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
@@ -1763,6 +1765,99 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await context.close();
       await actor.dispose();
     }
+  } finally {
+    await remote.close();
+  }
+});
+
+test('canvas binds typed image video and audio inputs in one generation', async ({ page }) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  try {
+    const value = await project('Typed reference media');
+    const names = ['image.png', 'clip.mp4', 'sound.wav'];
+    const media = [];
+    for (const name of names) media.push(await uploadMedia(value.id, name));
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Mixed reference fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureRequiredMedia(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'Three media types');
+    for (const name of names) await page.getByRole('button', { name: `添加 ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Test a mixed reference scene');
+    await save(page);
+    const board = await call('GET', `/boards/${boardId}`);
+    const slots = ['图片 1：Character reference', '视频 2：Motion reference', '音频 3：Sound reference'];
+    for (const [index, label] of slots.entries()) {
+      const node = board.layout.nodes.find((item: any) => item.data.ref?.id === media[index].id);
+      const selector = panel.getByLabel('节点参考' + label, { exact: true });
+      await expect(selector.locator('option')).toHaveCount(2);
+      await selector.selectOption(node.id);
+    }
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', `/projects/${value.id}/generation-jobs`);
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const job = (await history()).items[0];
+    expect(job.referenceMedia.map((item: any) => [item.mediaType, item.fileName])).toEqual([
+      ['image', names[0]],
+      ['video', names[1]],
+      ['audio', names[2]],
+    ]);
+    const saved = await call('GET', `/boards/${boardId}`);
+    expect(
+      saved.layout.edges
+        .filter((edge: any) => edge.targetPort?.startsWith('reference:'))
+        .map((edge: any) => edge.sourcePort),
+    ).toEqual(['image', 'video', 'audio']);
+    await page.screenshot({ path: 'test-results/board-reference-media.png', animations: 'disabled' });
+    await expect(panel.getByRole('button', { name: '存入素材库', exact: true })).toBeVisible();
+  } finally {
+    await remote.close();
+  }
+});
+
+test('canvas generation runs with an empty optional reference image slot', async ({ page }) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  try {
+    const value = await project('Optional reference slot');
+    const image = await uploadMedia(value.id, 'image.png');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Optional fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureOptionalImages(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'One required picture');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('A station at sunrise');
+    const submit = panel.getByRole('button', { name: /^(保存并生成|执行生成节点)$/ });
+    await expect(submit).toBeDisabled();
+    await save(page);
+    const board = await call('GET', `/boards/${boardId}`);
+    const reference = board.layout.nodes.find((item: any) => item.data.ref?.id === image.id);
+    await panel.getByLabel('节点参考图片 1：Character', { exact: true }).selectOption(reference.id);
+    const optional = panel.getByLabel('节点参考图片 2：Scene', { exact: true });
+    await expect(optional).toHaveValue('');
+    await expect(panel.getByText('2 · Scene · 可选')).toBeVisible();
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect
+      .poll(async () => (await call('GET', `/projects/${value.id}/generation-jobs`)).items[0]?.state)
+      .toBe('completed');
+    expect(remote.mock.uploads).toHaveLength(1);
+    expect(remote.mock.submissions[0].prompt['7']).toBeUndefined();
+    await expect(panel.getByRole('button', { name: '存入素材库', exact: true })).toBeVisible();
   } finally {
     await remote.close();
   }

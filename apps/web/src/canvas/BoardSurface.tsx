@@ -18,6 +18,7 @@ import '@xyflow/react/dist/style.css';
 import { CanvasNode, kindLabels, statusLabels } from './board-types';
 import { boardResourceDrag } from './BoardSources';
 import { BoardMediaFrame, BoardVideoPreview } from './BoardMediaFrame';
+import { referenceMediaLabels } from '../workflows/workflow-types';
 const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
   const { domain, value } = data;
   const media = value?.media;
@@ -82,13 +83,13 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
         />
       )}
       {((domain.type === 'reference' && domain.data.ref?.kind === 'media') || domain.type === 'result') &&
-        value?.media?.mediaType === 'image' && (
+        media && (
           <Handle
             type="source"
             position={Position.Right}
-            id="image"
+            id={media.mediaType}
             style={{ top: '75%' }}
-            aria-label="图片 IMAGE 输出"
+            aria-label={`${referenceMediaLabels[media.mediaType]} ${media.mediaType.toUpperCase()} 输出`}
           />
         )}
       {domain.type === 'generation' && (
@@ -119,7 +120,7 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
             id="references"
             style={{ top: '75%', opacity: data.hasReferenceInputs ? 1 : 0 }}
             isConnectable={false}
-            aria-label="参考图片输入连线"
+            aria-label="参考素材输入连线"
           />
         </>
       )}

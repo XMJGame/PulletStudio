@@ -9,12 +9,17 @@ import {
   ResultDescriptor,
   resultDescriptor,
   WorkflowInput,
-  referenceImageLimit,
-  referenceImageExtensions,
+  referenceMediaFormats,
+  referenceMediaExtension,
+  type ReferenceMediaType,
   WorkflowParameter,
 } from './generation-contract';
 import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
-import { mediaInputMatchesMetadata } from './workflow-media';
+import {
+  imageDisconnectTargets,
+  mediaInputMatchesMetadata,
+  optionalImageInputMatchesMetadata,
+} from './workflow-media';
 
 export class GenerationError extends Error {
   constructor(readonly code: string) {
@@ -29,12 +34,13 @@ export interface MediaProvider {
   queueStatus(signal?: AbortSignal): Promise<{ running: number; pending: number }>;
   validate(workflow: WorkflowInput): Promise<void>;
   inspect(workflow: WorkflowInput): Promise<DependencyReport>;
-  uploadImage(
+  uploadMedia(
     jobId: string,
     mime: string,
-    image: Buffer,
+    bytes: Buffer,
     signal: AbortSignal,
     slotId?: string,
+    mediaType?: ReferenceMediaType,
   ): Promise<string>;
   submit(jobId: string, graph: WorkflowInput['graph'], signal: AbortSignal): Promise<string>;
   observe(
@@ -185,6 +191,16 @@ export class ComfyProvider {
               )
             )
               throw new GenerationError('WORKFLOW_MEDIA_BINDING_INVALID');
+            if (slot.onMissing === 'disconnect') {
+              if (info.output_node === true) throw new GenerationError('WORKFLOW_MEDIA_DISCONNECT_INVALID');
+              await Promise.all(
+                imageDisconnectTargets(workflow.graph, slot.node).map(async (target) => {
+                  const downstream = await node(target.node, signal);
+                  if (!optionalImageInputMatchesMetadata(target.input, downstream.input))
+                    throw new GenerationError('WORKFLOW_MEDIA_DISCONNECT_INVALID');
+                }),
+              );
+            }
           }),
           ...(workflow.mediaSchema?.outputs ?? []).map(async (slot) => {
             if ((await node(slot.node, signal)).output_node !== true)
@@ -240,12 +256,14 @@ export class ComfyProvider {
           object((await json(`/object_info/${encodeURIComponent(type)}`, signal))[type]),
         );
       },
-      async uploadImage(jobId, mime, image, signal, slotId) {
-        const extension = referenceImageExtensions[mime];
-        if (!extension || !image.length || image.length > referenceImageLimit)
-          throw new GenerationError('REFERENCE_IMAGE_INVALID');
-        const name = `${uuid.parse(jobId)}${slotId ? '-' + uuid.parse(slotId) : ''}.${extension}`,
-          subfolder = 'pullet-studio',
+      async uploadMedia(jobId, mime, bytes, signal, slotId, mediaType = 'image') {
+        const extension = referenceMediaExtension(mediaType, mime);
+        if (!extension || !bytes.length || bytes.length > referenceMediaFormats[mediaType].limit)
+          throw new GenerationError(
+            mediaType === 'image' ? 'REFERENCE_IMAGE_INVALID' : 'REFERENCE_MEDIA_INVALID',
+          );
+        const subfolder = mediaType === 'image' ? 'pullet-studio' : '';
+        const name = `${subfolder ? '' : 'pullet-studio-'}${uuid.parse(jobId)}${slotId ? '-' + uuid.parse(slotId) : ''}.${extension}`,
           boundary = `pullet-${randomUUID()}`;
         const field = (key: string, value: string) =>
           `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
@@ -254,7 +272,7 @@ export class ComfyProvider {
           field('subfolder', subfolder) +
           field('overwrite', 'false') +
           `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${name}"\r\nContent-Type: ${mime}\r\n\r\n`;
-        const multipart = Buffer.concat([Buffer.from(prefix), image, Buffer.from(`\r\n--${boundary}--\r\n`)]);
+        const multipart = Buffer.concat([Buffer.from(prefix), bytes, Buffer.from(`\r\n--${boundary}--\r\n`)]);
         const result = await readJson(
           '/upload/image',
           await request(
@@ -266,8 +284,10 @@ export class ComfyProvider {
           ),
         );
         if (result.name !== name || result.subfolder !== subfolder || result.type !== 'input')
-          throw new GenerationError('COMFY_IMAGE_UPLOAD_INVALID');
-        return `${subfolder}/${name}`;
+          throw new GenerationError(
+            mediaType === 'image' ? 'COMFY_IMAGE_UPLOAD_INVALID' : 'COMFY_MEDIA_UPLOAD_INVALID',
+          );
+        return subfolder ? `${subfolder}/${name}` : name;
       },
       async submit(jobId, graph, signal) {
         const data = await json('/prompt', signal, {

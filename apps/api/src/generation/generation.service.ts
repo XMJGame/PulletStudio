@@ -1,6 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { PromptLibraryService } from '../prompt-library/prompt-library.service';
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import type { BoardExecution } from '../../../../packages/contracts/src/board';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
@@ -18,6 +18,7 @@ import {
   workflowCatalogRevisions,
   boards,
   mediaAssets,
+  entityMediaBindings,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -25,26 +26,29 @@ import { ProviderSecrets } from '../providers/provider-secrets';
 import { approvedBaseUrl } from '../providers/safe-text-http';
 import { AssetApprovalService } from '../assets/asset-approval.service';
 import { MediaService } from '../assets/media.service';
+import { assertSampleAccess } from '../assets/entity-references';
 import { catalogState, registerWorkflow, workflowHash, workflowReplay } from './workflow-catalog-state';
 import { FieldValues, resolveFields } from './workflow-fields';
 import { latestCompatibleRevision, latestRelease } from './workflow-release-state';
 import { jobRoute, reserveInstance, routingOptions } from './generation-routing';
 import { ComfyProvider, GenerationError } from './comfy-provider';
+import { modelScopeBase, modelScopeImage, ModelScopeProvider } from './modelscope-provider';
 import {
   assertMediaExecutable,
   hasExtendedMedia,
   mediaExecutionReason,
   publicMediaSchema,
-  supportsReferenceImages,
+  supportsReferenceMedia,
 } from './workflow-media';
 import {
   CreateJobInput,
   CreateProjectJobInput,
   renderWorkflow,
   WorkflowInput,
-  referenceImageLimit,
-  referenceImageExtensions,
   referenceImagesTotalLimit,
+  referenceMediaFormats,
+  referenceMediaExtension,
+  type ReferenceMediaType,
   ParameterValues,
   resolveParameters,
 } from './generation-contract';
@@ -58,6 +62,10 @@ export type GenerationSnapshot = {
   approvals: { revisionId: string; decisionId: string | null }[];
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
   referenceImages?: ({ slotId: string } & NonNullable<GenerationSnapshot['image']>)[];
+  referenceMedia?: ({ slotId: string; mediaType: ReferenceMediaType } & NonNullable<
+    GenerationSnapshot['image']
+  >)[];
+  optionalReferenceImages?: true;
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
@@ -74,6 +82,7 @@ export class GenerationService {
     private readonly approval: AssetApprovalService,
     private readonly secrets: ProviderSecrets,
     private readonly comfy: ComfyProvider,
+    readonly modelScope: ModelScopeProvider,
     private readonly media: MediaService,
     private readonly promptLibrary: PromptLibraryService,
   ) {}
@@ -115,11 +124,119 @@ export class GenerationService {
   }
   async provider(connection: Connection) {
     if (!connection.enabled) throw new GenerationError('CONNECTION_DISABLED');
+    if (connection.provider !== 'comfyui') throw new GenerationError('WORKFLOW_PROVIDER_UNSUPPORTED');
     return this.comfy.prepare({
       baseUrl: connection.baseUrl,
       trustedPrivate: connection.trustedPrivate,
       token: this.secrets.decrypt(connection.encryptedSecret, connection.id, connection.workspaceId),
     });
+  }
+  private modelScopeConnection(workspaceId: string) {
+    return this.database.db
+      .select()
+      .from(generationConnections)
+      .where(
+        and(
+          eq(generationConnections.workspaceId, workspaceId),
+          eq(generationConnections.provider, 'modelscope'),
+        ),
+      )
+      .get();
+  }
+  modelScopeStatus(user: CurrentUser, workspaceId: string) {
+    this.manage(user, workspaceId);
+    const row = this.modelScopeConnection(workspaceId);
+    return { configured: Boolean(row?.enabled && row.encryptedSecret), encryptionReady: this.secrets.ready };
+  }
+  configureModelScope(user: CurrentUser, workspaceId: string, token: string) {
+    this.manage(user, workspaceId);
+    return this.database.db.transaction(
+      () => {
+        const previous = this.modelScopeConnection(workspaceId);
+        const id = previous?.id ?? randomUUID();
+        const encryptedSecret = this.secrets.encrypt(token, id, workspaceId);
+        if (previous) {
+          this.database.db
+            .update(generationConnections)
+            .set({ encryptedSecret, enabled: true, version: previous.version + 1 })
+            .where(eq(generationConnections.id, id))
+            .run();
+        } else {
+          this.database.db
+            .insert(generationConnections)
+            .values({
+              id,
+              workspaceId,
+              name: 'ModelScope',
+              baseUrl: modelScopeBase,
+              provider: 'modelscope',
+              trustedPrivate: false,
+              encryptedSecret,
+              createdAt: now(),
+            })
+            .run();
+        }
+        this.audit(user, workspaceId, 'generation.modelscope.configure', id);
+        return { configured: true };
+      },
+      { behavior: 'immediate' },
+    );
+  }
+  modelScopeToken(connection: Connection, expectedVersion: number) {
+    if (connection.provider !== 'modelscope' || !connection.enabled || connection.version !== expectedVersion)
+      throw new GenerationError('GENERATION_INPUT_CHANGED');
+    const token = this.secrets.decrypt(connection.encryptedSecret, connection.id, connection.workspaceId);
+    if (!token) throw new GenerationError('MODELSCOPE_KEY_REQUIRED');
+    return token;
+  }
+  projectModelScope(user: CurrentUser, projectId: string) {
+    return this.database.db.transaction(
+      () => {
+        const project = this.authorizeCreation(user, projectId);
+        const connection = this.modelScopeConnection(project.workspaceId);
+        if (!connection?.enabled || !connection.encryptedSecret)
+          fail(409, 'MODELSCOPE_KEY_REQUIRED', '当前工作区尚未配置 ModelScope 文生图凭据');
+        const name = 'ModelScope · Qwen Image 2512';
+        const existing = this.database.db
+          .select({ id: generationWorkflows.id })
+          .from(generationWorkflows)
+          .where(
+            and(
+              eq(generationWorkflows.projectId, project.id),
+              eq(generationWorkflows.connectionId, connection.id),
+              eq(generationWorkflows.name, name),
+            ),
+          )
+          .get();
+        if (existing) return existing;
+        const id = randomUUID();
+        const definition: WorkflowInput = {
+          name,
+          connectionId: connection.id,
+          capability: 'image.text_to_image',
+          graph: { '1': { class_type: 'StudioApiImage', inputs: { prompt: '', model: modelScopeImage } } },
+          positive: { node: '1', input: 'prompt' },
+          output: { node: '1', field: 'images' },
+        };
+        this.database.db
+          .insert(generationWorkflows)
+          .values({
+            id,
+            projectId: project.id,
+            workspaceId: project.workspaceId,
+            connectionId: connection.id,
+            name,
+            capability: definition.capability,
+            definitionJson: JSON.stringify(definition),
+            createdBy: user.id,
+            createdAt: now(),
+          })
+          .run();
+        this.audit(user, project.workspaceId, 'generation.modelscope.project', id);
+        return { id };
+      },
+      { behavior: 'immediate' },
+    );
   }
   config(user: CurrentUser, projectId: string, workflowId?: string) {
     const project = this.authz.project(user, projectId);
@@ -133,6 +250,7 @@ export class GenerationService {
           capability: generationWorkflows.capability,
           createdAt: generationWorkflows.createdAt,
           enabled: generationConnections.enabled,
+          provider: generationConnections.provider,
           definitionJson: generationWorkflows.definitionJson,
           familyId: workflowCatalogs.id,
           revision: workflowCatalogRevisions.revision,
@@ -147,6 +265,7 @@ export class GenerationService {
       .where(
         and(
           eq(generationWorkflows.projectId, projectId),
+          eq(generationConnections.provider, 'comfyui'),
           or(
             isNull(workflowCatalogRevisions.workflowId),
             eq(workflowCatalogs.headWorkflowId, generationWorkflows.id),
@@ -169,14 +288,19 @@ export class GenerationService {
             maxPending: generationConnections.maxPending,
           })
           .from(generationConnections)
-          .where(eq(generationConnections.workspaceId, project.workspaceId))
+          .where(
+            and(
+              eq(generationConnections.workspaceId, project.workspaceId),
+              eq(generationConnections.provider, 'comfyui'),
+            ),
+          )
           .limit(50)
           .all()
       : [];
     const summary = ({ definitionJson, ...workflow }: (typeof heads)[number]) => {
       const definition = JSON.parse(definitionJson) as WorkflowInput;
-      const referenceImages = supportsReferenceImages(definition.mediaSchema);
-      const executable = !hasExtendedMedia(definition.mediaSchema) || referenceImages;
+      const executable =
+        !hasExtendedMedia(definition.mediaSchema) || supportsReferenceMedia(definition.mediaSchema);
       const values = resolveParameters(definition),
         fieldValues = resolveFields(definition);
       return {
@@ -256,6 +380,7 @@ export class GenerationService {
   routingOptions(user: CurrentUser, workflowId: string, exploration = false) {
     const workflow = this.workflow(workflowId);
     this.authz.project(user, workflow.projectId, 'edit');
+    if (this.connection(workflow.connectionId).provider === 'modelscope') return { items: [] };
     const catalog = catalogState(this.database, workflowId);
     const release = catalog && latestRelease(this.database, catalog.familyId);
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
@@ -269,14 +394,32 @@ export class GenerationService {
       fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
     return { items: routingOptions(this.database, workflow) };
   }
-  images(user: CurrentUser, projectId: string, cursor?: string) {
+  images(user: CurrentUser, projectId: string, cursor?: string, type: ReferenceMediaType = 'image') {
     this.authz.project(user, projectId, 'edit');
+    const canReadSamples = this.production.access(user, projectId).canReview;
+    const format = referenceMediaFormats[type];
     const scope = and(
       eq(mediaVersions.projectId, projectId),
-      eq(mediaVersions.mediaType, 'image'),
+      eq(mediaVersions.mediaType, type),
       ne(mediaVersions.origin, 'workflow_test'),
-      lte(mediaVersions.byteLength, referenceImageLimit),
-      inArray(mediaVersions.mime, Object.keys(referenceImageExtensions)),
+      lte(mediaVersions.byteLength, format.limit),
+      inArray(mediaVersions.mime, Object.keys(format.extensions)),
+      !canReadSamples
+        ? or(
+            eq(mediaVersions.createdBy, user.id),
+            notExists(
+              this.database.db
+                .select({ id: entityMediaBindings.revisionId })
+                .from(entityMediaBindings)
+                .where(
+                  and(
+                    eq(entityMediaBindings.mediaVersionId, mediaVersions.id),
+                    eq(entityMediaBindings.role, 'voice_sample'),
+                  ),
+                ),
+            ),
+          )
+        : undefined,
     );
     const boundary = cursor
       ? this.database.db
@@ -427,6 +570,8 @@ export class GenerationService {
       fail(400, code, '公开字段与节点声明的类型、范围或选项不匹配，请核对参数合同');
     if (code === 'WORKFLOW_MEDIA_BINDING_INVALID')
       fail(400, code, '媒体槽位与远端声明的上传类型或输出节点不匹配，请检查媒体配置');
+    if (code === 'WORKFLOW_MEDIA_DISCONNECT_INVALID')
+      fail(400, code, '可选参考图的所有下游连接都必须是该实例声明可省略的图片输入');
     fail(
       502,
       code,
@@ -444,8 +589,16 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, referenceImages, parameterValues, fieldValues, prompt, promptLibrary, boardExecution } =
-      JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const {
+      image,
+      referenceImages,
+      referenceMedia,
+      parameterValues,
+      fieldValues,
+      prompt,
+      promptLibrary,
+      boardExecution,
+    } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     const route = jobRoute(this.database, row.id);
@@ -478,6 +631,15 @@ export class GenerationService {
           slotId,
           fileName,
           version,
+          label: definition.mediaSchema?.inputs.find((slot) => slot.id === slotId)?.label,
+        })),
+      }),
+      ...(referenceMedia && {
+        referenceMedia: referenceMedia.map(({ slotId, fileName, version, mediaType }) => ({
+          slotId,
+          fileName,
+          version,
+          mediaType,
           label: definition.mediaSchema?.inputs.find((slot) => slot.id === slotId)?.label,
         })),
       }),
@@ -535,17 +697,32 @@ export class GenerationService {
   ) {
     return this.enqueue(user, { projectId }, input, key, 'production', execution);
   }
-  referenceImage(user: CurrentUser, projectId: string, id: string): NonNullable<GenerationSnapshot['image']> {
-    const source = this.media.version(user, id);
-    if (source.projectId !== projectId) fail(404, 'NOT_FOUND', '参考图片不属于当前项目');
+  referenceMedia(
+    user: CurrentUser,
+    projectId: string,
+    id: string,
+    type: ReferenceMediaType = 'image',
+  ): NonNullable<GenerationSnapshot['image']> {
+    this.authz.project(user, projectId);
+    const source = this.database.db
+      .select()
+      .from(mediaVersions)
+      .where(and(eq(mediaVersions.id, id), eq(mediaVersions.projectId, projectId)))
+      .get();
+    if (!source) fail(404, 'NOT_FOUND', '参考素材不属于当前项目');
+    assertSampleAccess(this.database, user, source);
     if (
       source.origin === 'workflow_test' ||
-      source.mediaType !== 'image' ||
-      !Object.hasOwn(referenceImageExtensions, source.mime) ||
+      source.mediaType !== type ||
+      !referenceMediaExtension(type, source.mime) ||
       source.byteLength <= 0 ||
-      source.byteLength > referenceImageLimit
+      source.byteLength > referenceMediaFormats[type].limit
     )
-      fail(400, 'REFERENCE_IMAGE_INVALID', '参考图片须为不超过 16 MiB 的 PNG、JPEG 或 WebP');
+      fail(
+        400,
+        type === 'image' ? 'REFERENCE_IMAGE_INVALID' : 'REFERENCE_MEDIA_INVALID',
+        '参考素材类型、格式或大小不符合当前槽位要求',
+      );
     return {
       id: source.id,
       fileName: source.fileName,
@@ -566,6 +743,7 @@ export class GenerationService {
       boardId?: string;
       promptLibraryRevisionId?: string;
       referenceImageVersions?: CreateProjectJobInput['referenceImageVersions'];
+      referenceMediaVersions?: CreateProjectJobInput['referenceMediaVersions'];
     },
     key: string,
     purpose: Job['purpose'],
@@ -577,6 +755,9 @@ export class GenerationService {
           shotId = shot?.id ?? null,
           project = this.authz.project(user, shot?.projectId ?? context.projectId!, 'edit');
         if (purpose === 'workflow_test') this.manage(user, project.workspaceId);
+        if (input.referenceImageVersions && input.referenceMediaVersions)
+          fail(400, 'REFERENCE_INPUT_CONFLICT', '请选择一种参考素材提交格式');
+        const supplied = input.referenceMediaVersions ?? input.referenceImageVersions ?? {};
         if (
           input.boardId &&
           !this.database.db
@@ -615,8 +796,7 @@ export class GenerationService {
           const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
           const requested = resolveParameters(definition, input.parameterValues);
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
-          const supplied = input.referenceImageVersions ?? {};
-          const frozen = snapshot.referenceImages ?? [];
+          const frozen = snapshot.referenceMedia ?? snapshot.referenceImages ?? [];
           if (
             Object.keys(supplied).length !== frozen.length ||
             frozen.some((item) => supplied[item.slotId] !== item.id)
@@ -664,14 +844,21 @@ export class GenerationService {
         const projectReferences = !shot;
         assertMediaExecutable(definition.mediaSchema, projectReferences);
         const slots = definition.mediaSchema?.inputs ?? [];
-        const supplied = input.referenceImageVersions ?? {};
         if (Object.keys(supplied).some((id) => !slots.some((slot) => slot.id === id)))
           fail(400, 'REFERENCE_SLOT_UNKNOWN', '此工作流没有所选参考槽位');
-        const referenceImages = slots.length
-          ? slots.map((slot) => {
+        const mixed = slots.some((slot) => slot.mediaType !== 'image');
+        const references = slots.length
+          ? slots.flatMap((slot) => {
               const id = supplied[slot.id];
-              if (!id) fail(400, 'REFERENCE_SLOT_REQUIRED', `请选择参考图片：${slot.label}`);
-              return { slotId: slot.id, ...this.referenceImage(user, project.id, id) };
+              if (!id && !slot.required) return [];
+              if (!id) fail(400, 'REFERENCE_SLOT_REQUIRED', `请选择参考素材：${slot.label}`);
+              return [
+                {
+                  slotId: slot.id,
+                  mediaType: slot.mediaType,
+                  ...this.referenceMedia(user, project.id, id, slot.mediaType),
+                },
+              ];
             })
           : undefined;
         if (shot && purpose === 'production') {
@@ -684,6 +871,11 @@ export class GenerationService {
             fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
         }
         const boundConnection = this.connection(workflow.connectionId, project.workspaceId);
+        if (
+          boundConnection.provider === 'modelscope' &&
+          (shot || input.routing || purpose !== 'production' || input.negativePrompt?.trim())
+        )
+          fail(400, 'MODELSCOPE_INPUT_UNSUPPORTED', 'ModelScope 首版只接收项目文生图正向提示词');
         if (!input.routing && !boundConnection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
         const prompt = shot
           ? this.database.db
@@ -719,14 +911,14 @@ export class GenerationService {
         if ((workflow.capability === 'video.image_to_video') !== Boolean(input.imageVersionId))
           fail(400, 'REFERENCE_IMAGE_REQUIRED', '图生视频须选择一个项目图片版本');
         const image = input.imageVersionId
-          ? this.referenceImage(user, project.id, input.imageVersionId)
+          ? this.referenceMedia(user, project.id, input.imageVersionId)
           : undefined;
         if (
-          referenceImages &&
-          referenceImages.reduce((total, item) => total + item.bytes, image?.bytes ?? 0) >
+          references &&
+          references.reduce((total, item) => total + item.bytes, image?.bytes ?? 0) >
             referenceImagesTotalLimit
         )
-          fail(400, 'REFERENCE_IMAGE_LIMIT', '参考图片与首帧总大小不能超过 64 MiB');
+          fail(400, 'REFERENCE_IMAGE_LIMIT', '参考素材与首帧总大小不能超过 64 MiB');
         const rendered = (
           prompt
             ? JSON.parse(prompt.renderedJson)
@@ -771,7 +963,12 @@ export class GenerationService {
               graph,
               approvals,
               image,
-              referenceImages,
+              ...(mixed
+                ? { referenceMedia: references }
+                : { referenceImages: references?.map(({ mediaType: _mediaType, ...item }) => item) }),
+              ...(slots.some((slot) => slot.onMissing === 'disconnect')
+                ? { optionalReferenceImages: true }
+                : {}),
               parameterValues,
               fieldValues,
               ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),
@@ -937,11 +1134,19 @@ export class GenerationService {
         else if (action === 'stop' && ['submitted', 'needs_reconciliation'].includes(row.state))
           changes = { state: 'failed', errorCode: 'TRACKING_STOPPED' };
         else if (action === 'reconcile' && row.state === 'needs_reconciliation') {
+          const apiImage =
+            this.connection(this.workflow(row.workflowId).connectionId).provider === 'modelscope';
+          if (!row.remoteId && apiImage)
+            fail(
+              409,
+              'SUBMISSION_UNCERTAIN',
+              'ModelScope 未返回任务编号，无法安全重查。请结束跟踪后按需重新生成。',
+            );
           if (row.remoteId && remoteId && row.remoteId !== remoteId)
             fail(409, 'REMOTE_ID_FIXED', '已确认的远端任务标识不可替换');
           // A null ID stays unverified. The worker checks the correlation marker.
           changes = {
-            state: row.remoteId && row.resultJson ? 'fetching' : 'submitted',
+            state: row.remoteId && row.resultJson && !apiImage ? 'fetching' : 'submitted',
             nextAt: Date.now(),
             deadline: Date.now() + 120000,
             errorCode: row.remoteId ? null : 'VERIFY_REMOTE_ID',

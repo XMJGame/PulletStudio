@@ -1170,6 +1170,9 @@ export const generationConnections = sqliteTable(
       .references(() => workspaces.id),
     name: text('name').notNull(),
     baseUrl: text('base_url').notNull(),
+    provider: text('provider', { enum: ['comfyui', 'modelscope'] })
+      .notNull()
+      .default('comfyui'),
     trustedPrivate: integer('trusted_private', { mode: 'boolean' }).notNull(),
     encryptedSecret: text('encrypted_secret'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
@@ -1182,6 +1185,9 @@ export const generationConnections = sqliteTable(
   },
   (t) => [
     uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId),
+    uniqueIndex('generation_modelscope_workspace')
+      .on(t.workspaceId)
+      .where(sql`${t.provider} = 'modelscope'`),
     uniqueIndex('generation_pool_endpoint')
       .on(t.workspaceId, t.baseUrl)
       .where(sql`${t.poolEnabled} = 1`),

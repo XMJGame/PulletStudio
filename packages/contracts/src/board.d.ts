@@ -35,7 +35,7 @@ export type BoardEdge = {
   source: string;
   target: string;
   kind?: 'annotation' | 'input_binding';
-  sourcePort?: 'text' | 'image';
+  sourcePort?: 'text' | 'image' | 'video' | 'audio';
   targetPort?: BoardInputPort;
 };
 export type BoardExecution = {
@@ -55,7 +55,7 @@ export type BoardResolved = {
   media?: {
     id: string;
     fileName: string;
-    mediaType: string;
+    mediaType: 'image' | 'video' | 'audio';
     contentUrl: string;
     posterUrl: string | null;
     downloadUrl: string;

@@ -11,7 +11,7 @@ import { ProductionService } from '../production/production.service';
 import { BoardReferencesService } from './board-references.service';
 import { emptyBoard } from './board-contract';
 import type { WorkflowInput } from '../generation/generation-contract';
-import { supportsReferenceImages } from '../generation/workflow-media';
+import { supportsReferenceMedia } from '../generation/workflow-media';
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 @Injectable()
 export class BoardsService {
@@ -265,9 +265,11 @@ export class BoardsService {
               const schema = workflow
                 ? (JSON.parse(workflow.definitionJson) as WorkflowInput).mediaSchema
                 : undefined;
-              const ports = new Set(schema?.inputs.map((slot) => `reference:${slot.id}`));
-              if (!supportsReferenceImages(schema) || bindings.some((edge) => !ports.has(edge.targetPort!)))
-                fail(400, 'REFERENCE_SLOT_UNKNOWN', '参考图片槽位不属于当前固定工作流');
+              const ports = new Map(schema?.inputs.map((slot) => [`reference:${slot.id}`, slot.mediaType]));
+              if (!supportsReferenceMedia(schema) || bindings.some((edge) => !ports.has(edge.targetPort!)))
+                fail(400, 'REFERENCE_SLOT_UNKNOWN', '参考素材槽位不属于当前固定工作流');
+              if (bindings.some((edge) => ports.get(edge.targetPort!) !== edge.sourcePort))
+                fail(400, 'REFERENCE_MEDIA_INVALID', '画布连线类型与工作流槽位不符');
             }
           }
           if (node.type === 'result')

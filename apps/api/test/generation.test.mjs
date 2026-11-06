@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createMediaFixtures } from '../../../tests/fixtures/media-fixtures.mjs';
 import {
@@ -14,6 +15,8 @@ import {
   fixtureI2V,
   fixtureParameterized,
   fixtureReferenceImages,
+  fixtureOptionalImages,
+  fixtureRequiredMedia,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
@@ -793,6 +796,411 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
           (await submit(defaults.data.parameterValues, defaultReplayKey)).data.id,
           defaults.data.id,
         );
+      },
+    );
+    await t.test(
+      'ModelScope submits a saved board node once, resumes polling and archives the image',
+      async () => {
+        const { ModelScopeProvider, modelScopeImage } =
+          await import('../dist/generation/modelscope-provider.js');
+        const blocked = new ModelScopeProvider({
+          resolve: async () => [{ address: '127.0.0.1', family: 4 }],
+        });
+        await assert.rejects(
+          blocked.download({ url: 'https://images.example.test/out.png' }, 1024, AbortSignal.timeout(2000)),
+          { code: 'MODELSCOPE_ADDRESS_BLOCKED' },
+        );
+        const workspacePath = `/workspaces/${workspace.id}/modelscope-generation`;
+        const projectPath = `/projects/${project.id}`;
+        const token = 'fixture-modelscope-secret';
+        assert.equal((await viewer('POST', workspacePath, { token })).status, 403);
+        assert.equal(
+          (await owner('POST', projectPath + '/modelscope-generation')).data.code,
+          'MODELSCOPE_KEY_REQUIRED',
+        );
+        assert.equal((await owner('POST', workspacePath, { token })).status, 201);
+        const credential = (await owner('GET', workspacePath)).data;
+        assert.equal(credential.configured, true);
+        assert.ok(!JSON.stringify(credential).includes(token));
+        const { id: workflowId } = (await owner('POST', projectPath + '/modelscope-generation')).data;
+        assert.equal((await owner('POST', projectPath + '/modelscope-generation')).data.id, workflowId);
+        const config = (await owner('GET', projectPath + '/generation-config?workflowId=' + workflowId)).data;
+        assert.equal(config.pinnedWorkflow.provider, 'modelscope');
+        assert.ok(!config.workflows.some((workflow) => workflow.id === workflowId));
+        const key = () => ({ 'Idempotency-Key': randomUUID() });
+        const board = (await owner('POST', projectPath + '/boards', { title: 'API image test' }, key())).data;
+        const nodeId = randomUUID();
+        const noteId = randomUUID();
+        const positivePrompt = 'A red ceramic sphere';
+        const saved = await owner(
+          'POST',
+          `/boards/${board.id}/revisions`,
+          {
+            title: board.title,
+            expectedRevision: board.revision,
+            layout: {
+              ...board.layout,
+              nodes: [
+                {
+                  id: noteId,
+                  type: 'note',
+                  position: { x: 0, y: 0 },
+                  width: 240,
+                  height: 160,
+                  data: { text: positivePrompt },
+                },
+                {
+                  id: nodeId,
+                  type: 'generation',
+                  position: { x: 280, y: 0 },
+                  width: 240,
+                  height: 160,
+                  data: { generation: { workflowId } },
+                },
+              ],
+              edges: [
+                {
+                  id: randomUUID(),
+                  kind: 'input_binding',
+                  source: noteId,
+                  target: nodeId,
+                  sourcePort: 'text',
+                  targetPort: 'prompt',
+                },
+              ],
+            },
+          },
+          key(),
+        );
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const jobPath = `/boards/${board.id}/nodes/${nodeId}/generation-jobs`;
+        const run = (requestKey = key()) =>
+          owner(
+            'POST',
+            jobPath,
+            {
+              expectedRevision: saved.data.revision,
+              confirmed: true,
+            },
+            requestKey,
+          );
+        const once = key();
+        const queued = await run(once);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        const id = queued.data.id;
+        assert.equal((await run(once)).data.id, id);
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET lease_id='free:old' WHERE id=?").run(id),
+          /MODEL_SCOPE_WORKER_UPGRADE_REQUIRED/,
+        );
+        const output = 'https://images.example.test/signed.png?signature=fixture';
+        const bytes = fixtures['image.png'].bytes;
+        let submissions = 0,
+          polls = 0;
+        const transport = app.get(ModelScopeProvider);
+        transport.send = async (url, _signal, headers, body) => {
+          if (url.href === output) {
+            assert.deepEqual(headers, {});
+            return Object.assign(Readable.from([bytes]), {
+              statusCode: 200,
+              headers: { 'content-length': bytes.length },
+            });
+          }
+          assert.equal(headers.Authorization, `Bearer ${token}`);
+          if (url.pathname.endsWith('/images/generations')) {
+            submissions++;
+            assert.equal(headers['X-ModelScope-Async-Mode'], 'true');
+            assert.deepEqual(JSON.parse(body), { model: modelScopeImage, prompt: positivePrompt });
+            const data =
+              submissions === 1
+                ? { task_id: 'test-cloud-job-1' }
+                : { errors: { message: 'Please bind your Alibaba Cloud account before use.' } };
+            return Object.assign(Readable.from([Buffer.from(JSON.stringify(data))]), {
+              statusCode: submissions === 1 ? 200 : 401,
+            });
+          }
+          assert.ok(url.pathname.endsWith('/tasks/test-cloud-job-1'));
+          assert.equal(headers['X-ModelScope-Task-Type'], 'image_generation');
+          const data =
+            ++polls === 1 ? { task_status: 'RUNNING' } : { task_status: 'SUCCEED', output_images: [output] };
+          return Object.assign(Readable.from([Buffer.from(JSON.stringify(data))]), { statusCode: 200 });
+        };
+        await tick();
+        assert.equal((await read(id)).state, 'submitted');
+        assert.equal((await read(id)).remoteId, 'test-cloud-job-1');
+        await tick();
+        assert.equal((await read(id)).state, 'submitted');
+        db().prepare('UPDATE generation_jobs SET next_at=0 WHERE id=?').run(id);
+        await tick();
+        await tick();
+        const complete = await read(id);
+        assert.equal(complete.state, 'completed');
+        assert.equal(complete.result.mediaType, 'image');
+        assert.deepEqual((await owner('GET', complete.result.contentUrl.replace('/api/v1', ''))).data, bytes);
+        assert.ok(!JSON.stringify(complete).includes('signature='));
+        assert.equal(complete.boardExecution.nodeId, nodeId);
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${id}/save-to-library`, {})).data.inLibrary,
+          true,
+        );
+        assert.equal(submissions, 1);
+        const rejected = await run();
+        await tick();
+        assert.equal((await read(rejected.data.id)).errorCode, 'MODELSCOPE_ACCOUNT_BINDING_REQUIRED');
+        assert.equal((await read(rejected.data.id)).state, 'failed');
+        assert.equal(submissions, 2);
+      },
+    );
+    await t.test(
+      'optional image detaches from the submitted graph and rejects required downstream inputs',
+      async () => {
+        const definition = fixtureOptionalImages(connectionId);
+        const projectPath = `/projects/${project.id}`;
+        const workflowPath = projectPath + '/generation-workflows';
+        const unsafe = structuredClone(definition);
+        unsafe.graph[unsafe.output.node].inputs.conditioning = ['7', 0];
+        const rejected = await owner('POST', workflowPath, unsafe);
+        assert.equal(rejected.data.code, 'WORKFLOW_MEDIA_DISCONNECT_INVALID');
+        const saved = await owner('POST', workflowPath, definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const [required, optional] = definition.mediaSchema.inputs;
+        const [first, second] = (await owner('GET', projectPath + '/generation-images')).data.items;
+        const submit = (references, key = randomUUID()) =>
+          owner(
+            'POST',
+            projectPath + '/generation-jobs',
+            {
+              workflowId: saved.data.id,
+              positivePrompt: 'Reference study',
+              confirmed: true,
+              referenceImageVersions: references,
+            },
+            { 'Idempotency-Key': key },
+          );
+        assert.equal((await submit({ [optional.id]: second.id })).data.code, 'REFERENCE_SLOT_REQUIRED');
+        const key = randomUUID();
+        const one = await submit({ [required.id]: first.id }, key);
+        assert.equal(one.status, 201, JSON.stringify(one.data));
+        assert.equal((await submit({ [required.id]: first.id }, key)).data.id, one.data.id);
+        assert.equal(
+          (await submit({ [required.id]: first.id, [optional.id]: second.id }, key)).data.code,
+          'IDEMPOTENCY_CONFLICT',
+        );
+        assert.throws(
+          () =>
+            db()
+              .prepare("UPDATE generation_jobs SET lease_id='free:media-v1:old' WHERE id=?")
+              .run(one.data.id),
+          /optional reference images require updated generation worker/,
+        );
+        const before = remote.mock.uploads.length;
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await read(one.data.id)).state, 'completed');
+        assert.equal(remote.mock.uploads.length, before + 1);
+        const submitted = remote.mock.submissions.at(-1).prompt;
+        assert.equal(submitted['7'], undefined);
+        assert.equal(submitted[definition.output.node].inputs['references.image_1'], undefined);
+        assert.deepEqual(submitted[definition.output.node].inputs['references.image_0'], ['6', 0]);
+        const stored = db().prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?').get(one.data.id);
+        assert.deepEqual(
+          JSON.parse(stored.snapshot_json).graph[definition.output.node].inputs['references.image_1'],
+          ['7', 0],
+        );
+        const two = await submit({ [required.id]: first.id, [optional.id]: second.id });
+        assert.equal(two.status, 201, JSON.stringify(two.data));
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await read(two.data.id)).state, 'completed');
+        assert.equal(remote.mock.uploads.length, before + 3);
+        assert.deepEqual(
+          remote.mock.submissions.at(-1).prompt[definition.output.node].inputs['references.image_1'],
+          ['7', 0],
+        );
+        const allOptional = structuredClone(definition);
+        Object.assign(allOptional.mediaSchema.inputs[0], { required: false, onMissing: 'disconnect' });
+        const emptyWorkflow = await owner('POST', workflowPath, allOptional);
+        assert.equal(emptyWorkflow.status, 201, JSON.stringify(emptyWorkflow.data));
+        const empty = await owner(
+          'POST',
+          projectPath + '/generation-jobs',
+          { workflowId: emptyWorkflow.data.id, positivePrompt: 'No references', confirmed: true },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(empty.status, 201, JSON.stringify(empty.data));
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await read(empty.data.id)).state, 'completed');
+        assert.equal(remote.mock.uploads.length, before + 3);
+        const emptyGraph = remote.mock.submissions.at(-1).prompt;
+        assert.equal(emptyGraph['6'], undefined);
+        assert.equal(emptyGraph['7'], undefined);
+        const changed = await submit({ [required.id]: first.id });
+        const previousOverrides = remote.mock.objectInfoOverrides;
+        try {
+          remote.mock.objectInfoOverrides = {
+            ImageOutput: { output_node: true, input: { required: { 'references.image_1': ['IMAGE'] } } },
+          };
+          const count = remote.mock.submissions.length;
+          await tick();
+          assert.equal((await read(changed.data.id)).errorCode, 'WORKFLOW_MEDIA_DISCONNECT_INVALID');
+          assert.equal(remote.mock.submissions.length, count);
+          assert.equal(remote.mock.uploads.length, before + 3);
+        } finally {
+          remote.mock.objectInfoOverrides = previousOverrides;
+        }
+      },
+    );
+    await t.test(
+      'mixed reference media pin typed versions and upload actual bytes through the same job',
+      async () => {
+        const path = `/projects/${project.id}`;
+        const fixture = fixtureRequiredMedia(connectionId);
+        const workflow = await owner('POST', path + '/generation-workflows', fixture);
+        assert.equal(workflow.status, 201, JSON.stringify(workflow.data));
+        const sound = fixtures['sound.wav'].bytes;
+        const intent = await owner(
+          'POST',
+          path + '/media-uploads',
+          {
+            fileName: 'mixed-reference.wav',
+            byteLength: sound.length,
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        const upload = await owner('PUT', `/media-uploads/${intent.data.id}/content`, sound);
+        assert.equal(upload.status, 200, JSON.stringify(upload.data));
+        const types = ['image', 'video', 'audio'];
+        const media = await Promise.all(
+          types.map(
+            async (type) =>
+              (await owner('GET', path + '/generation-reference-media?type=' + type)).data.items[0],
+          ),
+        );
+        assert.equal(media[2].id, upload.data.mediaVersion.id);
+        assert.equal(
+          (await owner('GET', path + '/generation-reference-media?type=audio&cursor=' + media[0].id)).data
+            .code,
+          'INVALID_CURSOR',
+        );
+        const [imageSlot, videoSlot, audioSlot] = fixture.mediaSchema.inputs;
+        const references = {
+          [audioSlot.id]: media[2].id,
+          [imageSlot.id]: media[0].id,
+          [videoSlot.id]: media[1].id,
+        };
+        const key = randomUUID();
+        const submit = (values, requestKey = randomUUID(), actor = owner) =>
+          actor(
+            'POST',
+            path + '/generation-jobs',
+            {
+              workflowId: workflow.data.id,
+              positivePrompt: 'Mixed reference study',
+              confirmed: true,
+              referenceMediaVersions: values,
+            },
+            { 'Idempotency-Key': requestKey },
+          );
+        assert.equal(
+          (await submit({ ...references, [audioSlot.id]: media[1].id })).data.code,
+          'REFERENCE_MEDIA_INVALID',
+        );
+        const queued = await submit(references, key);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        const id = queued.data.id;
+        assert.equal((await submit(references, key)).data.id, id);
+        assert.deepEqual(
+          queued.data.referenceMedia.map((item) => item.mediaType),
+          types,
+        );
+        assert.ok(!JSON.stringify(queued.data).includes('sha256'));
+        assert.throws(
+          () =>
+            db()
+              .prepare("UPDATE generation_jobs SET lease_id='free:media-v1:disconnect:old' WHERE id=?")
+              .run(id),
+          /reference media require updated generation worker/,
+        );
+        const before = remote.mock.uploads.length;
+        await tick();
+        assert.equal((await read(id)).state, 'submitted');
+        const graph = remote.mock.submissions.at(-1).prompt;
+        assert.equal(graph['7'].inputs.file, `pullet-studio-${id}-${videoSlot.id}.mp4`);
+        assert.equal(graph['8'].inputs.audio, `pullet-studio-${id}-${audioSlot.id}.wav`);
+        const uploads = remote.mock.uploads.slice(before);
+        assert.deepEqual(
+          uploads.map((item) => item.subfolder),
+          ['pullet-studio', '', ''],
+        );
+        assert.deepEqual(
+          uploads.map((item) => item.mime),
+          ['image/png', 'video/mp4', 'audio/wav'],
+        );
+        assert.deepEqual(uploads[2].bytes, sound);
+        assert.deepEqual(
+          uploads[1].bytes,
+          (await owner('GET', `/media-versions/${media[1].id}/content`)).data,
+        );
+        await tick();
+        await tick();
+        assert.equal((await read(id)).state, 'completed');
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${id}/save-to-library`, {})).data.inLibrary,
+          true,
+        );
+        remote.mock.mode = 'lost';
+        const retry = await submit(references);
+        assert.equal(retry.status, 201, JSON.stringify(retry.data));
+        const count = remote.mock.submissions.length;
+        await tick();
+        assert.equal((await read(retry.data.id)).state, 'needs_reconciliation');
+        remote.mock.mode = 'normal';
+        assert.equal((await control(retry.data.id, 'reconcile')).status, 201);
+        await tick();
+        await tick();
+        assert.equal((await read(retry.data.id)).state, 'completed');
+        assert.equal(remote.mock.submissions.length, count + 1);
+        const editor = client();
+        const invitation = (
+          await owner('POST', `/workspaces/${workspace.id}/invitations`, {
+            email: 'media-editor@generation.test',
+          })
+        ).data;
+        const joined = await editor('POST', '/invitations/accept', {
+          token: invitation.token,
+          name: 'Media editor',
+          password: 'Studio8!',
+        });
+        assert.equal(
+          (await owner('POST', path + '/members', { userId: joined.data.user.id, role: 'EDITOR' })).status,
+          201,
+        );
+        const queuedBeforeProtection = await submit(references, randomUUID(), editor);
+        assert.equal(queuedBeforeProtection.status, 201, JSON.stringify(queuedBeforeProtection.data));
+        const voice = await owner(
+          'POST',
+          path + '/entities',
+          {
+            kind: 'voice',
+            body: {
+              name: 'Protected voice',
+              attributes: {},
+              media: [{ role: 'voice_sample', mediaVersionId: media[2].id }],
+            },
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(voice.status, 201, JSON.stringify(voice.data));
+        const hidden = (await editor('GET', path + '/generation-reference-media?type=audio')).data.items;
+        assert.ok(!hidden.some((item) => item.id === media[2].id));
+        assert.ok(
+          (await owner('GET', path + '/generation-reference-media?type=audio')).data.items.some(
+            (item) => item.id === media[2].id,
+          ),
+        );
+        assert.equal((await submit(references, randomUUID(), editor)).data.code, 'VOICE_SAMPLE_RESTRICTED');
+        const uploadsBefore = remote.mock.uploads.length;
+        await tick();
+        assert.equal((await read(queuedBeforeProtection.data.id)).errorCode, 'VOICE_SAMPLE_RESTRICTED');
+        assert.equal(remote.mock.uploads.length, uploadsBefore);
       },
     );
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {

@@ -16,7 +16,7 @@ export type WorkflowMediaInput = {
   node: string;
   input: string;
   required: boolean;
-  onMissing: 'error' | 'empty';
+  onMissing: 'error' | 'empty' | 'disconnect';
 };
 export type WorkflowMediaOutput = {
   id: string;

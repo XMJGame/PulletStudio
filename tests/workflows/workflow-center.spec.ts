@@ -8,6 +8,7 @@ import {
   fixtureCreativeFields,
   fixtureMediaSchema,
   fixtureReferenceImages,
+  fixtureRequiredMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
@@ -80,6 +81,60 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
   await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
   await openCenter(page);
 }
+test('configures free-quota API text presets without returning credentials', async ({ page }) => {
+  await page.context().addCookies((await owner.storageState()).cookies);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  async function openSettings() {
+    await page.getByText('Creator', { exact: true }).click();
+    await page.getByRole('button', { name: 'API 设置', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'API 设置' });
+    await expect(dialog).toBeVisible();
+    return dialog;
+  }
+  let dialog = await openSettings();
+  for (const name of ['ModelScope', 'Agnes AI']) {
+    const card = dialog.getByRole('form', { name });
+    await card.getByLabel(`${name} API Key`).fill(`test-key-for-${name}`);
+    await card.getByRole('button', { name: '保存凭据' }).click();
+    await expect(card.getByText('凭据已保存', { exact: true })).toBeVisible();
+    await expect(card.getByLabel(`${name} API Key`)).toHaveValue('');
+  }
+  const settings = await api('GET', `/workspaces/${setup.workspace.id}/text-connections`);
+  expect(settings.items.filter((item: any) => item.hasApiKey)).toHaveLength(2);
+  expect(JSON.stringify(settings)).not.toMatch(/test-key-for-|encryptedSecret/);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  dialog = await openSettings();
+  const card = dialog.getByRole('form', { name: 'Agnes AI' });
+  await expect(card.getByText('凭据已保存', { exact: true })).toBeVisible();
+  await card.getByRole('button', { name: '停用' }).click();
+  await expect(card.getByText('已停用', { exact: true })).toBeVisible();
+  await card.getByRole('button', { name: '启用' }).click();
+  await expect(card.getByText('凭据已保存', { exact: true })).toBeVisible();
+  const image = dialog.getByRole('form', { name: 'ModelScope 文生图', exact: true });
+  await image.getByLabel('文生图 API Key').fill('test-key-for-images');
+  await image.getByRole('button', { name: '保存文生图凭据' }).click();
+  await expect(image.getByText('凭据已保存', { exact: true })).toBeVisible();
+  await expect(image.getByLabel('文生图 API Key')).toHaveValue('');
+  await page.keyboard.press('Escape');
+  const value = await project('Cloud engine settings');
+  await page.reload();
+  await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
+  await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('API engine board');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  const panel = page.getByRole('region', { name: '生成节点设置' });
+  await panel.getByLabel('生成提示词').fill('Keep my prompt when switching engines');
+  await panel.getByLabel('生成引擎').selectOption('api');
+  await expect(panel).toContainText('ModelScope · Qwen Image 2512');
+  await expect(panel.getByLabel('生成提示词')).toHaveValue('Keep my prompt when switching engines');
+  await expect(panel.getByLabel('节点工作流')).toHaveCount(0);
+  await panel.getByLabel('生成引擎').selectOption('comfyui');
+  await expect(panel.getByLabel('节点工作流')).toBeVisible();
+  expect((await api('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
+});
+
 test('formal project and library views work across themes, screen sizes and actual browser zoom', async ({
   playwright,
 }, testInfo) => {
@@ -665,6 +720,87 @@ test('free generation runs two selected image versions and displays the frozen r
   expect(prompt['7'].inputs.image).toContain(`-${definition.mediaSchema.inputs[1].id}.jpg`);
   await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
   await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+});
+
+test('free generation selects typed video and audio versions and reuses them for a trial', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const value = await project('Mixed reference selections');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Reference media mock',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const definition = fixtureRequiredMedia(connection.id);
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
+  const mediaIds = [];
+  for (const name of ['image.png', 'clip.mp4', 'sound.wav']) {
+    const bytes = await readFile(resolve('test-results/workflow-fixtures', name));
+    const intent = await api('POST', `/projects/${value.id}/media-uploads`, {
+      fileName: name,
+      byteLength: bytes.length,
+    });
+    const session = await (await owner.get('/api/v1/auth/me')).json();
+    const reply = await owner.put(`/api/v1/media-uploads/${intent.id}/content`, {
+      data: bytes,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Studio-Request': '1',
+        'X-CSRF-Token': session.csrfToken,
+      },
+    });
+    expect(reply.ok()).toBe(true);
+    mediaIds.push((await reply.json()).mediaVersion.id);
+  }
+  await open(page, value);
+  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Mixed reference board');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+  await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+  await generation.getByLabel('正向提示词', { exact: true }).fill('A mixed reference test');
+  const submit = generation.getByRole('button', { name: '加入生成队列', exact: true });
+  await generation.getByLabel('参考图片 1：Character reference', { exact: true }).selectOption(mediaIds[0]);
+  await expect(submit).toBeDisabled();
+  for (const [index, label] of ['视频', '音频'].entries()) {
+    await generation.getByRole('button', { name: `读取项目${label}`, exact: true }).click();
+    const selector = generation.getByLabel(
+      index === 0 ? '参考视频 2：Motion reference' : '参考音频 3：Sound reference',
+      { exact: true },
+    );
+    await expect(selector.locator('option')).toHaveCount(2);
+    await selector.selectOption(mediaIds[index + 1]);
+  }
+  await submit.click();
+  await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+  await generation.getByText('查看此次参考素材', { exact: true }).click();
+  await expect(generation.getByText('Motion reference · clip.mp4 · v1', { exact: true })).toBeVisible();
+  await expect(generation.getByText('Sound reference · sound.wav · v1', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: 'test-results/generation-reference-media-mobile.png',
+    animations: 'disabled',
+  });
+  expect(remote.mock.uploads.slice(-3).map((item: any) => item.type)).toEqual(['input', 'input', 'input']);
+  const trial = await api('POST', `/projects/${value.id}/workflow-trials`, {
+    workflowId: workflow.id,
+    positivePrompt: 'Mixed trial',
+    confirmed: true,
+    referenceMediaVersions: Object.fromEntries(
+      definition.mediaSchema.inputs.map((slot: any, index: number) => [slot.id, mediaIds[index]]),
+    ),
+  });
+  await expect
+    .poll(async () => (await api('GET', `/generation-jobs/${trial.id}`)).state, { timeout: 20000 })
+    .toBe('test_completed');
+  const evidence = await api('GET', `/generation-jobs/${trial.id}`);
+  expect(evidence.mediaVersionId).toBeTruthy();
+  expect(
+    (await api('GET', `/projects/${value.id}/generation-reference-media?type=image`)).items.some(
+      (item: any) => item.id === evidence.mediaVersionId,
+    ),
+  ).toBe(false);
 });
 
 test('readonly users see existing workflow summaries without connection credentials or configuration controls', async ({

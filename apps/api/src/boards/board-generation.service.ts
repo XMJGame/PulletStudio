@@ -8,7 +8,11 @@ import { DatabaseService } from '../db/database.service';
 import { boards, boardRevisions, generationJobs } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { GenerationService, type GenerationSnapshot } from '../generation/generation.service';
-import { createJobInput, createProjectJobInput } from '../generation/generation-contract';
+import {
+  createJobInput,
+  createProjectJobInput,
+  type ReferenceMediaType,
+} from '../generation/generation-contract';
 import { boardLayout } from './board-contract';
 import { BoardReferencesService } from './board-references.service';
 
@@ -74,20 +78,29 @@ export class BoardGenerationService {
         const text = layout.nodes.find((n) => n.id === textEdge?.source);
         if (text?.type !== 'note' || !text.data.text?.trim())
           fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文本便签');
-        const resolveImage = (sourceId: string) => {
+        const resolveMedia = (sourceId: string, type: ReferenceMediaType) => {
           const source = layout.nodes.find((n) => n.id === sourceId)!;
           const value =
             source.type === 'result'
               ? this.references.result(user, board.projectId, source.data.jobId!, true)
               : this.references.resolve(user, board.projectId, source.data.ref!, true);
-          if (value.status === 'unavailable' || value.media?.mediaType !== 'image')
-            fail(400, 'REFERENCE_IMAGE_INVALID', '参考图片必须是可访问的固定版本');
+          if (value.status === 'unavailable' || value.media?.mediaType !== type)
+            fail(
+              400,
+              type === 'image' ? 'REFERENCE_IMAGE_INVALID' : 'REFERENCE_MEDIA_INVALID',
+              '参考素材必须是类型匹配且可访问的固定版本',
+            );
           return value.media.id;
         };
-        const referenceImageVersions = Object.fromEntries(
+        const referenceMediaVersions = Object.fromEntries(
           bindings.flatMap((edge) =>
             edge.targetPort?.startsWith('reference:')
-              ? [[edge.targetPort.slice('reference:'.length), resolveImage(edge.source)]]
+              ? [
+                  [
+                    edge.targetPort.slice('reference:'.length),
+                    resolveMedia(edge.source, edge.sourcePort as ReferenceMediaType),
+                  ],
+                ]
               : [],
           ),
         );
@@ -97,8 +110,8 @@ export class BoardGenerationService {
           negativePrompt: text.data.prompt?.negativePrompt ?? '',
           source: text.data.prompt?.source ?? '',
           promptLibraryRevisionId: text.data.prompt?.promptLibraryRevisionId,
-          imageVersionId: imageEdge && resolveImage(imageEdge.source),
-          referenceImageVersions,
+          imageVersionId: imageEdge && resolveMedia(imageEdge.source, 'image'),
+          referenceMediaVersions,
           boardId: id,
           routing: input.routing,
           confirmed: input.confirmed,

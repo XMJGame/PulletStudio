@@ -27,7 +27,20 @@ export async function startComfyMock(files) {
         Text: { input: { required: { text: ['STRING'] } }, output_node: false, output: ['CONDITIONING'] },
         ImageOutput: {
           output_node: true,
-          input: { required: { conditioning: ['CONDITIONING'] }, optional: { controls: ['CONTROL'] } },
+          input: {
+            required: { conditioning: ['CONDITIONING'] },
+            optional: {
+              controls: ['CONTROL'],
+              video_reference: ['VIDEO'],
+              audio_reference: ['AUDIO'],
+              references: [
+                'COMFY_AUTOGROW_V3',
+                {
+                  template: { prefix: 'image_', min: 0, max: 3, input: { required: { image: ['IMAGE'] } } },
+                },
+              ],
+            },
+          },
           output: [],
         },
         CreativeControls: {
@@ -47,9 +60,24 @@ export async function startComfyMock(files) {
         },
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
-        LoadImage: { input: { required: { image: [[], { image_upload: true }] } }, output_node: false },
-        LoadVideo: { input: { required: { video: ['STRING', { video_upload: true }] } }, output: ['VIDEO'] },
-        LoadAudio: { input: { required: { audio: ['STRING', { audio_upload: true }] } }, output: ['AUDIO'] },
+        LoadImage: {
+          input: { required: { image: [[], { image_upload: true }] } },
+          output_node: false,
+          output: ['IMAGE', 'MASK'],
+        },
+        LoadVideo: {
+          input: {
+            optional: {
+              video: ['STRING', { video_upload: true }],
+              file: ['COMBO', { options: [], video_upload: true }],
+            },
+          },
+          output: ['VIDEO'],
+        },
+        LoadAudio: {
+          input: { required: { audio: ['COMBO', { options: [], audio_upload: true }] } },
+          output: ['AUDIO'],
+        },
         'Custom Input': {
           input: { optional: { 'source.file': ['STRING', { image_upload: true }] } },
           output_node: false,
@@ -73,6 +101,7 @@ export async function startComfyMock(files) {
         const image = data.get('image');
         const entry = {
           name: image.name,
+          mime: image.type,
           bytes: Buffer.from(await image.arrayBuffer()),
           type: data.get('type'),
           subfolder: data.get('subfolder'),
@@ -240,6 +269,31 @@ export function fixtureReferenceImages(connectionId) {
       outputs: [],
     },
   };
+}
+
+export function fixtureOptionalImages(connectionId) {
+  const workflow = fixtureReferenceImages(connectionId);
+  workflow.name = 'Optional reference images';
+  workflow.graph[workflow.output.node].inputs['references.image_0'] = ['6', 0];
+  workflow.graph[workflow.output.node].inputs['references.image_1'] = ['7', 0];
+  Object.assign(workflow.mediaSchema.inputs[1], { required: false, onMissing: 'disconnect' });
+  return workflow;
+}
+
+export function fixtureRequiredMedia(connectionId) {
+  const workflow = fixtureMediaSchema(connectionId);
+  workflow.name = 'Image video audio references';
+  workflow.mediaSchema.outputs = [];
+  const video = workflow.mediaSchema.inputs[1];
+  Object.assign(video, { input: 'file', required: true, onMissing: 'error' });
+  workflow.graph['7'].inputs = { file: 'private-reference.mp4' };
+  Object.assign(workflow.graph[workflow.output.node].inputs, {
+    'references.image_0': ['6', 0],
+    video_reference: ['7', 0],
+    audio_reference: ['8', 0],
+  });
+  delete workflow.graph['9'];
+  return workflow;
 }
 
 export function fixtureMediaSchema(connectionId) {

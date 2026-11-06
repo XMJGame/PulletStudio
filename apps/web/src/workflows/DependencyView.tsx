@@ -31,6 +31,7 @@ const labels: Record<string, string> = {
   GRAPH_CYCLE: '节点连接存在循环或受循环阻塞',
   FIELD_SCHEMA_MISMATCH: '公开字段合同与节点声明不匹配',
   MEDIA_SCHEMA_MISMATCH: '媒体槽位与节点上传类型不匹配',
+  MEDIA_DISCONNECT_INVALID: '参考图连接无法安全省略',
   MEDIA_OUTPUT_MISMATCH: '媒体输出需要可归档的输出节点',
 };
 export function DependencyView({ report }: { report: Inspection }) {

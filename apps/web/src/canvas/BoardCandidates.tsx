@@ -134,7 +134,13 @@ export function BoardCandidates({
             画布 v{job.boardExecution?.revision} · {new Date(job.createdAt).toLocaleTimeString()}
           </small>
         </header>
-        {job.errorCode && <p role="status">生成遇到问题，请在任务与候选中查看并处理。</p>}
+        {job.errorCode && (
+          <p role="status">
+            {job.errorCode === 'MODELSCOPE_ACCOUNT_BINDING_REQUIRED'
+              ? 'ModelScope 要求当前账号先绑定阿里云，未创建远端任务。'
+              : '生成遇到问题，请在任务与候选中查看并处理。'}
+          </p>
+        )}
         {job.result && (
           <CandidatePreview key={job.mediaVersionId ?? job.id} job={job} secondary={secondary} />
         )}
@@ -196,9 +202,9 @@ export function BoardCandidates({
               首帧：{job.image.fileName} · v{job.image.version}
             </p>
           )}
-          {!!job.referenceImages?.length && (
-            <ul aria-label="采用的参考图片">
-              {job.referenceImages.map((item) => (
+          {!!(job.referenceMedia ?? job.referenceImages)?.length && (
+            <ul aria-label={job.referenceMedia ? '采用的参考素材' : '采用的参考图片'}>
+              {(job.referenceMedia ?? job.referenceImages)?.map((item) => (
                 <li key={item.slotId}>
                   {item.label} · {item.fileName} · v{item.version}
                 </li>

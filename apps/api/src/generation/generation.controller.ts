@@ -19,6 +19,19 @@ const uuid = z.uuid();
 @Controller('api/v1')
 export class GenerationController {
   constructor(private readonly generation: GenerationService) {}
+  @Get('workspaces/:id/modelscope-generation')
+  modelScopeStatus(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.modelScopeStatus(req.user, parse(uuid, id));
+  }
+  @Post('workspaces/:id/modelscope-generation')
+  configureModelScope(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    const { token } = parse(z.object({ token: z.string().regex(/^[\x21-\x7e]{1,8192}$/u) }).strict(), body);
+    return this.generation.configureModelScope(req.user, parse(uuid, id), token);
+  }
+  @Post('projects/:id/modelscope-generation')
+  projectModelScope(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.projectModelScope(req.user, parse(uuid, id));
+  }
   @Get('projects/:id/generation-config')
   config(@Req() req: StudioRequest, @Param('id') id: string, @Query('workflowId') workflowId?: string) {
     return this.generation.config(
@@ -74,12 +87,18 @@ export class GenerationController {
   saveCandidate(@Req() req: StudioRequest, @Param('id') id: string) {
     return this.generation.saveCandidate(req.user, parse(uuid, id));
   }
-  @Get('projects/:id/generation-images')
-  images(@Req() req: StudioRequest, @Param('id') id: string, @Query('cursor') cursor?: string) {
+  @Get(['projects/:id/generation-images', 'projects/:id/generation-reference-media'])
+  images(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('cursor') cursor?: string,
+    @Query('type') type?: string,
+  ) {
     return this.generation.images(
       req.user,
       parse(uuid, id),
       cursor === undefined ? undefined : parse(uuid, cursor),
+      type === undefined ? undefined : parse(z.enum(['image', 'video', 'audio']), type),
     );
   }
   @Post('projects/:id/generation-connections')

@@ -7,6 +7,7 @@ export type Workflow = {
   name: string;
   capability: string;
   enabled: boolean;
+  provider?: 'comfyui' | 'modelscope';
   createdAt: string;
   parameters: AvailableParameter[];
   fields?: AvailableField[];
@@ -46,6 +47,7 @@ export const capabilityLabels: Record<string, string> = {
   'video.text_to_video': '文字生视频',
   'video.image_to_video': '图生视频',
 };
+export const referenceMediaLabels = { image: '图片', video: '视频', audio: '音频' };
 export type WorkflowDefinition = {
   name: string;
   connectionId: string;

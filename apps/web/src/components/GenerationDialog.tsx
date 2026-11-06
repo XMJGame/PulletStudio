@@ -3,6 +3,8 @@ import { api, CursorPage } from '../api';
 import { Dialog } from './Dialog';
 import { ParameterValues, parameterLabels, describeParameters } from './GenerationParameters';
 import type { GenerationConfig as Config, Workflow } from '../workflows/workflow-types';
+import { referenceMediaLabels } from '../workflows/workflow-types';
+import type { WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
 import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
 import type { MediaVersion } from '../media-types';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
@@ -40,6 +42,13 @@ export type GenerationJob = {
   mediaVersionId: string | null;
   canControl: boolean;
   referenceImages?: { slotId: string; label?: string; fileName: string; version: number }[];
+  referenceMedia?: {
+    slotId: string;
+    label?: string;
+    fileName: string;
+    version: number;
+    mediaType: WorkflowMediaType;
+  }[];
   image: {
     id: string;
     fileName: string;
@@ -59,7 +68,7 @@ export type GenerationJob = {
   } | null;
 };
 type Job = GenerationJob;
-type ReferenceImage = {
+type ReferenceOption = {
   id: string;
   fileName: string;
   version: number;
@@ -90,6 +99,12 @@ export const generationStates: Record<string, string> = {
 const errors: Record<string, string> = {
   SUBMISSION_UNCERTAIN: '未确认远端是否收到任务。请先查远端历史。',
   COMFY_REQUEST_REJECTED: 'ComfyUI 拒绝工作流。请核对工作流、节点和输入。',
+  MODELSCOPE_ACCOUNT_BINDING_REQUIRED: 'ModelScope 要求当前账号先绑定阿里云，未创建远端任务。',
+  MODELSCOPE_REQUEST_REJECTED: 'ModelScope 拒绝请求，请检查账号权限与凭据。',
+  MODELSCOPE_RATE_LIMIT: 'ModelScope 限流或额度不足，请稍后查看额度再试。',
+  MODELSCOPE_EXECUTION_FAILED: 'ModelScope 返回生成失败。',
+  MODELSCOPE_ADDRESS_BLOCKED: '下载地址未通过公网校验，远端结果尚未归档。',
+  MODELSCOPE_DOWNLOAD_INVALID: 'ModelScope 图片无法安全下载，请重查远端结果。',
   COMFY_HISTORY_PENDING: '查询窗口内未找到已完成的远端记录。',
   COMFY_EXECUTION_FAILED: '远端执行失败。请在 ComfyUI 中查看详情。',
   COMFY_DOWNLOAD_INVALID: '远端文件无法安全下载，请核对大小及返回头。',
@@ -103,6 +118,10 @@ const errors: Record<string, string> = {
   REMOTE_JOB_UNVERIFIED: '历史记录无法确认属于此任务。',
   TRACKING_STOPPED: '已结束本地跟踪。请在 ComfyUI 核对远端状态。',
   REFERENCE_IMAGE_INVALID: '参考图片无法读取或校验，请核对项目素材。',
+  REFERENCE_MEDIA_INVALID: '参考素材的类型、格式、大小或文件校验未通过。',
+  COMFY_MEDIA_UPLOAD_INVALID: 'ComfyUI 返回的参考素材路径不符合预期，任务未提交。',
+  WORKFLOW_MEDIA_DISCONNECT_INVALID: '当前节点声明不允许省略此参考图，请管理员检查工作流。',
+  VOICE_SAMPLE_RESTRICTED: '当前账号无权读取该声音样本，请选择已获授权的素材。',
   COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
   WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
   INSTANCE_WAITING: '所选实例达到负载阈值，任务将继续等待此实例。',
@@ -137,9 +156,12 @@ export function GenerationDialog({
   const [pinnedWorkflow, setPinnedWorkflow] = useState<Workflow>();
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, string | boolean>>({});
-  const [images, setImages] = useState<CursorPage<ReferenceImage>>();
+  const [images, setImages] = useState<CursorPage<ReferenceOption>>();
+  const [otherMedia, setOtherMedia] = useState<
+    Partial<Record<'video' | 'audio', CursorPage<ReferenceOption>>>
+  >({});
   const [imageVersionId, setImageVersionId] = useState('');
-  const [referenceImageVersions, setReferenceImageVersions] = useState<Record<string, string>>({});
+  const [selectedReferenceVersions, setSelectedReferenceVersions] = useState<Record<string, string>>({});
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -168,9 +190,14 @@ export function GenerationDialog({
       : []),
   ];
   const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
-  const imageSlots =
+  const referenceSlots =
     selectedWorkflow?.executable === false ? [] : (selectedWorkflow?.mediaSchema?.inputs ?? []);
-  const missingReference = imageSlots.some((slot) => !referenceImageVersions[slot.id]);
+  const referenceTypes = [...new Set(referenceSlots.map((slot) => slot.mediaType))];
+  const mixed = referenceTypes.some((type) => type !== 'image');
+  const options = (type: WorkflowMediaType) => (type === 'image' ? images : otherMedia[type]);
+  const missingReference = referenceSlots.some(
+    (slot) => slot.required && !selectedReferenceVersions[slot.id],
+  );
   const selectableWorkflows = workflows.filter((item) => (poolRouting ? !item.archived : item.enabled));
   const manualChoiceRequired = poolRouting && routingMode === 'manual' && !instanceId;
   const selectedParameters: ParameterValues = Object.fromEntries(
@@ -262,10 +289,23 @@ export function GenerationDialog({
   }
   async function loadImages() {
     const cursor = images?.nextCursor;
-    const more = await api<CursorPage<ReferenceImage>>(
+    const more = await api<CursorPage<ReferenceOption>>(
       `${projectPath}/generation-images${cursor ? `?cursor=${cursor}` : ''}`,
     );
     setImages({ ...more, items: [...(images?.items ?? []), ...more.items] });
+  }
+  async function loadReferenceOptions(type: WorkflowMediaType) {
+    if (type === 'image') return loadImages();
+    const page = otherMedia[type];
+    const params = new URLSearchParams({ type });
+    if (page?.nextCursor) params.set('cursor', page.nextCursor);
+    const more = await api<CursorPage<ReferenceOption>>(
+      `${projectPath}/generation-reference-media?${params}`,
+    );
+    setOtherMedia((previous) => ({
+      ...previous,
+      [type]: { ...more, items: [...(page?.items ?? []), ...more.items] },
+    }));
   }
   async function control(job: Job, action: 'cancel' | 'reconcile' | 'stop') {
     const remoteId = remoteIds[job.id]?.trim();
@@ -326,7 +366,13 @@ export function GenerationDialog({
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
                     ...(needsImage ? { imageVersionId } : {}),
-                    ...(imageSlots.length ? { referenceImageVersions } : {}),
+                    ...(referenceSlots.length
+                      ? {
+                          [mixed ? 'referenceMediaVersions' : 'referenceImageVersions']: Object.fromEntries(
+                            Object.entries(selectedReferenceVersions).filter(([, id]) => id),
+                          ),
+                        }
+                      : {}),
                     confirmed: true,
                   },
                   { 'Idempotency-Key': key },
@@ -369,7 +415,7 @@ export function GenerationDialog({
                       setParameterOverrides({});
                       setFieldOverrides({});
                       setImageVersionId('');
-                      setReferenceImageVersions({});
+                      setSelectedReferenceVersions({});
                       setInstanceId('');
                       resetRequest();
                       if (
@@ -377,7 +423,8 @@ export function GenerationDialog({
                           (item) =>
                             item.id === id &&
                             (item.capability === 'video.image_to_video' ||
-                              (item.executable !== false && item.mediaSchema?.inputs.length)),
+                              (item.executable !== false &&
+                                item.mediaSchema?.inputs.some((slot) => slot.mediaType === 'image'))),
                         ) &&
                         !images
                       )
@@ -545,25 +592,32 @@ export function GenerationDialog({
                   )}
                 </>
               )}
-              {imageSlots.length > 0 && (
-                <section aria-label="工作流参考图片">
-                  <h4>参考图片</h4>
-                  <p className="field-hint">按工作流顺序选择图片。每张最多 16 MiB，含首帧合计最多 64 MiB。</p>
-                  {imageSlots.map((slot, index) => (
+              {referenceSlots.length > 0 && (
+                <section aria-label={mixed ? '工作流参考素材' : '工作流参考图片'}>
+                  <h4>{mixed ? '参考素材' : '参考图片'}</h4>
+                  <p className="field-hint">
+                    图片每张最多 16 MiB，视频和音频每份最多 32 MiB，含首帧合计最多 64 MiB。
+                  </p>
+                  {referenceSlots.map((slot, index) => (
                     <label key={slot.id}>
                       {index + 1} · {slot.label}
+                      {!slot.required && ' · 可选'}
                       <select
-                        aria-label={`参考图片 ${index + 1}：${slot.label}`}
-                        required
-                        value={referenceImageVersions[slot.id] ?? ''}
+                        aria-label={`参考${referenceMediaLabels[slot.mediaType]} ${index + 1}：${slot.label}`}
+                        required={slot.required}
+                        value={selectedReferenceVersions[slot.id] ?? ''}
                         onChange={(event) => {
                           const id = event.target.value;
-                          setReferenceImageVersions((current) => ({ ...current, [slot.id]: id }));
+                          setSelectedReferenceVersions((current) => ({ ...current, [slot.id]: id }));
                           resetRequest();
                         }}
                       >
-                        <option value="">选择项目图片版本</option>
-                        {images?.items.map((item) => (
+                        <option value="">
+                          {slot.required
+                            ? `选择项目${referenceMediaLabels[slot.mediaType]}版本`
+                            : `不使用参考${referenceMediaLabels[slot.mediaType]}`}
+                        </option>
+                        {options(slot.mediaType)?.items.map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.fileName} · v{item.version}
                           </option>
@@ -571,14 +625,28 @@ export function GenerationDialog({
                       </select>
                     </label>
                   ))}
-                  {!needsImage && (!images || images.nextCursor) && (
-                    <button type="button" onClick={() => void run(loadImages)}>
-                      {images ? '更多图片版本' : '读取项目图片'}
-                    </button>
-                  )}
-                  {!needsImage && images?.items.length === 0 && (
-                    <p className="field-hint">请先导入符合要求的项目图片。</p>
-                  )}
+                  {referenceTypes
+                    .filter((type) => type !== 'image' || !needsImage)
+                    .map((type) => {
+                      const page = options(type);
+                      const label = referenceMediaLabels[type];
+                      if (page?.items.length === 0)
+                        return (
+                          <p key={type} className="field-hint">
+                            请先导入符合要求的项目{label}。
+                          </p>
+                        );
+                      if (page && !page.nextCursor) return null;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => void run(() => loadReferenceOptions(type))}
+                        >
+                          {page ? `更多${label}版本` : `读取项目${label}`}
+                        </button>
+                      );
+                    })}
                 </section>
               )}
               {
@@ -727,11 +795,11 @@ export function GenerationDialog({
                   提示词库 · {job.promptLibrary.title} · v{job.promptLibrary.version}
                 </p>
               )}
-              {!!job.referenceImages?.length && (
+              {!!(job.referenceMedia ?? job.referenceImages)?.length && (
                 <details>
-                  <summary>查看此次参考图片</summary>
+                  <summary>{job.referenceMedia ? '查看此次参考素材' : '查看此次参考图片'}</summary>
                   <ul>
-                    {job.referenceImages.map((item) => (
+                    {(job.referenceMedia ?? job.referenceImages)?.map((item) => (
                       <li key={item.slotId}>
                         {item.label} · {item.fileName} · v{item.version}
                       </li>
@@ -938,7 +1006,7 @@ export function GenerationDialog({
               setParameterOverrides({});
               setFieldOverrides({});
               setImageVersionId('');
-              setReferenceImageVersions({});
+              setSelectedReferenceVersions({});
               setInstanceId('');
             }
             resetRequest();
