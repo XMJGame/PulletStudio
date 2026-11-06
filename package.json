@@ -26,6 +26,7 @@
     "test": "npm run build --workspace @pullet-studio/api && npm run test --workspace @pullet-studio/api",
     "test:e2e": "npm run build && playwright test",
     "test:studio-review": "playwright test --config playwright.studio-review.config.ts",
+    "review:ui": "node tools/ui-review.mjs",
     "test:boards": "npm run build && playwright test --config playwright.boards.config.ts",
     "test:workflow-graph": "node --import tsx --test tests/workflows/graph.test.mjs",
     "test:workflows": "npm run build && npm run test:workflow-graph && playwright test --config playwright.workflows.config.ts",

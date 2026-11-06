@@ -8,7 +8,7 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 正式产品只使用一套 React Flow/Board。G0 原型源码、页面、测试、构建与 CI 入口已删除。
 
-正式项目点击「创作画布」，用「切换 / 新建画布」管理多张画布；它们共用项目资产，按用户记住上次打开。点击「自由生成」，选中便签时带入文字；关闭窗口后任务继续。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
+点击项目直接进入上次使用的画布，用「切换 / 新建画布」管理多张画布。项目资源库可导入、筛选和预览媒体，多画布共用固定版本。生成节点可就地应用提示词、选择工作流、查看或对照候选；关闭页面后任务继续。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
 
 项目工作流中心支持 API 图导入、版本管理、创作参数和依赖诊断。管理员可直接粘贴提示词试跑；自由创作可用已保存固定版本，正式镜头保留团队发布机制。[工作流中心](docs/WORKFLOW-CENTER.md)
 
@@ -20,7 +20,8 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 - [当前完成情况与后续计划](docs/IMPLEMENTATION-STATUS.md)：唯一实时排期与测试证据。
 - [文档导航](docs/README.md)：按产品、模块、运行、历史查阅，避免重读旧路线。
-- [产品 V2](docs/PRODUCT-V2.md)：当前方向；[MASTER-PLAN](docs/MASTER-PLAN.md)保留长期及历史需求。
+- [最终产品与执行合同](docs/PRODUCT-EXECUTION-CONTRACT.md)：当前最高产品基线；[MASTER-PLAN](docs/MASTER-PLAN.md)保留长期及历史需求。
+- [正式界面评审包](docs/review/studio-ui-v2/README.md)：真实接口截图、验收矩阵、能力范围与复现方式；最终视觉认可和 main 合并另需确认。
 - [工程目录与整理规则](docs/architecture/REPOSITORY-MAP.md)：代码、测试、文档与运行数据的实际位置。
 - [开发运行与恢复](docs/operations/DEVELOPMENT.md)：完整命令、Worker、检查节奏及备份。
 

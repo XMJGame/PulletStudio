@@ -62,6 +62,8 @@ G2-A2在generation/追加workflow-catalog.service/controller/state管理原不�
 
 `canvas/BoardCandidates` 管理候选主预览、历史选择及双结果对照；执行、任务读取与入库由 `BoardExecutionPanel` 沿用原接口。`canvas/BoardSourcePreview` 负责资源库中的固定版本预览与错误清理，不创建新的媒体记录。两个组件都属于正式 Board，不接入冻结的评审原型。
 
+`docs/review/studio-ui-v2/` 只存可公开评审的正式页面截图、矩阵和来源清单，`tools/ui-review.mjs` 按白名单重新收集。完整尺寸与主题截图及隔离运行文件仍留在忽略的 `test-results/`。CI 只上传 PNG/错误摘要，不上传 profile、DB 或运行媒体。
+
 ## 本轮实际整理
 
 1. 完成标准交付包并单独提交，业务与文档整理分开追溯。

@@ -1,0 +1,125 @@
+{
+  "scope": "Formal Web + API views; isolated test data, original synthetic artwork and Mock ComfyUI",
+  "captures": [
+    {
+      "label": "项目首页 · 浅色桌面",
+      "source": "test-results/review-project-light-1440.png",
+      "file": "project.png",
+      "width": 1440,
+      "height": 900,
+      "bytes": 196500
+    },
+    {
+      "label": "项目首页 · 深色手机",
+      "source": "test-results/review-project-dark-390.png",
+      "file": "project-mobile.png",
+      "width": 390,
+      "height": 844,
+      "bytes": 125933
+    },
+    {
+      "label": "正式创作与候选归档",
+      "source": "test-results/studio-acceptance-result.png",
+      "file": "canvas.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 205842
+    },
+    {
+      "label": "素材上传",
+      "source": "test-results/studio-acceptance-media-light.png",
+      "file": "media.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 176459
+    },
+    {
+      "label": "提示词管理",
+      "source": "test-results/review-prompts-light-1440.png",
+      "file": "prompts.png",
+      "width": 1440,
+      "height": 900,
+      "bytes": 101192
+    },
+    {
+      "label": "工作流中心",
+      "source": "test-results/review-workflows-light-1440.png",
+      "file": "workflows.png",
+      "width": 1440,
+      "height": 900,
+      "bytes": 121083
+    },
+    {
+      "label": "候选对照",
+      "source": "test-results/candidates-compare-desktop.png",
+      "file": "candidates.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 114559
+    },
+    {
+      "label": "只读资源预览",
+      "source": "test-results/source-preview-readonly-mobile.png",
+      "file": "resource-mobile.png",
+      "width": 390,
+      "height": 844,
+      "bytes": 37518
+    },
+    {
+      "label": "工作流中心 · 深色实际 150% 缩放",
+      "source": "test-results/review-workflows-dark-zoom-150.png",
+      "file": "workflow-zoom.png",
+      "width": 1440,
+      "height": 900,
+      "bytes": 101466
+    },
+    {
+      "label": "画布冲突与草稿",
+      "source": "test-results/review-board-conflict.png",
+      "file": "conflict.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 82594
+    },
+    {
+      "label": "提示词冲突与草稿",
+      "source": "test-results/review-prompt-conflict.png",
+      "file": "prompt-conflict.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 89046
+    },
+    {
+      "label": "无效工作流与输入保留",
+      "source": "test-results/review-workflow-invalid.png",
+      "file": "workflow-error.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 97203
+    },
+    {
+      "label": "生成中 · Mock 远端",
+      "source": "test-results/review-node-running.png",
+      "file": "running.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 108452
+    },
+    {
+      "label": "项目撤权",
+      "source": "test-results/review-board-denied.png",
+      "file": "denied.png",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 12754
+    },
+    {
+      "label": "上传失败与恢复",
+      "source": "test-results/direct-import-mobile.png",
+      "file": "upload-error.png",
+      "width": 390,
+      "height": 844,
+      "bytes": 55638
+    }
+  ]
+}

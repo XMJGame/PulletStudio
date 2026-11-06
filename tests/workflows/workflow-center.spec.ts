@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { startComfyMock, fixtureWorkflow, fixtureCreativeFields } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
+import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
 async function api(method: string, path: string, data?: unknown, actor = owner) {
   const session = await (await actor.get('/api/v1/auth/me')).json();
@@ -73,6 +74,112 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
   await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
   await openCenter(page);
 }
+test('formal project and library views work across themes, screen sizes and actual browser zoom', async ({
+  playwright,
+}, testInfo) => {
+  const value = await project('海岸来信');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: '隔离验收服务',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, {
+    ...fixtureCreativeFields(connection.id),
+    name: '画面构图研究',
+  });
+  await api('POST', `/projects/${value.id}/prompt-library`, {
+    title: '清晨海岸 · 缓慢推进',
+    positivePrompt: '晨光穿过薄雾，镜头缓慢沿海岸推进，保持柔和自然的光线与连贯运动。',
+    negativePrompt: '水印、文字、画面闪烁',
+    tags: ['海岸', '晨光'],
+    source: '独立测试创作笔记',
+    workflowId: workflow.id,
+  });
+  const { context, setZoom } = await zoomBrowser(playwright.chromium, testInfo.outputPath('library-zoom'));
+  try {
+    const page = await context.newPage();
+    await open(page, value);
+    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('光线与构图');
+    await page.getByRole('button', { name: '创建画布', exact: true }).click();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('光线与构图');
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.getByRole('button', { name: '深色画布', exact: true }).click();
+      for (const viewport of [
+        { width: 1920, height: 1080 },
+        { width: 1440, height: 900 },
+        { width: 1366, height: 768 },
+        { width: 390, height: 844 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await inspect(theme, String(viewport.width));
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      for (const factor of [1.25, 1.5]) {
+        expect(await setZoom(page.url(), factor)).toBe(factor);
+        expect(page.viewportSize()).toEqual({ width: 1440, height: 900 });
+        await expect.poll(() => page.evaluate(() => innerWidth)).toBe(Math.round(1440 / factor));
+        await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(factor);
+        await inspect(theme, `zoom-${Math.round(factor * 100)}`);
+      }
+      expect(await setZoom(page.url(), 1)).toBe(1);
+    }
+    async function inspect(theme: string, size: string) {
+      const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+      const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+      await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+      const search = page.getByRole('searchbox', { name: '搜索项目' });
+      await search.fill('海岸来信');
+      const projectCard = page.getByRole('button', { name: '打开项目 海岸来信', exact: true });
+      await expect(projectCard).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await search.clear();
+      await page.locator('.v2-project-main').evaluate((element) => {
+        element.scrollIntoView({ block: 'start' });
+      });
+      await page.screenshot({ path: `test-results/review-project-${theme}-${size}.png` });
+      await projectCard.click();
+      await page.getByRole('button', { name: '提示词库', exact: true }).click();
+      await expect(library).toHaveAttribute('data-theme', theme);
+      await library.getByLabel('搜索提示词', { exact: true }).fill('清晨海岸');
+      await library.getByRole('button', { name: /清晨海岸 · 缓慢推进 · v1/ }).click();
+      await expect(library.getByLabel('库正向提示词')).toHaveValue(
+        '晨光穿过薄雾，镜头缓慢沿海岸推进，保持柔和自然的光线与连贯运动。',
+      );
+      await library.getByLabel('库正向提示词').fill('只在本地检查布局的提示词草稿');
+      await library.getByRole('button', { name: '保存为新版本', exact: true }).scrollIntoViewIfNeeded();
+      await expect(library.getByRole('button', { name: '保存为新版本', exact: true })).toBeInViewport();
+      await library
+        .getByLabel('库正向提示词')
+        .fill('晨光穿过薄雾，镜头缓慢沿海岸推进，保持柔和自然的光线与连贯运动。');
+      expect(await library.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: `test-results/review-prompts-${theme}-${size}.png` });
+      await library.getByRole('button', { name: '关闭对话框', exact: true }).click();
+      await expect(page.getByRole('button', { name: '提示词库', exact: true })).toBeFocused();
+      await openCenter(page);
+      await expect(center).toHaveAttribute('data-theme', theme);
+      await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+      await expect(center.getByLabel('工作流名称', { exact: true })).toHaveValue('画面构图研究');
+      await center.getByRole('button', { name: '预览节点图', exact: true }).click();
+      await center.getByLabel('选择工作流节点', { exact: true }).selectOption('1');
+      await center.getByLabel('节点常量输入', { exact: true }).selectOption('text');
+      await expect(center.getByRole('button', { name: '设为正向文本', exact: true })).toBeEnabled();
+      await center.getByRole('button', { name: '设为正向文本', exact: true }).scrollIntoViewIfNeeded();
+      await expect(center.getByRole('button', { name: '设为正向文本', exact: true })).toBeInViewport();
+      await center.getByRole('button', { name: '验证绑定并保存', exact: true }).scrollIntoViewIfNeeded();
+      await expect(center.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeInViewport();
+      expect(await center.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await center.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `test-results/review-workflows-${theme}-${size}.png` });
+      await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    }
+    expect(remote.mock.submissions).toHaveLength(0);
+    expect((await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`)).catalog.revision).toBe(1);
+  } finally {
+    await context.close();
+  }
+});
+
 test('empty project and canvas generate pasted prompts, save candidates and reopen without a shot', async ({
   page,
 }) => {
@@ -189,6 +296,7 @@ test('prompt library revises with conflict recovery, clipboard and revoked read 
   await library.getByRole('button', { name: '保存为新版本', exact: true }).click();
   await expect(library.getByRole('alert')).toContainText('新版本');
   await expect(library.getByLabel('库正向提示词')).toHaveValue('My local draft survives');
+  await page.screenshot({ path: 'test-results/review-prompt-conflict.png' });
   page.once('dialog', (dialog) => dialog.accept());
   await library.getByRole('button', { name: '载入最新提示词版本' }).click();
   await expect(library.getByLabel('库正向提示词')).toHaveValue('Remote newer text');
@@ -364,6 +472,7 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(content);
   await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Mapped studio workflow');
+  await page.screenshot({ path: 'test-results/review-workflow-invalid.png' });
   await dialog.getByLabel('选择工作流节点', { exact: true }).selectOption('3');
   await dialog.getByRole('button', { name: '设为输出节点' }).click();
   await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
@@ -525,6 +634,7 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('草稿');
   await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('LOCAL REVISION DRAFT');
+  await page.screenshot({ path: 'test-results/review-workflow-conflict.png' });
   await dialog.getByRole('button', { name: '载入最新配置' }).click();
   await expect(page.getByRole('dialog', { name: '切换工作流配置' })).toBeVisible();
   await page.getByRole('button', { name: '保留草稿', exact: true }).click();

@@ -1,10 +1,31 @@
-import { test, expect, request, APIRequestContext, Page } from '@playwright/test';
+import { test, expect, request, APIRequestContext, Page, type Locator } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { startComfyMock, fixtureI2V, fixtureWorkflow } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
+async function expectReadable(element: Locator) {
+  const ratio = await element.evaluate((element) => {
+    function luminance(color: string) {
+      const values = color
+        .match(/[\d.]+/g)!
+        .slice(0, 3)
+        .map(Number)
+        .map((n) => {
+          const value = n / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        });
+      return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+    }
+    const style = getComputedStyle(element);
+    const foreground = luminance(style.color),
+      background = luminance(style.backgroundColor);
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
+  expect(ratio, 'normal text contrast including hover and warning surfaces').toBeGreaterThanOrEqual(4.5);
+}
 async function call(method: string, path: string, data?: unknown, actor = owner) {
   const me = await actor.get('/api/v1/auth/me');
   const session = await me.json();
@@ -136,6 +157,8 @@ test('project main view keeps drafts and isolates modal focus and clipboard inpu
   await expect(workspace).toBeVisible();
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '保存画布', exact: true }).hover();
+  await expectReadable(page.getByRole('button', { name: '保存画布', exact: true }));
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   const leave = page.getByRole('dialog', { name: '保留当前创作', exact: true });
   await expect(leave).toBeVisible();
@@ -790,8 +813,24 @@ test('direct imports reuse upload intents after failed and lost responses', asyn
 
 test('a new project imports media and a workflow, generates and shares its result through the UI', async ({
   page,
+  browser,
 }) => {
-  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  // Original repo artwork is only test input, imported through the production media API.
+  // The output clip is synthetic and supplied by Mock ComfyUI, not a model-quality claim.
+  const artwork = await browser.newPage({ viewport: { width: 960, height: 540 } });
+  let reference: Buffer;
+  try {
+    await artwork.setContent(
+      '<style>html,body{margin:0}</style>' +
+        (await readFile(resolve('apps/web/src/design-review/art/tide.svg'), 'utf8')),
+    );
+    reference = await artwork.screenshot();
+  } finally {
+    await artwork.close();
+  }
+  const remote = await startComfyMock({
+    'clip.mp4': await readFile(resolve('apps/web/src/design-review/art/shore-preview.mp4')),
+  });
   const errors: string[] = [];
   const requests: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -819,7 +858,7 @@ test('a new project imports media and a workflow, generates and shares its resul
     await media.getByLabel('媒体文件', { exact: true }).setInputFiles({
       name: 'shore.png',
       mimeType: 'image/png',
-      buffer: fixtures['image.png'].bytes,
+      buffer: reference,
     });
     await media.getByRole('button', { name: '上传并归档', exact: true }).click();
     await expect(media.getByRole('status').filter({ hasText: '媒体已完成归档' })).toBeVisible();
@@ -867,6 +906,12 @@ test('a new project imports media and a workflow, generates and shares its resul
     await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
     await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
     await save(page);
+    await expect(page.getByRole('button', { name: '添加 shore.png', exact: true })).toBeVisible();
+    await video.evaluate((element: HTMLVideoElement) => element.play());
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+      .toBeGreaterThan(0.05);
+    await video.evaluate((element: HTMLVideoElement) => element.pause());
     await page.screenshot({ path: 'test-results/studio-acceptance-result.png' });
     await panel.getByRole('button', { name: '查看任务与候选', exact: true }).click();
     const tasks = page.getByRole('dialog', { name: '自由生成', exact: true });
@@ -900,7 +945,10 @@ test('a new project imports media and a workflow, generates and shares its resul
     await page.screenshot({ path: 'test-results/studio-acceptance-media-dark-mobile.png' });
     await media.getByRole('button', { name: '关闭', exact: true }).click();
     expect(remote.mock.submissions).toHaveLength(1);
-    expect(remote.mock.uploads[0].bytes).toEqual(fixtures['image.png'].bytes);
+    expect(
+      remote.mock.uploads[0].bytes.equals(reference),
+      'ComfyUI receives the exact imported artwork',
+    ).toBe(true);
     expect(requests.some((path) => /\/(episodes|shots)$/.test(path))).toBeFalsy();
     expect(errors).toEqual([]);
   } finally {
@@ -1085,6 +1133,12 @@ test('two windows preserve a conflicting draft, compare, explicitly rebase, and 
   await conflict;
   await expect(second.getByLabel('画布文字内容')).toHaveValue('LOCAL DRAFT MUST SURVIVE');
   await expect(second.locator('.creative-conflict')).toBeVisible();
+  await expectReadable(second.locator('.creative-conflict'));
+  await second.screenshot({ path: 'test-results/review-board-conflict.png' });
+  await second.getByRole('button', { name: '深色画布', exact: true }).click();
+  await expectReadable(second.locator('.creative-conflict'));
+  await second.screenshot({ path: 'test-results/review-board-conflict-dark.png' });
+  await second.getByRole('button', { name: '浅色画布', exact: true }).click();
   await second.getByRole('button', { name: '比较最新修订' }).click();
   await expect(second.getByRole('dialog', { name: '查看画布修订 v2' })).toContainText('Server artist note');
   await second.getByRole('button', { name: '回到保留的草稿' }).click();
@@ -1167,12 +1221,14 @@ test('readonly board, protected voice metadata, and revoked project access', asy
     await expect(page.getByRole('main', { name: '创作画布', exact: true })).not.toContainText(
       'PRIVATE VOICE IDENTITY',
     );
+    await page.screenshot({ path: 'test-results/review-board-readonly.png' });
     await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
     await page.getByText('更多操作', { exact: true }).click();
     await page.getByRole('button', { name: '刷新引用', exact: true }).click();
     await expect(page.getByRole('main', { name: '创作画布', exact: true })).toContainText(
       '画布或项目已不可访问',
     );
+    await page.screenshot({ path: 'test-results/review-board-denied.png' });
     expect(await page.locator('.creative-surface').count()).toBe(0);
     const denied = await reader.get(`/api/v1/boards/${board.id}`);
     expect(denied.status()).toBe(404);
@@ -1341,6 +1397,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     expect(job.image.id).toBe(image.id);
     expect(job.prompt.positivePrompt).toBe(text.data.text);
     expect(job.boardExecution.bindings).toHaveLength(2);
+    await page.screenshot({ path: 'test-results/review-node-running.png' });
     remote.mock.mode = 'normal';
     await expect
       .poll(async () => (await call('GET', `/generation-jobs/${job.id}`)).state, { timeout: 15000 })

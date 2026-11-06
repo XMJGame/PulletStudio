@@ -13,6 +13,9 @@
   --action-ink: #ffffff;
   --danger: #9e3428;
   --danger-soft: #faeee9;
+  --warning: #80551b;
+  --warning-soft: #fff3dc;
+  --warning-line: #dfc79b;
   --shadow: 0 3px 10px #10291b0a, 0 12px 35px #10291b0c;
   --lift: 0 5px 14px #10291b10, 0 24px 56px #10291b1a;
   --s1: 4px;
@@ -55,6 +58,9 @@
   --action-ink: #182b21;
   --danger: #ffb2a6;
   --danger-soft: #493029;
+  --warning: #f2c784;
+  --warning-soft: #3c301f;
+  --warning-line: #745c34;
   --shadow: 0 3px 10px #0003, 0 12px 35px #0002;
   --lift: 0 5px 14px #0003, 0 24px 56px #0005;
   color-scheme: dark;

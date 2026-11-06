@@ -50,8 +50,9 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  background: #3d3220;
-  border-bottom: 1px solid #8b6a36;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning-line);
 }
 .creative-conflict strong {
   margin-right: auto;
@@ -539,7 +540,8 @@
   color: var(--board-ink);
   border-color: var(--board-line);
 }
-.creative-board-dialog :is(button:hover:not(:disabled), button[aria-pressed='true']) {
+.creative-board-dialog
+  :is(button:hover:not(:disabled, .v2-button), button[aria-pressed='true']:not(.v2-button)) {
   border-color: var(--board-accent);
   color: var(--board-accent);
 }
