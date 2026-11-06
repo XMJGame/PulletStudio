@@ -10,6 +10,7 @@ import { GenerationJob, generationStates } from '../components/GenerationDialog'
 import { parameterLabels } from '../components/GenerationParameters';
 import { CreativeParameters } from '../workflows/CreativeParameters';
 import { GenerationConfig, capabilityLabels } from '../workflows/workflow-types';
+import type { PromptDraft } from '../prompts/prompt-library-types';
 
 export function BoardExecutionPanel({
   board,
@@ -19,6 +20,10 @@ export function BoardExecutionPanel({
   resolved,
   editable,
   dirty,
+  save,
+  onPromptChange,
+  onPromptLibrary,
+  onSavedToLibrary,
   update,
   bind,
   onResult,
@@ -31,6 +36,10 @@ export function BoardExecutionPanel({
   resolved: Record<string, BoardResolved>;
   editable: boolean;
   dirty: boolean;
+  save?: () => Promise<number | undefined>;
+  onPromptChange: (draft: PromptDraft) => void;
+  onPromptLibrary: (draft?: PromptDraft) => void;
+  onSavedToLibrary: () => void;
   update: (node: BoardNode) => void;
   bind: (port: 'prompt' | 'first_frame', source: string) => void;
   onResult: (job: GenerationJob) => void;
@@ -132,7 +141,8 @@ export function BoardExecutionPanel({
     layout.edges.find((e) => e.kind === 'input_binding' && e.target === node.id && e.targetPort === port)
       ?.source ?? '';
   const firstFrame = source('first_frame');
-  const text = layout.nodes.find((item) => item.id === source('prompt'))?.data.text?.trim();
+  const prompt = layout.nodes.find((item) => item.id === source('prompt'))?.data;
+  const text = prompt?.text?.trim();
   const needsFrame = workflow?.capability === 'video.image_to_video';
   const ready =
     !!text &&
@@ -176,117 +186,178 @@ export function BoardExecutionPanel({
               ))}
           </select>
         </label>
-        <label>
-          提示词输入
-          <select
-            aria-label="节点提示词输入"
-            value={source('prompt')}
-            onChange={(e) => bind('prompt', e.target.value)}
-          >
-            <option value="">连接文本便签</option>
-            {layout.nodes
-              .filter((n) => n.type === 'note')
-              .map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.data.text?.slice(0, 50) || '空便签'}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          首帧输入
-          <select
-            aria-label="节点首帧输入"
-            value={source('first_frame')}
-            onChange={(e) => bind('first_frame', e.target.value)}
-          >
-            <option value="">不连接首帧</option>
-            {firstFrame && resolved[firstFrame]?.media?.mediaType !== 'image' && (
-              <option value={firstFrame}>当前首帧不可用</option>
-            )}
-            {layout.nodes
-              .filter(
-                (n) =>
-                  (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
-                  resolved[n.id]?.media?.mediaType === 'image',
-              )
-              .map((n) => (
-                <option key={n.id} value={n.id}>
-                  {resolved[n.id]?.title}
-                </option>
-              ))}
-          </select>
-        </label>
-        <p className="field-hint">
-          选择输入与连接具名端口效果相同。图生视频需要一张首帧，文字生成请解除首帧连接。
-        </p>
-        {workflow?.parameters.map((p) => (
-          <label key={p.key}>
-            {parameterLabels[p.key]}
-            {p.key === 'aspectRatio' ? (
-              <select
-                aria-label={`节点${parameterLabels[p.key]}`}
-                value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
-                onChange={(e) =>
-                  update({
-                    ...node,
-                    data: {
-                      generation: {
-                        ...settings,
-                        parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
-                      },
-                    },
-                  })
-                }
+        <div className="creative-composer-input">
+          {resolved[firstFrame]?.media?.mediaType === 'image' && (
+            <div className="creative-frame-chip">
+              <img src={resolved[firstFrame].media.contentUrl} alt="" loading="lazy" />
+              <div>
+                <small>首帧</small>
+                <strong>{resolved[firstFrame].title}</strong>
+              </div>
+              <button
+                className="creative-icon-button"
+                aria-label="移除首帧"
+                onClick={() => bind('first_frame', '')}
               >
-                {p.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+                ×
+              </button>
+            </div>
+          )}
+          <label>
+            提示词
+            <textarea
+              aria-label="生成提示词"
+              rows={3}
+              maxLength={16000}
+              value={prompt?.text ?? ''}
+              placeholder="描述画面、动作或镜头如何变化…"
+              onChange={(event) =>
+                onPromptChange({
+                  positivePrompt: event.target.value,
+                  negativePrompt: prompt?.prompt?.negativePrompt,
+                  source: prompt?.prompt?.source,
+                })
+              }
+            />
+          </label>
+          <div className="creative-inline-actions">
+            <button onClick={() => onPromptLibrary()}>应用提示词库</button>
+            {text && (
+              <button
+                onClick={() => onPromptLibrary({ positivePrompt: prompt?.text ?? '', ...prompt?.prompt })}
+              >
+                存入提示词库
+              </button>
+            )}
+          </div>
+        </div>
+        <details className="creative-advanced">
+          <summary>输入绑定与参数</summary>
+          <label>
+            负向提示词
+            <textarea
+              rows={2}
+              maxLength={16000}
+              value={prompt?.prompt?.negativePrompt ?? ''}
+              onChange={(event) =>
+                onPromptChange({
+                  positivePrompt: prompt?.text ?? '',
+                  negativePrompt: event.target.value,
+                  source: prompt?.prompt?.source,
+                })
+              }
+            />
+          </label>
+          <label>
+            提示词输入
+            <select
+              aria-label="节点提示词输入"
+              value={source('prompt')}
+              onChange={(e) => bind('prompt', e.target.value)}
+            >
+              <option value="">连接文本便签</option>
+              {layout.nodes
+                .filter((n) => n.type === 'note')
+                .map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.data.text?.slice(0, 50) || '空便签'}
                   </option>
                 ))}
-              </select>
-            ) : (
-              <input
-                aria-label={`节点${parameterLabels[p.key]}`}
-                type="number"
-                min={p.min}
-                max={p.max}
-                step={p.step}
-                value={settings.parameterValues?.[p.key] ?? p.defaultValue}
-                onChange={(e) =>
-                  update({
-                    ...node,
-                    data: {
-                      generation: {
-                        ...settings,
-                        parameterValues: { ...settings.parameterValues, [p.key]: Number(e.target.value) },
-                      },
-                    },
-                  })
-                }
-              />
-            )}
+            </select>
           </label>
-        ))}
-        <CreativeParameters
-          fields={workflow?.fields ?? []}
-          overrides={fieldOverrides}
-          change={(id, value) => {
-            const field = workflow?.fields?.find((f) => f.id === id);
-            update({
-              ...node,
-              data: {
-                generation: {
-                  ...settings,
-                  fieldValues: {
-                    ...settings.fieldValues,
-                    [id]: field?.type === 'number' ? Number(value) : value,
+          <label>
+            首帧输入
+            <select
+              aria-label="节点首帧输入"
+              value={source('first_frame')}
+              onChange={(e) => bind('first_frame', e.target.value)}
+            >
+              <option value="">不连接首帧</option>
+              {firstFrame && resolved[firstFrame]?.media?.mediaType !== 'image' && (
+                <option value={firstFrame}>当前首帧不可用</option>
+              )}
+              {layout.nodes
+                .filter(
+                  (n) =>
+                    (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
+                    resolved[n.id]?.media?.mediaType === 'image',
+                )
+                .map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {resolved[n.id]?.title}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <p className="field-hint">图生视频需要一张首帧。文字生成请解除首帧连接。</p>
+          {workflow?.parameters.map((p) => (
+            <label key={p.key}>
+              {parameterLabels[p.key]}
+              {p.key === 'aspectRatio' ? (
+                <select
+                  aria-label={`节点${parameterLabels[p.key]}`}
+                  value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
+                  onChange={(e) =>
+                    update({
+                      ...node,
+                      data: {
+                        generation: {
+                          ...settings,
+                          parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
+                        },
+                      },
+                    })
+                  }
+                >
+                  {p.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  aria-label={`节点${parameterLabels[p.key]}`}
+                  type="number"
+                  min={p.min}
+                  max={p.max}
+                  step={p.step}
+                  value={settings.parameterValues?.[p.key] ?? p.defaultValue}
+                  onChange={(e) =>
+                    update({
+                      ...node,
+                      data: {
+                        generation: {
+                          ...settings,
+                          parameterValues: { ...settings.parameterValues, [p.key]: Number(e.target.value) },
+                        },
+                      },
+                    })
+                  }
+                />
+              )}
+            </label>
+          ))}
+          <CreativeParameters
+            fields={workflow?.fields ?? []}
+            overrides={fieldOverrides}
+            change={(id, value) => {
+              const field = workflow?.fields?.find((f) => f.id === id);
+              update({
+                ...node,
+                data: {
+                  generation: {
+                    ...settings,
+                    fieldValues: {
+                      ...settings.fieldValues,
+                      [id]: field?.type === 'number' ? Number(value) : value,
+                    },
                   },
                 },
-              },
-            });
-          }}
-        />
+              });
+            }}
+          />
+        </details>
       </fieldset>
       {config?.poolConfigured && editable && (
         <fieldset className="plain-fieldset" disabled={busy}>
@@ -316,72 +387,77 @@ export function BoardExecutionPanel({
           )}
         </fieldset>
       )}
-      {dirty && <p className="field-hint">请先保存画布，再执行已保存的输入。</p>}
-      {editable && (
-        <button
-          className="primary"
-          disabled={
-            busy ||
-            dirty ||
-            !config?.canEdit ||
-            !ready ||
-            (config.poolConfigured && mode === 'manual' && !instance)
-          }
-          onClick={() => {
-            const body = {
-                expectedRevision: board.revision,
-                confirmed: true,
-                ...(config?.poolConfigured
-                  ? { routing: mode === 'auto' ? { mode } : { mode, connectionId: instance } }
-                  : {}),
-              },
-              serialized = JSON.stringify(body);
-            if (attempt.current.body !== serialized) {
-              let pendingKey = '';
-              try {
-                const stored = JSON.parse(sessionStorage.getItem(attemptKey) ?? 'null');
-                if (stored?.body === serialized && typeof stored.key === 'string') pendingKey = stored.key;
-              } catch {
-                // The current tab can still retry using the in-memory key.
-              }
-              attempt.current = { body: serialized, key: pendingKey || crypto.randomUUID() };
-              try {
-                sessionStorage.setItem(attemptKey, JSON.stringify(attempt.current));
-              } catch {
-                // Browser storage is optional.
-              }
+      <div className="creative-composer-actions">
+        {editable && (
+          <button
+            className="primary"
+            disabled={
+              busy ||
+              (dirty && !save) ||
+              !config?.canEdit ||
+              !ready ||
+              (config.poolConfigured && mode === 'manual' && !instance)
             }
-            setBusy(true);
-            setError('');
-            void api<GenerationJob>(path, 'POST', body, { 'Idempotency-Key': attempt.current.key })
-              .then(async () => {
-                await load();
-                attempt.current = { body: '', key: '' };
+            onClick={async () => {
+              setBusy(true);
+              setError('');
+              const revision = dirty ? await save?.() : board.revision;
+              if (revision === undefined) {
+                setBusy(false);
+                return;
+              }
+              const body = {
+                  expectedRevision: revision,
+                  confirmed: true,
+                  ...(config?.poolConfigured
+                    ? { routing: mode === 'auto' ? { mode } : { mode, connectionId: instance } }
+                    : {}),
+                },
+                serialized = JSON.stringify(body);
+              if (attempt.current.body !== serialized) {
+                let pendingKey = '';
                 try {
-                  sessionStorage.removeItem(attemptKey);
+                  const stored = JSON.parse(sessionStorage.getItem(attemptKey) ?? 'null');
+                  if (stored?.body === serialized && typeof stored.key === 'string') pendingKey = stored.key;
                 } catch {
-                  // The task already exists in the server history.
+                  // The current tab can still retry using the in-memory key.
                 }
-              })
-              .catch(report)
-              .finally(() => setBusy(false));
+                attempt.current = { body: serialized, key: pendingKey || crypto.randomUUID() };
+                try {
+                  sessionStorage.setItem(attemptKey, JSON.stringify(attempt.current));
+                } catch {
+                  // Browser storage is optional.
+                }
+              }
+              void api<GenerationJob>(path, 'POST', body, { 'Idempotency-Key': attempt.current.key })
+                .then(async () => {
+                  await load();
+                  attempt.current = { body: '', key: '' };
+                  try {
+                    sessionStorage.removeItem(attemptKey);
+                  } catch {
+                    // The task already exists in the server history.
+                  }
+                })
+                .catch(report)
+                .finally(() => setBusy(false));
+            }}
+          >
+            {dirty ? '保存并生成' : '执行生成节点'}
+          </button>
+        )}
+        <button
+          disabled={busy}
+          onClick={() => {
+            setError('');
+            void load().catch(report);
           }}
         >
-          执行生成节点
+          刷新节点任务
         </button>
-      )}
-      <button
-        disabled={busy}
-        onClick={() => {
-          setError('');
-          void load().catch(report);
-        }}
-      >
-        刷新节点任务
-      </button>
-      <p className="field-hint">只执行此节点，不自动运行其他节点。每次生成保留固定画布修订与输入。</p>
+      </div>
       {(jobs?.items ?? []).map((job) => (
-        <article className="entity-reference" key={job.id}>
+        <article className="creative-job" key={job.id}>
           <strong>{generationStates[job.state] ?? job.state}</strong>
           <small>
             画布 v{job.boardExecution?.revision} · {new Date(job.createdAt).toLocaleString()}
@@ -405,6 +481,33 @@ export function BoardExecutionPanel({
               加入画布结果
             </button>
           )}
+          {editable && job.state === 'completed' && !job.inLibrary && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                setError('');
+                void api(`/generation-jobs/${job.id}/save-to-library`, 'POST', {})
+                  .then(async () => {
+                    setJobs(
+                      (value) =>
+                        value && {
+                          ...value,
+                          items: value.items.map((item) =>
+                            item.id === job.id ? { ...item, inLibrary: true } : item,
+                          ),
+                        },
+                    );
+                    onSavedToLibrary();
+                  })
+                  .catch(report)
+                  .finally(() => setBusy(false));
+              }}
+            >
+              存入素材库
+            </button>
+          )}
+          {job.inLibrary && <small>已存入素材库</small>}
           <button onClick={onOpenTasks}>查看任务与候选</button>
         </article>
       ))}

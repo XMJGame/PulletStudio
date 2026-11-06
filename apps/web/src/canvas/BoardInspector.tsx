@@ -97,6 +97,8 @@ export function BoardInspector({
   onDetail,
   closeDetail,
   executionPanel,
+  onDismiss,
+  onUseImage,
 }: {
   node?: BoardNode;
   value?: BoardResolved;
@@ -108,12 +110,27 @@ export function BoardInspector({
   onDetail: () => void;
   closeDetail: () => void;
   executionPanel?: ReactNode;
+  onDismiss: () => void;
+  onUseImage?: () => void;
 }) {
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => setMediaError(false), [node?.id, value?.media?.contentUrl]);
   return (
     <aside className="creative-inspector" aria-label="画布检查器">
-      <h3>{node ? (kindLabels[value?.kind ?? node.type] ?? '业务引用') : '创作检查器'}</h3>
+      <div className="creative-pane-heading">
+        <div>
+          <span className="creative-kicker">{node?.type === 'generation' ? 'CREATION' : 'CANVAS ITEM'}</span>
+          <h3>{node ? (kindLabels[value?.kind ?? node.type] ?? '业务引用') : '创作检查器'}</h3>
+        </div>
+        <button className="creative-icon-button" aria-label="关闭节点面板" onClick={onDismiss}>
+          ×
+        </button>
+      </div>
+      {onUseImage && (
+        <button className="primary" onClick={onUseImage}>
+          以此图生成
+        </button>
+      )}
       {!node && (
         <p className="field-hint">
           从左侧选择正式项目资源，或添加便签。连线只记录创作关系，不修改镜头和资产。
@@ -276,28 +293,36 @@ export function BoardInspector({
             </details>
           )}
           {node.type !== 'group' && (
-            <label>
-              所属分组
-              <select
-                aria-label="所属分组"
-                disabled={!editable}
-                value={node.parentId ?? ''}
-                onChange={(e) =>
-                  update({ ...node, parentId: e.target.value || undefined, position: { x: 30, y: 70 } })
-                }
-              >
-                <option value="">画布根层</option>
-                {nodes
-                  .filter((n) => n.type === 'group')
-                  .map((n) => (
-                    <option key={n.id} value={n.id}>
-                      {n.data.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <details className="creative-advanced">
+              <summary>布局设置</summary>
+              <label>
+                所属分组
+                <select
+                  aria-label="所属分组"
+                  disabled={!editable}
+                  value={node.parentId ?? ''}
+                  onChange={(e) =>
+                    update({ ...node, parentId: e.target.value || undefined, position: { x: 30, y: 70 } })
+                  }
+                >
+                  <option value="">画布根层</option>
+                  {nodes
+                    .filter((n) => n.type === 'group')
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.data.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {editable && (
+                <button className="creative-remove" onClick={remove}>
+                  移除画布节点
+                </button>
+              )}
+            </details>
           )}
-          {editable && (
+          {editable && node.type === 'group' && (
             <button className="creative-remove" onClick={remove}>
               移除画布节点
             </button>

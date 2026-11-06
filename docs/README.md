@@ -29,7 +29,7 @@
 | Take历史与来源 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md) | 旧前端已删除；媒体/任务/导出引用依赖继续受保护 |
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 历史轻量预演 | [ANIMATICS](ANIMATICS.md) | 前端已删除；API/旧归档数据及媒体处理依赖保留 |
-| 创作画布 | [多画布、具名输入与执行](CREATIVE-CANVAS.md) | [L2-C 合同](modules/BOARD-EXECUTION-L2C.md)、[L2-A 合同](modules/CREATION-CLEANUP-L2A.md) |
+| 创作画布 | [资源拖放、浮动生成与结果复用](CREATIVE-CANVAS.md) | [体验改版合同](modules/BOARD-CREATION-UX.md)、[L2-C 合同](modules/BOARD-EXECUTION-L2C.md) |
 
 ## 技术规格与参考
 

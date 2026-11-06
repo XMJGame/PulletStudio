@@ -16,6 +16,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CanvasNode, kindLabels, statusLabels } from './board-types';
+import { boardResourceDrag } from './BoardSources';
 const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
   const { domain, value } = data;
   const [broken, setBroken] = useState(false);
@@ -29,7 +30,9 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
       </div>
     );
   return (
-    <article className={`creative-node ${value?.status === 'unavailable' ? 'unavailable' : ''}`}>
+    <article
+      className={`creative-node ${poster && !broken ? 'creative-node-media' : ''} ${value?.status === 'unavailable' ? 'unavailable' : ''}`}
+    >
       <Handle
         type="target"
         position={Position.Left}
@@ -68,7 +71,7 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
           </footer>
         </>
       ) : domain.type === 'generation' ? (
-        <p className="creative-note-text">选择工作流，连接文字与首帧后保存并执行。</p>
+        <p className="creative-note-text">选中后配置工作流和输入。</p>
       ) : (
         <p className="creative-note-text">{domain.data.text || '选择后在检查器填写创作内容'}</p>
       )}
@@ -135,49 +138,77 @@ export function BoardSurface({
   onConnect,
   onViewportChange,
   pan,
+  theme,
+  onDropResource,
+  overlay,
 }: {
   nodes: CanvasNode[];
   edges: Edge[];
   viewport: Viewport;
   editable: boolean;
   pan: boolean;
+  theme: 'light' | 'dark';
+  onDropResource: (position: { x: number; y: number }) => void;
+  overlay?: React.ReactNode;
   onNodesChange: OnNodesChange<CanvasNode>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
   onViewportChange: (value: Viewport) => void;
 }) {
   return (
-    <div className="creative-surface" aria-label="正式画布工作区">
-      <ReactFlow<CanvasNode>
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        viewport={viewport}
-        onViewportChange={onViewportChange}
-        nodesDraggable={editable}
-        nodesConnectable={editable}
-        elementsSelectable
-        nodesFocusable
-        edgesFocusable
-        deleteKeyCode={editable ? ['Delete', 'Backspace'] : null}
-        selectionOnDrag={!pan}
-        selectionMode={SelectionMode.Partial}
-        panOnDrag={pan ? true : [1, 2]}
-        panActivationKeyCode="Space"
-        minZoom={0.15}
-        maxZoom={2}
-        multiSelectionKeyCode="Shift"
-        onlyRenderVisibleElements
-        colorMode="dark"
-        defaultEdgeOptions={{ style: { stroke: '#c2a369', strokeWidth: 2 } }}
+    <div className="creative-stage">
+      <div
+        className="creative-surface"
+        aria-label="正式画布工作区"
+        onDragOver={(event) => {
+          if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(event) => {
+          if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          onDropResource({
+            x: (event.clientX - rect.left - viewport.x) / viewport.zoom,
+            y: (event.clientY - rect.top - viewport.y) / viewport.zoom,
+          });
+        }}
       >
-        <Background gap={26} color="#38424b" />
-        <MiniMap nodeColor="#9f8c68" pannable zoomable />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+        <ReactFlow<CanvasNode>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          viewport={viewport}
+          onViewportChange={onViewportChange}
+          nodesDraggable={editable}
+          nodesConnectable={editable}
+          elementsSelectable
+          nodesFocusable
+          edgesFocusable
+          deleteKeyCode={editable ? ['Delete', 'Backspace'] : null}
+          selectionOnDrag={!pan}
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={pan ? true : [1, 2]}
+          panActivationKeyCode="Space"
+          minZoom={0.15}
+          maxZoom={2}
+          multiSelectionKeyCode="Shift"
+          onlyRenderVisibleElements
+          colorMode={theme}
+          defaultEdgeOptions={{
+            style: { stroke: theme === 'light' ? '#738094' : '#a7aebd', strokeWidth: 2 },
+          }}
+        >
+          <Background gap={22} size={1} color={theme === 'light' ? '#bcc7d8' : '#394454'} />
+          <MiniMap nodeColor={theme === 'light' ? '#91a3bf' : '#7187a7'} pannable zoomable />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
+      {overlay}
     </div>
   );
 }

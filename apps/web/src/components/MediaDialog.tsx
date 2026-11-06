@@ -14,7 +14,15 @@ type Versions = {
   items: MediaVersion[];
   nextCursor: number | null;
 };
-export function MediaDialog({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+export function MediaDialog({
+  projectId,
+  onClose,
+  onAddToCanvas,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onAddToCanvas?: (media: MediaVersion) => Promise<void>;
+}) {
   const [context, setContext] = useState<{
     projectId: string;
     canEdit: boolean;
@@ -351,6 +359,18 @@ export function MediaDialog({ projectId, onClose }: { projectId: string; onClose
                   <a href={selected.downloadUrl} download>
                     下载原件
                   </a>
+                  {onAddToCanvas && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        void onAddToCanvas(selected).catch((reason) =>
+                          setError(reason instanceof Error ? reason.message : '无法添加到画布'),
+                        );
+                      }}
+                    >
+                      添加到画布
+                    </button>
+                  )}
                 </div>
                 {versions && (
                   <div className="review-actions">

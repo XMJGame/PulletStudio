@@ -198,6 +198,7 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await text.press('ArrowLeft');
   await text.press('Delete');
   await expect(text).toHaveValue('Keep the blue hour ligh');
+  await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '添加分组', exact: true }).click();
   await page.getByLabel('分组名称', { exact: true }).fill('Reference collection');
   await page.getByLabel('折叠分组', { exact: false }).check();
@@ -216,8 +217,10 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   const next = await call('GET', `/shots/${shot.id}/card/editor`);
   next.body.description = 'Changed description in production';
   await call('PATCH', `/shots/${shot.id}/card`, { expectedVersion: shot.version, body: next.body });
+  await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '刷新引用', exact: true }).click();
   await expect(page.locator('.creative-surface')).toContainText('已有新版本，仍用旧引用');
+  await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '修订历史', exact: true }).click();
   await page.getByRole('button', { name: /^v1 · Harbor visual exploration/ }).click();
   await expect(page.getByRole('dialog', { name: '查看画布修订 v1' })).toContainText('0节点 / 0连线');
@@ -341,6 +344,7 @@ test('readonly board, protected voice metadata, and revoked project access', asy
       'PRIVATE VOICE IDENTITY',
     );
     await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+    await page.getByText('更多操作', { exact: true }).click();
     await page.getByRole('button', { name: '刷新引用', exact: true }).click();
     await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toContainText(
       '画布或项目已不可访问',
@@ -361,6 +365,7 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   const id = await createBoard(page, 'Relations and notes');
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('First note');
+  await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '创作说明', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Second brief');
   const nodes = page.locator('.react-flow__node');
@@ -392,10 +397,12 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   await page.keyboard.press('Delete');
   await expect(nodes).toHaveCount(0);
   await expect(page.locator('.react-flow__edge')).toHaveCount(0);
+  await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '添加分组', exact: true }).click();
   await page.getByLabel('分组名称').fill('Visual group');
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Grouped note');
+  await page.getByText('布局设置', { exact: true }).click();
   await page.getByLabel('所属分组').selectOption({ label: 'Visual group' });
   await page.locator('.creative-group-card').click();
   await page.getByLabel('折叠分组').check();
@@ -464,13 +471,15 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     const text = layout.nodes.find((n: any) => n.type === 'note'),
       imageNode = layout.nodes.find((n: any) => n.type === 'reference'),
       gen = layout.nodes.find((n: any) => n.type === 'generation');
+    await panel.getByText('输入绑定与参数', { exact: true }).click();
     await panel.getByLabel('节点提示词输入').selectOption(text.id);
     await panel.getByLabel('节点首帧输入').selectOption(imageNode.id);
-    await expect(panel.getByRole('button', { name: '执行生成节点', exact: true })).toBeDisabled();
+    await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeEnabled();
     await save(page);
     const chosen = (await call('GET', `/boards/${id}`)).layout.edges;
     expect(chosen.map((e: any) => e.kind)).toEqual(['input_binding', 'input_binding']);
     await panel.getByLabel('节点提示词输入').selectOption('');
+    await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="text"]`).hover();
     const from = (await page
@@ -484,7 +493,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 18 });
     await page.mouse.up();
     await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
-    await expect(panel.getByLabel('节点提示词输入')).toHaveValue(text.id);
+    await expect(panel.getByLabel('生成提示词')).toHaveValue(text.data.text);
     await save(page);
     let lost = false;
     await page.route(`**/boards/${id}/nodes/${gen.id}/generation-jobs`, async (route) => {
@@ -527,9 +536,11 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     expect(saved.layout.nodes.filter((n: any) => n.type === 'result')).toHaveLength(1);
     expect(saved.resolved[job.id].media.mediaType).toBe('video');
     expect(remote.mock.submissions).toHaveLength(1);
+    await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${job.id}"]`).click();
     await expect(page.locator('.creative-inspector video')).toBeVisible();
+    await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: 'test-results/board-execution-mobile.png' });
@@ -567,6 +578,98 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await context.close();
       await actor.dispose();
     }
+  } finally {
+    await remote.close();
+  }
+});
+
+test('light canvas can drag a resource, compose next to it, save and generate, then reuse the result', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const value = await project('Window light study');
+    const image = await uploadMedia(value.id, 'image.png');
+    const prompt = await call('POST', `/projects/${value.id}/prompt-library`, {
+      title: 'Slow camera movement',
+      positivePrompt: 'The camera slowly moves toward the station window',
+      negativePrompt: 'no lettering',
+      source: 'Visual studies',
+    });
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Canvas UX fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const id = await createBoard(page, 'Station light');
+    await expect(page.locator('.creative-theme-light')).toBeVisible();
+    await page.getByRole('button', { name: '收起资源库', exact: true }).click();
+    await expect(page.getByRole('complementary', { name: '正式项目资源' })).toHaveCount(0);
+    await page.getByRole('button', { name: '资源库', exact: true }).click();
+    await page.getByRole('button', { name: '媒体', exact: true }).click();
+    await page
+      .getByRole('button', { name: '添加 image.png', exact: true })
+      .dragTo(page.locator('.creative-surface'), { targetPosition: { x: 320, y: 105 } });
+    await expect(page.locator('.creative-surface img[alt="image.png"]')).toBeVisible();
+    await page.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await expect(panel.locator('.creative-frame-chip')).toContainText('image.png');
+    await panel.getByLabel('生成提示词').fill('A first draft written directly on the canvas');
+    await expect(panel.getByRole('button', { name: '保存并生成', exact: true })).toBeEnabled();
+    await panel.getByRole('button', { name: '应用提示词库', exact: true }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
+    await library.getByRole('button', { name: /Slow camera movement/ }).click();
+    await library.getByRole('button', { name: '应用此版本', exact: true }).click();
+    await expect(panel.getByLabel('生成提示词')).toHaveValue(prompt.revision.positivePrompt);
+    await page.screenshot({ path: 'test-results/canvas-creation-light.png' });
+    const head = await call('GET', `/boards/${id}`);
+    await call('POST', `/boards/${id}/revisions`, {
+      title: 'Concurrent change',
+      expectedRevision: head.revision,
+      layout: head.layout,
+    });
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect(page.getByText(/版本冲突：草稿已保留/)).toBeVisible();
+    await expect(panel.getByLabel('生成提示词')).toHaveValue(prompt.revision.positivePrompt);
+    expect((await call('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
+    await page.getByRole('button', { name: '保留草稿，更新基线', exact: true }).click();
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    const board = await call('GET', `/boards/${id}`);
+    const node = board.layout.nodes.find((item: any) => item.type === 'generation');
+    const source = board.layout.nodes.find((item: any) => item.type === 'reference');
+    expect(source.data.ref.id).toBe(image.id);
+    expect(source.position.x).toBeGreaterThan(250);
+    const {
+      items: [job],
+    } = await call('GET', `/boards/${id}/nodes/${node.id}/generation-jobs`);
+    expect(job.boardExecution.revision).toBe(board.revision);
+    expect(job.promptLibrary.revisionId).toBe(prompt.revision.id);
+    expect(job.image.id).toBe(image.id);
+    expect(job.prompt.negativePrompt).toBe('no lettering');
+    expect(remote.mock.submissions).toHaveLength(1);
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await save(page);
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await expect(page.locator('.creative-theme-dark')).toBeVisible();
+    await page.screenshot({ path: 'test-results/canvas-creation-dark.png' });
+    await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+    const second = await createBoard(page, 'Alternate edit');
+    await page.getByRole('button', { name: '媒体', exact: true }).click();
+    await page.getByRole('button', { name: /添加 .*\.mp4/ }).click();
+    await save(page);
+    const alternate = await call('GET', `/boards/${second}`);
+    expect(alternate.layout.nodes[0].data.ref.id).toBe(job.mediaVersionId);
   } finally {
     await remote.close();
   }

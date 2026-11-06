@@ -2,18 +2,25 @@ import { useEffect, useState } from 'react';
 import type { BoardSource } from '../../../../packages/contracts/src/board';
 import { api, CursorPage } from '../api';
 import { kindLabels, statusLabels } from './board-types';
+export const boardResourceDrag = 'application/x-pullet-board-resource';
 export function BoardSources({
   projectId,
   editable,
   refresh,
   add,
   report,
+  onDragSource,
+  onImport,
+  onClose,
 }: {
   projectId: string;
   editable: boolean;
   refresh: number;
   add: (value: BoardSource) => void;
   report: (error: unknown) => void;
+  onDragSource: (source?: BoardSource) => void;
+  onImport: () => void;
+  onClose: () => void;
 }) {
   const [kind, setKind] = useState('entities');
   const [query, setQuery] = useState('');
@@ -55,8 +62,16 @@ export function BoardSources({
   }, [path, refresh]);
   return (
     <aside className="creative-sources" aria-label="正式项目资源">
-      <h3>项目资源</h3>
-      <p className="field-hint">固定版本引用 · 添加后不会随业务更新替换</p>
+      <div className="creative-pane-heading">
+        <div>
+          <span className="creative-kicker">PROJECT LIBRARY</span>
+          <h3>项目资源库</h3>
+        </div>
+        <button className="creative-icon-button" aria-label="收起资源库" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <p className="field-hint">点击添加，或拖到画布上的任意位置。</p>
       <div className="creative-source-tabs">
         {[
           ['entities', '资产'],
@@ -74,6 +89,11 @@ export function BoardSources({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
+      {editable && (
+        <button className="creative-import" onClick={onImport}>
+          ＋ 导入项目素材
+        </button>
+      )}
       {error && (
         <p role="alert" className="notice error">
           {error}
@@ -90,12 +110,32 @@ export function BoardSources({
             disabled={!editable || !row.ready}
             aria-label={`添加 ${row.value.title}`}
             onClick={() => add(row)}
+            draggable={editable && row.ready}
+            onDragStart={(event) => {
+              event.dataTransfer.setData(boardResourceDrag, 'resource');
+              event.dataTransfer.effectAllowed = 'copy';
+              onDragSource(row);
+            }}
+            onDragEnd={() => onDragSource()}
           >
-            <span>
-              {kindLabels[row.value.kind ?? row.ref.kind] ?? '业务引用'} · {statusLabels[row.value.status]}
-            </span>
+            <div className="creative-source-thumbnail">
+              {row.value.media?.mediaType === 'image' || row.value.media?.posterUrl ? (
+                <img
+                  alt=""
+                  draggable={false}
+                  loading="lazy"
+                  src={row.value.media.posterUrl ?? row.value.media.contentUrl}
+                  onError={(event) => {
+                    event.currentTarget.hidden = true;
+                  }}
+                />
+              ) : null}
+              <span>{kindLabels[row.value.kind ?? row.ref.kind] ?? '引用'}</span>
+            </div>
             <strong>{row.value.title}</strong>
-            <small>{row.ready ? `固定 v${row.value.version ?? 1}` : '素材暂不可用'}</small>
+            <small title={statusLabels[row.value.status]}>
+              {row.ready ? `v${row.value.version ?? 1}` : '暂不可用'}
+            </small>
           </button>
         ))}
       </div>

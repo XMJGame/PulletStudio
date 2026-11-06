@@ -95,23 +95,49 @@
 }
 .creative-workspace {
   display: grid;
-  grid-template-columns: 225px minmax(0, 1fr) 275px;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+.creative-workspace-library {
+  grid-template-columns: minmax(0, 1fr) 254px;
+}
+.creative-stage {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  grid-area: 1 / 1;
+}
+.creative-context {
+  position: absolute;
+  z-index: 5;
+  bottom: 20px;
+  right: 20px;
+  width: min(310px, calc(100% - 40px));
+  max-height: min(65%, 580px);
+  display: flex;
+}
+.creative-context-composer {
+  width: min(484px, calc(100% - 78px));
+  max-height: 76%;
 }
 .creative-sources,
 .creative-inspector {
   min-width: 0;
   padding: 16px;
   overflow: auto;
-  background: #191e25;
+  background: var(--board-panel);
 }
 .creative-sources {
-  border-right: 1px solid #343c48;
+  grid-area: 1 / 2;
+  border-left: 1px solid var(--board-line);
 }
 .creative-inspector {
-  border-left: 1px solid #343c48;
+  width: 100%;
+  border: 1px solid var(--board-line);
+  border-radius: 16px;
+  box-shadow: var(--board-shadow);
 }
 .creative-sources h3,
 .creative-inspector h3 {
@@ -135,14 +161,15 @@
 }
 .creative-source-list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
 }
 .creative-source-list button {
   text-align: left;
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 4px;
+  padding: 5px 5px 8px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -151,18 +178,55 @@
   color: #a9b2c0;
   font-size: 11px;
 }
+.creative-source-list strong,
+.creative-source-list small {
+  display: block;
+  margin-inline: 5px;
+}
+.creative-source-list strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.creative-source-thumbnail {
+  position: relative;
+  aspect-ratio: 1.2;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--board-ground);
+}
+.creative-source-thumbnail img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.creative-source-thumbnail span {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #fff;
+  background: #172338db;
+}
 .creative-surface {
-  min-height: 0;
-  background: #11161b;
+  position: absolute;
+  inset: 0;
+  background: var(--board-ground);
 }
 .creative-surface .react-flow__node-boardNode {
   border-radius: 12px;
-  border: 1px solid #485260;
-  background: #1c232c;
+  border: 1px solid var(--board-line);
+  background: var(--board-panel);
+  box-shadow: var(--board-card-shadow);
 }
 .creative-surface .react-flow__node-boardNode.selected {
-  outline: 2px solid #dec28f;
-  outline-offset: 3px;
+  outline: 2px solid var(--board-accent);
+  outline-offset: 2px;
 }
 .creative-node {
   height: 100%;
@@ -192,8 +256,17 @@
   min-height: 0;
   flex: 1;
   object-fit: contain;
-  background: #101419;
-  border-radius: 5px;
+  background: var(--board-ground);
+  border-radius: 8px;
+}
+.creative-node-media {
+  padding: 10px;
+  gap: 6px;
+}
+.creative-node-media strong {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 .creative-node footer {
   margin-top: auto;
@@ -340,8 +413,8 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 1100px) {
-  .creative-workspace {
-    grid-template-columns: 180px minmax(0, 1fr) 225px;
+  .creative-workspace-library {
+    grid-template-columns: minmax(0, 1fr) 208px;
   }
   .creative-sources,
   .creative-inspector {
@@ -372,19 +445,24 @@
     padding: 7px 9px;
     font-size: 12px;
   }
-  .creative-workspace {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: minmax(300px, 1fr) 210px;
-    overflow: auto;
+  .creative-workspace-library {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .creative-surface {
-    grid-column: 1 / -1;
-    grid-row: 1;
+  .creative-sources {
+    z-index: 8;
+    grid-area: 1 / 1;
+    justify-self: end;
+    width: min(250px, 85vw);
+    box-shadow: var(--board-shadow);
   }
-  .creative-sources,
-  .creative-inspector {
-    grid-row: 2;
-    border-top: 1px solid #343c48;
+  .creative-context,
+  .creative-context-composer {
+    left: 10px;
+    right: 10px;
+    bottom: 8px;
+    width: auto;
+    transform: none;
+    max-height: 54%;
   }
   .creative-source-tabs button {
     padding: 6px 8px;
@@ -408,6 +486,267 @@
   position: absolute;
   left: 12px;
   font-size: 11px;
-  color: #8ccbd5;
+  color: var(--board-accent);
   pointer-events: none;
+}
+
+.creative-board-dialog {
+  --board-panel: #1b2330;
+  --board-ground: #131b27;
+  --board-ink: #e5edf8;
+  --board-muted: #a8b7cb;
+  --board-line: #354256;
+  --board-accent: #8bb2ff;
+  --board-primary: #a7c4ff;
+  --board-primary-ink: #142542;
+  --board-shadow: 0 14px 42px #0005;
+  --board-card-shadow: 0 4px 14px #0003;
+  background: var(--board-panel);
+  color: var(--board-ink);
+  border-color: var(--board-line);
+  color-scheme: dark;
+}
+.creative-board-dialog.creative-theme-light {
+  --board-panel: #fff;
+  --board-ground: #f1f5fa;
+  --board-ink: #172538;
+  --board-muted: #53647a;
+  --board-line: #d5dfed;
+  --board-accent: #365ca5;
+  --board-primary: #234781;
+  --board-primary-ink: #fff;
+  --board-shadow: 0 14px 44px #2e4b7226, 0 2px 8px #2e4b7210;
+  --board-card-shadow: 0 4px 15px #2e4b7217;
+  color-scheme: light;
+}
+.creative-board-dialog .dialog-header,
+.creative-board-dialog .creative-toolbar,
+.creative-board-dialog .creative-help {
+  border-color: var(--board-line);
+}
+.creative-board-dialog .dialog-header {
+  padding: 12px 18px 10px;
+}
+.creative-board-dialog label {
+  color: var(--board-muted);
+}
+.creative-board-dialog .creative-toolbar {
+  padding: 8px 15px;
+  gap: 6px;
+}
+.creative-board-dialog .creative-toolbar > button {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+.creative-board-dialog .creative-toolbar > input {
+  width: 150px;
+}
+.creative-board-dialog .creative-toolbar-menu summary {
+  color: var(--board-muted);
+}
+.creative-toolbar-menu {
+  position: relative;
+  z-index: 12;
+}
+.creative-toolbar-menu summary {
+  cursor: pointer;
+  border: 1px solid var(--board-line);
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.creative-toolbar-menu > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  display: grid;
+  width: max-content;
+  min-width: 112px;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--board-line);
+  border-radius: 10px;
+  background: var(--board-panel);
+  box-shadow: var(--board-shadow);
+}
+.creative-toolbar-menu button {
+  text-align: left;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.creative-board-dialog .dialog-header p,
+.creative-board-dialog .field-hint,
+.creative-board-dialog .creative-save-state,
+.creative-board-dialog .creative-help,
+.creative-board-dialog .creative-source-list small,
+.creative-board-dialog .creative-node footer,
+.creative-board-dialog .creative-board-list span {
+  color: var(--board-muted);
+}
+.creative-board-dialog :is(button, input, select, textarea) {
+  background: var(--board-panel);
+  color: var(--board-ink);
+  border-color: var(--board-line);
+}
+.creative-board-dialog :is(button:hover:not(:disabled), button[aria-pressed='true']) {
+  border-color: var(--board-accent);
+  color: var(--board-accent);
+}
+.creative-board-dialog button.primary {
+  border-color: var(--board-primary);
+  background: var(--board-primary);
+  color: var(--board-primary-ink);
+}
+.creative-board-dialog :is(input, textarea)::placeholder {
+  color: var(--board-muted);
+}
+.creative-board-dialog a {
+  color: var(--board-accent);
+}
+.creative-board-dialog .creative-node-kind {
+  color: var(--board-accent);
+  font-weight: 650;
+}
+.creative-pane-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.creative-kicker {
+  color: var(--board-accent);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+.creative-pane-heading h3 {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+.creative-board-dialog .creative-icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 9px;
+}
+.creative-import {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.creative-empty {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: min(370px, calc(100% - 40px));
+  padding: 26px;
+  border: 1px solid var(--board-line);
+  border-radius: 20px;
+  background: var(--board-panel);
+  text-align: center;
+  box-shadow: var(--board-shadow);
+}
+.creative-empty h3 {
+  margin: 8px 0;
+  font-size: 21px;
+}
+.creative-empty p {
+  margin: 0 0 15px;
+  color: var(--board-muted);
+}
+.creative-context-composer .creative-inspector label {
+  margin-top: 9px;
+  margin-bottom: 8px;
+}
+.creative-context-composer .creative-inspector {
+  padding: 12px 15px;
+}
+.creative-context-composer .creative-pane-heading h3 {
+  margin-bottom: 4px;
+}
+.creative-context-composer .creative-inspector :is(input, select, textarea) {
+  margin-top: 4px;
+}
+.creative-advanced {
+  margin-top: 10px;
+  border-top: 1px solid var(--board-line);
+  padding-top: 9px;
+}
+.creative-advanced summary {
+  cursor: pointer;
+  color: var(--board-muted);
+  font-size: 12px;
+}
+.creative-composer-input textarea {
+  min-height: 62px;
+}
+.creative-frame-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 9px;
+  background: var(--board-ground);
+}
+.creative-frame-chip img {
+  width: 46px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.creative-frame-chip small,
+.creative-job small {
+  display: block;
+  color: var(--board-muted);
+  font-size: 11px;
+}
+.creative-frame-chip strong {
+  font-size: 12px;
+}
+.creative-inline-actions,
+.creative-composer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.creative-composer-actions {
+  margin-top: 10px;
+}
+.creative-inline-actions button,
+.creative-composer-actions button:not(.primary),
+.creative-job button {
+  font-size: 12px;
+  padding: 6px 9px;
+}
+.creative-job {
+  border-top: 1px solid var(--board-line);
+  margin-top: 12px;
+  padding-top: 9px;
+}
+.creative-job video,
+.creative-job img {
+  display: block;
+  max-height: 210px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+.creative-job button {
+  margin: 4px 5px 0 0;
+}
+@media (max-width: 760px) {
+  .creative-context-composer {
+    max-height: 72%;
+  }
+  .creative-composer-actions {
+    position: sticky;
+    z-index: 2;
+    bottom: -12px;
+    padding-block: 5px;
+    background: var(--board-panel);
+  }
 }

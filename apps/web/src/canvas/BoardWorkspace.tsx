@@ -12,6 +12,7 @@ import { api, ApiError, CursorPage } from '../api';
 import { forgetBoard, lastBoard, rememberBoard } from './board-preferences';
 import { Dialog } from '../components/Dialog';
 import { GenerationDialog } from '../components/GenerationDialog';
+import { MediaDialog } from '../components/MediaDialog';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
@@ -29,6 +30,11 @@ type History = {
 const clone = <T,>(value: T): T => structuredClone(value);
 const signature = (title: string, layout: BoardLayout) => JSON.stringify({ title, layout });
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const overlaps = (item: BoardNode, position: BoardNode['position'], width: number, height: number) =>
+  item.position.x < position.x + width + 16 &&
+  item.position.x + item.width + 16 > position.x &&
+  item.position.y < position.y + height + 16 &&
+  item.position.y + item.height + 16 > position.y;
 const unavailable = { status: 'unavailable', title: '引用不可用' } as const;
 export default function BoardWorkspace({
   projectId,
@@ -61,7 +67,25 @@ export default function BoardWorkspace({
   const [history, setHistory] = useState<History>();
   const [detail, setDetail] = useState<BoardResolved>();
   const [freeGeneration, setFreeGeneration] = useState(false);
-  const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft }>();
+  const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft; target?: string }>();
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      return localStorage.getItem('pullet.canvas.theme') === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+  const [showSources, setShowSources] = useState(() => window.innerWidth > 760);
+  const [mediaLibrary, setMediaLibrary] = useState(false);
+  useEffect(() => {
+    const compact = window.matchMedia('(max-width: 760px)');
+    const collapse = (event: MediaQueryListEvent) => {
+      if (event.matches) setShowSources(false);
+    };
+    compact.addEventListener('change', collapse);
+    return () => compact.removeEventListener('change', collapse);
+  }, []);
+  const draggedResource = useRef<BoardSource>(undefined);
   const [newTitle, setNewTitle] = useState('创作探索');
   const [refresh, setRefresh] = useState(0);
   const [pan, setPan] = useState(false);
@@ -238,7 +262,11 @@ export default function BoardWorkspace({
       });
       accept(value, true);
       setMessage(`已保存 v${value.revision}`);
-      if (value.headRevision > value.revision) setRemote(await api<BoardView>(`/boards/${base.id}`));
+      if (value.headRevision > value.revision) {
+        setRemote(await api<BoardView>(`/boards/${base.id}`));
+        return;
+      }
+      return value.revision;
     } catch (reason) {
       // A denied new reference must not erase an otherwise accessible local draft.
       if (reason instanceof ApiError && reason.code === 'BOARD_REFERENCE_UNAVAILABLE')
@@ -291,13 +319,25 @@ export default function BoardWorkspace({
     });
     setSelected((current) => current.filter((id) => !ids.includes(id)));
   }
-  function add(type: BoardNode['type'], source?: BoardSource, noteData?: BoardNode['data']) {
+  function add(
+    type: BoardNode['type'],
+    source?: BoardSource,
+    noteData?: BoardNode['data'],
+    at?: BoardNode['position'],
+    firstFrame?: BoardNode,
+  ) {
     if (!editable || !layout) return;
     if (layout.nodes.length >= 100) {
       setError('每个画布最多100个节点，请创建另一画布。');
       return;
     }
     const id = crypto.randomUUID();
+    const media = source?.value.media;
+    const ratio =
+      media?.metadata.width && media.metadata.height ? media.metadata.width / media.metadata.height : 1;
+    const width = type === 'group' ? 700 : media ? Math.round(clamp(265 * Math.sqrt(ratio), 200, 420)) : 250;
+    const height =
+      type === 'group' ? 540 : media ? Math.round(clamp(265 / Math.sqrt(ratio) + 64, 185, 470)) : 280;
     const columns = Math.max(
       1,
       Math.floor(
@@ -321,30 +361,133 @@ export default function BoardWorkspace({
       };
       if (
         !layout.nodes.some(
-          (node) =>
-            !node.parentId &&
-            node.type !== 'group' &&
-            Math.abs(node.position.x - position.x) < 260 &&
-            Math.abs(node.position.y - position.y) < 290,
+          (node) => !node.parentId && node.type !== 'group' && overlaps(node, position, width, height),
         )
       )
         break;
     }
+    if (firstFrame && layout.edges.length >= 200) {
+      setError('每个画布最多200条连线。');
+      return;
+    }
+    if (!at && firstFrame && !firstFrame.parentId) {
+      position = {
+        x: clamp(firstFrame.position.x + firstFrame.width + 48, -50000, 50000),
+        y: firstFrame.position.y,
+      };
+      const neighbors = layout.nodes.filter((item) => !item.parentId);
+      for (let index = 0; index < neighbors.length; index++) {
+        if (!neighbors.some((item) => overlaps(item, position, width, height))) break;
+        position.y = clamp(position.y + height + 22, -50000, 50000);
+      }
+    }
     const node: BoardNode = {
       id,
       type,
-      position,
-      width: type === 'group' ? 700 : 250,
-      height: type === 'group' ? 540 : 280,
+      position: at ? { x: clamp(at.x, -50000, 50000), y: clamp(at.y, -50000, 50000) } : position,
+      width,
+      height,
       data: source
         ? { ref: source.ref }
         : type === 'group'
           ? { label: '创作分组', collapsed: false }
           : (noteData ?? (type === 'generation' ? { generation: {} } : { text: '' })),
     };
-    setLayout({ ...layout, nodes: [...layout.nodes, node] });
+    setLayout({
+      ...layout,
+      nodes: [...layout.nodes, node],
+      edges: firstFrame
+        ? [
+            ...layout.edges,
+            {
+              id: crypto.randomUUID(),
+              source: firstFrame.id,
+              target: id,
+              kind: 'input_binding',
+              sourcePort: 'image',
+              targetPort: 'first_frame',
+            },
+          ]
+        : layout.edges,
+    });
     setSelected([id]);
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
+    return true;
+  }
+  function setNodePrompt(target: string, draft: PromptDraft, replace = false) {
+    if (!editable || !layout) return false;
+    const generation = layout.nodes.find((item) => item.id === target && item.type === 'generation');
+    if (!generation) return false;
+    const binding = layout.edges.find(
+      (edge) => edge.kind === 'input_binding' && edge.target === target && edge.targetPort === 'prompt',
+    );
+    const data = {
+      text: draft.positivePrompt,
+      prompt: {
+        negativePrompt: draft.negativePrompt ?? '',
+        source: draft.source ?? '',
+        promptLibraryRevisionId: draft.promptLibraryRevisionId,
+      },
+    };
+    const existing = layout.nodes.find((item) => item.id === binding?.source);
+    if (
+      existing &&
+      !replace &&
+      layout.edges.filter((edge) => edge.kind === 'input_binding' && edge.source === existing.id).length === 1
+    ) {
+      update({ ...existing, data });
+      return true;
+    }
+    if (layout.nodes.length >= 100 || (!binding && layout.edges.length >= 200)) {
+      setError('画布容量已满，请移除不需要的节点或连线。');
+      return false;
+    }
+    const id = crypto.randomUUID();
+    const position = {
+      x: clamp(generation.position.x - 274, -50000, 50000),
+      y: clamp(generation.position.y - 220, -50000, 50000),
+    };
+    const siblings = layout.nodes.filter((item) => item.parentId === generation.parentId);
+    if (
+      position.y * layout.viewport.zoom + layout.viewport.y < 12 ||
+      siblings.some((item) => overlaps(item, position, 250, 200))
+    ) {
+      position.x = generation.position.x;
+      position.y = clamp(generation.position.y + generation.height + 26, -50000, 50000);
+      for (
+        let index = 0;
+        index < siblings.length && siblings.some((item) => overlaps(item, position, 250, 200));
+        index++
+      ) {
+        position.y = clamp(position.y + 224, -50000, 50000);
+      }
+    }
+    setLayout({
+      ...layout,
+      nodes: [
+        ...layout.nodes,
+        {
+          id,
+          type: 'note',
+          position,
+          parentId: generation.parentId,
+          width: 250,
+          height: 200,
+          data,
+        },
+      ],
+      edges: [
+        ...layout.edges.filter((edge) => edge.id !== binding?.id),
+        {
+          id: crypto.randomUUID(),
+          source: id,
+          target,
+          kind: 'input_binding',
+          sourcePort: 'text',
+          targetPort: 'prompt',
+        },
+      ],
+    });
     return true;
   }
   async function pinCandidate(media: MediaVersion) {
@@ -615,10 +758,10 @@ export default function BoardWorkspace({
   return (
     <Dialog
       title="创作画布"
-      description={`${projectTitle} · 画布共用项目资产 · 普通连线不执行生成`}
+      description={projectTitle}
       busy={busy}
       onClose={() => close()}
-      className="creative-board-dialog"
+      className={`creative-board-dialog creative-theme-${theme}`}
     >
       {denied ? (
         <div className="dialog-body">
@@ -722,6 +865,22 @@ export default function BoardWorkspace({
             <button disabled={busy} onClick={() => setPromptLibrary({})}>
               提示词库
             </button>
+            <button aria-pressed={showSources} onClick={() => setShowSources((value) => !value)}>
+              资源库
+            </button>
+            <button
+              onClick={() => {
+                const next = theme === 'light' ? 'dark' : 'light';
+                setTheme(next);
+                try {
+                  localStorage.setItem('pullet.canvas.theme', next);
+                } catch {
+                  /* Optional preference. */
+                }
+              }}
+            >
+              {theme === 'light' ? '深色画布' : '浅色画布'}
+            </button>
             {editable && node?.type === 'note' && node.data.text?.trim() && (
               <button
                 disabled={busy}
@@ -753,14 +912,8 @@ export default function BoardWorkspace({
                 <button onClick={() => add('note')} disabled={!editable}>
                   添加便签
                 </button>
-                <button onClick={() => add('brief')} disabled={!editable}>
-                  创作说明
-                </button>
                 <button onClick={() => add('generation')} disabled={!editable}>
                   添加生成节点
-                </button>
-                <button onClick={() => add('group')} disabled={!editable}>
-                  添加分组
                 </button>
                 <button
                   className="primary"
@@ -771,20 +924,44 @@ export default function BoardWorkspace({
                 </button>
               </>
             )}
-            <button aria-pressed={pan} onClick={() => setPan((value) => !value)}>
-              {pan ? '切换框选' : '切换平移'}
-            </button>
-            <button disabled={busy} onClick={() => void refreshReferences()}>
-              刷新引用
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => {
-                void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report);
+            <details
+              className="creative-toolbar-menu"
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+              }}
+              onClick={(event) => {
+                if (event.target instanceof Element && event.target.closest('button'))
+                  event.currentTarget.open = false;
               }}
             >
-              修订历史
-            </button>
+              <summary>更多操作</summary>
+              <div>
+                {base.canEdit && (
+                  <>
+                    <button onClick={() => add('brief')} disabled={!editable}>
+                      创作说明
+                    </button>
+                    <button onClick={() => add('group')} disabled={!editable}>
+                      添加分组
+                    </button>
+                  </>
+                )}
+                <button aria-pressed={pan} onClick={() => setPan((value) => !value)}>
+                  {pan ? '切换框选' : '切换平移'}
+                </button>
+                <button disabled={busy} onClick={() => void refreshReferences()}>
+                  刷新引用
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report);
+                  }}
+                >
+                  修订历史
+                </button>
+              </div>
+            </details>
             <button disabled={busy} onClick={() => close()}>
               返回工作台
             </button>
@@ -826,22 +1003,38 @@ export default function BoardWorkspace({
               )}
             </div>
           )}
-          <div className="creative-workspace">
-            <BoardSources
-              projectId={projectId}
-              editable={editable}
-              refresh={refresh}
-              add={(source) => add('reference', source)}
-              report={(reason) => {
-                if (reason instanceof ApiError && [401, 403].includes(reason.status)) report(reason);
-              }}
-            />
+          <div className={`creative-workspace ${showSources ? 'creative-workspace-library' : ''}`}>
+            {showSources && (
+              <BoardSources
+                projectId={projectId}
+                editable={editable}
+                refresh={refresh}
+                add={(source) => {
+                  if (add('reference', source) && window.matchMedia('(max-width: 760px)').matches)
+                    setShowSources(false);
+                }}
+                onDragSource={(source) => {
+                  draggedResource.current = source;
+                }}
+                onImport={() => setMediaLibrary(true)}
+                onClose={() => setShowSources(false)}
+                report={(reason) => {
+                  if (reason instanceof ApiError && [401, 403].includes(reason.status)) report(reason);
+                }}
+              />
+            )}
             <BoardSurface
               nodes={flowNodes}
               edges={flowEdges}
               viewport={layout.viewport}
               editable={editable}
               pan={pan}
+              theme={theme}
+              onDropResource={(position) => {
+                const source = draggedResource.current;
+                draggedResource.current = undefined;
+                if (source?.ready) add('reference', source, undefined, position);
+              }}
               onNodesChange={nodesChange}
               onEdgesChange={edgesChange}
               onConnect={connect}
@@ -859,47 +1052,78 @@ export default function BoardWorkspace({
                       },
                   );
               }}
-            />
-            <BoardInspector
-              node={node}
-              value={node && resolved[node.id]}
-              nodes={layout.nodes}
-              editable={editable}
-              update={update}
-              executionPanel={
-                node?.type === 'generation' ? (
-                  <BoardExecutionPanel
-                    key={`${base.id}:${node.id}`}
-                    board={base}
-                    userId={userId}
-                    node={node}
-                    layout={layout}
-                    resolved={resolved}
-                    editable={editable}
-                    dirty={dirty}
-                    update={update}
-                    bind={(port, source) => bindInput(node.id, port, source)}
-                    onResult={addResult}
-                    onOpenTasks={() => setFreeGeneration(true)}
-                  />
-                ) : undefined
-              }
-              remove={() => node && remove([node.id])}
-              detail={detail}
-              closeDetail={() => setDetail(undefined)}
-              onDetail={() => {
-                if (!node?.data.ref) return;
-                void api<Record<string, BoardResolved>>(
-                  `/projects/${projectId}/board-references/resolve`,
-                  'POST',
-                  { references: [{ nodeId: node.id, ref: node.data.ref }] },
+              overlay={
+                node ? (
+                  <div
+                    className={`creative-context ${node.type === 'generation' ? 'creative-context-composer' : ''}`}
+                  >
+                    <BoardInspector
+                      node={node}
+                      value={node && resolved[node.id]}
+                      nodes={layout.nodes}
+                      editable={editable}
+                      update={update}
+                      onDismiss={() => setSelected([])}
+                      onUseImage={
+                        editable &&
+                        (node.type === 'result' || node.data.ref?.kind === 'media') &&
+                        resolved[node.id]?.media?.mediaType === 'image'
+                          ? () => add('generation', undefined, undefined, undefined, node)
+                          : undefined
+                      }
+                      executionPanel={
+                        node?.type === 'generation' ? (
+                          <BoardExecutionPanel
+                            key={`${base.id}:${node.id}`}
+                            board={base}
+                            userId={userId}
+                            node={node}
+                            layout={layout}
+                            resolved={resolved}
+                            editable={editable}
+                            dirty={dirty}
+                            save={title.trim() ? save : undefined}
+                            onPromptChange={(draft) => setNodePrompt(node.id, draft)}
+                            onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
+                            onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                            update={update}
+                            bind={(port, source) => bindInput(node.id, port, source)}
+                            onResult={addResult}
+                            onOpenTasks={() => setFreeGeneration(true)}
+                          />
+                        ) : undefined
+                      }
+                      remove={() => node && remove([node.id])}
+                      detail={detail}
+                      closeDetail={() => setDetail(undefined)}
+                      onDetail={() => {
+                        if (!node?.data.ref) return;
+                        void api<Record<string, BoardResolved>>(
+                          `/projects/${projectId}/board-references/resolve`,
+                          'POST',
+                          { references: [{ nodeId: node.id, ref: node.data.ref }] },
+                        )
+                          .then((values) => {
+                            setResolved((current) => ({ ...current, ...values }));
+                            if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
+                          })
+                          .catch(report);
+                      }}
+                    />
+                  </div>
+                ) : layout.nodes.length ? undefined : (
+                  <div className="creative-empty">
+                    <span className="creative-kicker">PULLET STUDIO</span>
+                    <h3>把想法放到画布上</h3>
+                    <p>从一张参考图开始，或添加生成节点直接写提示词。</p>
+                    {editable && (
+                      <button className="primary" onClick={() => setShowSources(true)}>
+                        浏览项目资源
+                      </button>
+                    )}
+                  </div>
                 )
-                  .then((values) => {
-                    setResolved((current) => ({ ...current, ...values }));
-                    if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
-                  })
-                  .catch(report);
-              }}
+              }
             />
           </div>
           <div className="creative-help">
@@ -920,6 +1144,24 @@ export default function BoardWorkspace({
           onClose={() => setFreeGeneration(false)}
         />
       )}
+      {mediaLibrary && base && !denied && (
+        <MediaDialog
+          projectId={projectId}
+          onClose={() => {
+            setMediaLibrary(false);
+            setRefresh((value) => value + 1);
+          }}
+          onAddToCanvas={
+            editable
+              ? async (media) => {
+                  await pinCandidate(media);
+                  setMediaLibrary(false);
+                  setRefresh((value) => value + 1);
+                }
+              : undefined
+          }
+        />
+      )}
       {promptLibrary && base && !denied && (
         <PromptLibraryDialog
           projectId={projectId}
@@ -929,14 +1171,25 @@ export default function BoardWorkspace({
             editable
               ? (revision) => {
                   if (
-                    !add('note', undefined, {
-                      text: revision.positivePrompt,
-                      prompt: {
-                        negativePrompt: revision.negativePrompt,
-                        source: revision.source,
-                        promptLibraryRevisionId: revision.id,
-                      },
-                    })
+                    !(promptLibrary.target
+                      ? setNodePrompt(
+                          promptLibrary.target,
+                          {
+                            positivePrompt: revision.positivePrompt,
+                            negativePrompt: revision.negativePrompt,
+                            source: revision.source,
+                            promptLibraryRevisionId: revision.id,
+                          },
+                          true,
+                        )
+                      : add('note', undefined, {
+                          text: revision.positivePrompt,
+                          prompt: {
+                            negativePrompt: revision.negativePrompt,
+                            source: revision.source,
+                            promptLibraryRevisionId: revision.id,
+                          },
+                        }))
                   )
                     throw new Error('无法插入提示词，请检查画布容量与编辑权限');
                   setPromptLibrary(undefined);
