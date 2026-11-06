@@ -1,14 +1,14 @@
 # Pullet Studio 文档导航
 
-更新：2026-11-05。先看当前状态，再按任务进入模块；不用每轮重读全部历史规划。
+更新：2026-11-06。当前主线见 [PRODUCT-V2](PRODUCT-V2.md) 与 [ADR-011](ADR-011-asset-led-creation.md)。旧剧本生产路线只作兼容，先看当前状态再进入模块。
 
 ## 先读哪几份
 
 | 要解决的问题 | 唯一入口 | 用法 |
 |---|---|---|
 | 现在能做什么、缺什么、下一步是什么 | [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md) | 唯一实时状态与实施顺序；不把历史测试数当最新结果 |
-| 产品最终范围、长期需求 | [MASTER-PLAN](MASTER-PLAN.md) | 长期基线；有效ADR与用户新决定优先，文内历史技术示例不构成换栈授权 |
-| 为什么这样设计 | ADR-001至010，先看[产品边界ADR-009](ADR-009-production-and-postproduction-handoff.md)、[实例/画布ADR-010](ADR-010-comfy-instances-and-board-boundary.md)及[生产内核ADR-005](ADR-005-team-production-and-extension.md) | 决策编号/路径保持稳定；画布取舍见[ADR-008](ADR-008-creative-canvas-reference.md) |
+| 产品最终范围、长期需求 | [PRODUCT-V2](PRODUCT-V2.md)、[V2审计](architecture/PRODUCT-V2-AUDIT.md) | 资产/画布优先；[MASTER-PLAN](MASTER-PLAN.md)及旧团队蓝图保留参考，冲突处由V2替代 |
+| 为什么这样设计 | ADR-001至011，先看[轻量创作ADR-011](ADR-011-asset-led-creation.md)、[产品边界ADR-009](ADR-009-production-and-postproduction-handoff.md)、[实例/画布ADR-010](ADR-010-comfy-instances-and-board-boundary.md) | 决策编号/路径保持稳定；旧强制生产前置由V2覆盖 |
 | 本地怎样运行、测试、备份 | [开发运行手册](operations/DEVELOPMENT.md) | 当前有效命令；完整媒体恢复转[LOCAL-MEDIA](LOCAL-MEDIA.md) |
 | 代码/数据/文档各在哪里 | [工程目录与整理规则](architecture/REPOSITORY-MAP.md) | 当前模块映射、保留和渐进拆分规则 |
 | 历次到底测了什么 | [阶段验收历史](history/IMPLEMENTATION-2026-11-04-05.md) | 保存原实施合同、迁移前后备份、实机证据；历史“下一包”不驱动开发 |
@@ -19,6 +19,7 @@
 
 | 领域 | 使用/API与限制 | 开工合同及代码入口 |
 |---|---|---|
+| 当前自由创作 | [无镜头生成与候选入库](LIGHT-CREATION.md) | [L1 合同](modules/LIGHT-CREATION-L1.md)、[验收](history/LIGHT-CREATION-L1-2026-11-06.md)；共用Generation/Storage/RBAC |
 | 项目、层级、剧本 | [制作结构](PRODUCTION-STRUCTURE.md)、[原文导入](SCRIPT-IMPORT.md) | API production/、scripts/；早期合同见阶段历史 |
 | AI分镜、人工采纳 | [文本分析](TEXT-ANALYSIS.md)、[草案审核](PROPOSAL-REVIEW.md) | API analysis/、providers/；真实模型与Mock区别见实时状态 |
 | 完整卡、提示词、文本交付 | [提示词](TEXT-DELIVERY.md)、[分镜导出](STORYBOARD-EXPORT.md) | [文本交付合同](modules/TEXT-DELIVERY-IMPLEMENTATION.md)、[导出合同](modules/STORYBOARD-EXPORT-IMPLEMENTATION.md) |

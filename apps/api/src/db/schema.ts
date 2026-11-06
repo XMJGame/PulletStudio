@@ -732,6 +732,7 @@ export const mediaAssets = sqliteTable(
     projectId: text('project_id').notNull(),
     workspaceId: text('workspace_id').notNull(),
     name: text('name').notNull(),
+    inLibrary: integer('in_library', { mode: 'boolean' }).notNull().default(true),
     version: integer('version').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -1335,14 +1336,13 @@ export const generationJobs = sqliteTable(
     purpose: text('purpose', { enum: ['production', 'workflow_test'] })
       .notNull()
       .default('production'),
-    shotId: text('shot_id').notNull(),
+    shotId: text('shot_id'),
+    boardId: text('board_id').references((): AnySQLiteColumn => boards.id),
     projectId: text('project_id').notNull(),
     workspaceId: text('workspace_id').notNull(),
     workflowId: text('workflow_id').notNull(),
-    promptId: text('prompt_id')
-      .notNull()
-      .references(() => promptArtifacts.id),
-    shotVersion: integer('shot_version').notNull(),
+    promptId: text('prompt_id').references(() => promptArtifacts.id),
+    shotVersion: integer('shot_version'),
     projectVersion: integer('project_version').notNull(),
     connectionVersion: integer('connection_version').notNull(),
     creatorId: text('creator_id')
@@ -1377,11 +1377,19 @@ export const generationJobs = sqliteTable(
       ],
     }),
     uniqueIndex('generation_job_request').on(t.shotId, t.creatorId, t.requestKey),
+    uniqueIndex('generation_project_request')
+      .on(t.projectId, t.creatorId, t.requestKey)
+      .where(sql`${t.shotId} IS NULL`),
     index('generation_job_schedule').on(t.state, t.nextAt, t.leaseUntil),
     index('generation_job_shot').on(t.shotId, t.createdAt, t.id),
+    index('generation_job_project').on(t.projectId, t.createdAt, t.id),
     check(
       'generation_job_complete',
-      sql`${t.state} <> 'completed' OR (${t.mediaVersionId} IS NOT NULL AND ${t.takeId} IS NOT NULL)`,
+      sql`${t.state} <> 'completed' OR (${t.mediaVersionId} IS NOT NULL AND (${t.shotId} IS NULL OR ${t.takeId} IS NOT NULL))`,
+    ),
+    check(
+      'generation_context',
+      sql`(${t.shotId} IS NOT NULL AND ${t.promptId} IS NOT NULL AND ${t.shotVersion} IS NOT NULL AND ${t.boardId} IS NULL) OR (${t.shotId} IS NULL AND ${t.promptId} IS NULL AND ${t.shotVersion} IS NULL)`,
     ),
   ],
 );

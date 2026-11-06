@@ -9,6 +9,7 @@ import {
   startComfyMock,
   fixtureWorkflow,
   fixtureCreativeFields,
+  fixtureI2V,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 test('workflow catalog revisions, creative schemas and dependency inspection preserve generation', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'pullet-workflow-catalog-'));
@@ -80,7 +81,10 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
     );
   try {
     const fixtures = await createMediaFixtures(join(directory, 'fixtures'), new AppConfig().ffmpegPath);
-    remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+    remote = await startComfyMock({
+      'image.png': fixtures['image.png'].bytes,
+      'clip.mp4': fixtures['clip.mp4'].bytes,
+    });
     await start();
     const setup = (
       await owner('POST', '/setup/initialize', {
@@ -114,6 +118,192 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         trustedPrivate: true,
       })
     ).data;
+    await t.test(
+      'empty project creation reuses jobs and storage without shots, prompts or release approvals',
+      async () => {
+        const freeProject = (
+          await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Empty free creation' })
+        ).data;
+        const freeDefinition = {
+          ...fixtureWorkflow(connection.id),
+          reviewRequired: true,
+          name: 'Unpublished free workflow',
+        };
+        const freeWorkflow = (
+          await owner('POST', `/projects/${freeProject.id}/generation-workflows`, freeDefinition)
+        ).data;
+        const board = (
+          await owner(
+            'POST',
+            `/projects/${freeProject.id}/boards`,
+            { title: 'Free study' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).data;
+        assert.ok(board.id);
+        const path = `/projects/${freeProject.id}/generation-jobs`;
+        const body = {
+          workflowId: freeWorkflow.id,
+          positivePrompt: 'A station under soft morning light',
+          negativePrompt: 'text',
+          source: 'External writing tool',
+          boardId: board.id,
+          confirmed: true,
+        };
+        const key = randomUUID();
+        const submit = (input = body, requestKey = key, actor = owner) =>
+          actor('POST', path, input, { 'Idempotency-Key': requestKey });
+        let job = await submit();
+        assert.equal(job.status, 201, JSON.stringify(job.data));
+        const id = job.data.id;
+        assert.equal(job.data.shotId, null);
+        assert.equal(job.data.promptId, null);
+        assert.equal(job.data.boardId, board.id);
+        assert.equal((await submit()).data.id, id);
+        assert.equal((await submit({ ...body, positivePrompt: 'changed' })).status, 409);
+        assert.equal((await submit({ ...body, boardId: randomUUID() }, randomUUID())).status, 404);
+        assert.equal((await submit({ ...body, positivePrompt: ' ' }, randomUUID())).status, 400);
+        const snapshot = JSON.parse(
+          db().prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?').get(id).snapshot_json,
+        );
+        assert.equal(snapshot.graph['1'].inputs.text, body.positivePrompt);
+        assert.equal(snapshot.graph['2'].inputs.text, body.negativePrompt);
+        assert.throws(
+          () => db().prepare('UPDATE generation_jobs SET board_id=NULL WHERE id=?').run(id),
+          /immutable/,
+        );
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET lease_id='old-worker' WHERE id=?").run(id),
+          /updated.*worker/,
+        );
+        for (let n = 0; n < 3; n++) {
+          db().prepare('UPDATE generation_jobs SET next_at=0 WHERE id=?').run(id);
+          await app.get(GenerationWorker).tick();
+        }
+        job = await owner('GET', `/generation-jobs/${id}`);
+        assert.equal(job.data.state, 'completed', JSON.stringify(job.data));
+        assert.equal(job.data.takeId, null);
+        assert.equal(job.data.inLibrary, false);
+        assert.equal((await owner('GET', `/projects/${freeProject.id}/media-assets`)).data.items.length, 0);
+        assert.equal((await owner('GET', path + '?boardId=' + board.id)).data.items[0].id, id);
+        const file = await owner('GET', job.data.result.contentUrl.replace('/api/v1', ''));
+        assert.equal(file.status, 200);
+        assert.ok(Buffer.isBuffer(file.data));
+        for (let n = 0; n < 2; n++) {
+          const adoption = await owner('POST', `/generation-jobs/${id}/save-to-library`, {});
+          assert.equal(adoption.status, 201, JSON.stringify(adoption.data));
+          assert.equal(adoption.data.inLibrary, true);
+        }
+        assert.equal((await owner('GET', `/projects/${freeProject.id}/media-assets`)).data.items.length, 1);
+        assert.equal(
+          db()
+            .prepare(
+              "SELECT count(*) AS n FROM audit_events WHERE action='generation.candidate.save' AND target_id=?",
+            )
+            .get(id).n,
+          1,
+        );
+        assert.equal(
+          db().prepare('SELECT count(*) AS n FROM shots WHERE project_id=?').get(freeProject.id).n,
+          0,
+        );
+        assert.equal(
+          db().prepare('SELECT count(*) AS n FROM prompt_artifacts WHERE project_id=?').get(freeProject.id).n,
+          0,
+        );
+        assert.equal(
+          db().prepare('SELECT count(*) AS n FROM takes WHERE project_id=?').get(freeProject.id).n,
+          0,
+        );
+        assert.equal(
+          (await owner('GET', `/generation-workflows/${freeWorkflow.id}/routing-options?context=exploration`))
+            .status,
+          200,
+        );
+        assert.equal(
+          (await owner('GET', `/generation-workflows/${freeWorkflow.id}/routing-options`)).status,
+          409,
+        );
+        const trial = await owner(
+          'POST',
+          `/projects/${freeProject.id}/workflow-trials`,
+          { ...body, boardId: undefined },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(trial.status, 201, JSON.stringify(trial.data));
+        for (let n = 0; n < 3; n++) {
+          db().prepare('UPDATE generation_jobs SET next_at=0 WHERE id=?').run(trial.data.id);
+          await app.get(GenerationWorker).tick();
+        }
+        assert.equal((await owner('GET', `/generation-jobs/${trial.data.id}`)).data.state, 'test_completed');
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${trial.data.id}/save-to-library`, {})).status,
+          409,
+        );
+        assert.equal(
+          (await owner('GET', `/generation-workflows/${freeWorkflow.id}/test-jobs`)).data[0].shotId,
+          null,
+        );
+        const videoWorkflow = (
+          await owner('POST', `/projects/${freeProject.id}/generation-workflows`, fixtureI2V(connection.id))
+        ).data;
+        const videoBody = { ...body, workflowId: videoWorkflow.id, imageVersionId: job.data.mediaVersionId };
+        const priorSubmissions = remote.mock.submissions.length;
+        remote.mock.mode = 'lost';
+        const videoJob = (await submit(videoBody, randomUUID())).data;
+        await app.get(GenerationWorker).tick();
+        assert.equal(
+          (await owner('GET', `/generation-jobs/${videoJob.id}`)).data.state,
+          'needs_reconciliation',
+        );
+        remote.mock.mode = 'normal';
+        await app.close();
+        await start();
+        assert.equal((await owner('POST', `/generation-jobs/${videoJob.id}/reconcile`, {})).status, 201);
+        for (let n = 0; n < 2; n++) {
+          db().prepare('UPDATE generation_jobs SET next_at=0 WHERE id=?').run(videoJob.id);
+          await app.get(GenerationWorker).tick();
+        }
+        const videoResult = (await owner('GET', `/generation-jobs/${videoJob.id}`)).data;
+        assert.equal(videoResult.state, 'completed', JSON.stringify(videoResult));
+        assert.equal(videoResult.takeId, null);
+        assert.equal(videoResult.result.mediaType, 'video');
+        assert.equal(videoResult.image.id, job.data.mediaVersionId);
+        assert.equal(remote.mock.submissions.length, priorSubmissions + 1);
+        assert.equal((await owner('GET', `/projects/${freeProject.id}/media-assets`)).data.items.length, 1);
+        const readerId = db().prepare('SELECT id FROM users WHERE email=?').get('reader@workflow.test').id;
+        await owner('POST', `/projects/${freeProject.id}/members`, { userId: readerId, role: 'VIEWER' });
+        assert.equal((await reader('GET', path)).status, 200);
+        assert.equal((await reader('POST', path, body, { 'Idempotency-Key': randomUUID() })).status, 403);
+        assert.equal(
+          (await reader('POST', `/generation-jobs/${videoJob.id}/save-to-library`, {})).status,
+          403,
+        );
+        assert.equal(
+          (
+            await reader(
+              'POST',
+              `/projects/${freeProject.id}/workflow-trials`,
+              { ...body, boardId: undefined },
+              { 'Idempotency-Key': randomUUID() },
+            )
+          ).status,
+          403,
+        );
+        assert.equal((await outsider('GET', path)).status, 404);
+        const freshKey = randomUUID();
+        const cancelJob = (await submit(body, freshKey)).data;
+        assert.equal(
+          (await owner('POST', `/generation-jobs/${cancelJob.id}/cancel`, {})).data.state,
+          'canceled',
+        );
+        await app.close();
+        await start();
+        assert.equal((await owner('GET', path)).data.items.find((item) => item.id === id).inLibrary, true);
+        assert.equal((await submit()).data.id, id);
+        assert.deepEqual(db().pragma('foreign_key_check'), []);
+      },
+    );
     definition = fixtureCreativeFields(connection.id);
     const basic = (
       await owner('POST', `/projects/${project.id}/shots`, { description: 'A commuter waits in daylight.' })
@@ -973,6 +1163,32 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         assert.equal(state.instance.id, bId);
         assert.equal(a.mock.submissions.length, 1);
         assert.equal(b.mock.submissions.length, 1);
+        const free = await owner(
+          'POST',
+          `/projects/${project.id}/generation-jobs`,
+          {
+            workflowId,
+            positivePrompt: 'Explore without a shot',
+            confirmed: true,
+            routing: { mode: 'manual', connectionId: aId },
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(free.status, 201, JSON.stringify(free.data));
+        assert.equal(free.data.shotId, null);
+        assert.throws(
+          () =>
+            db()
+              .prepare("UPDATE generation_jobs SET lease_id='pool:old-worker' WHERE id=?")
+              .run(free.data.id),
+          /requires updated generation worker/,
+        );
+        assert.equal((await tick(free.data.id)).state, 'submitted');
+        assert.equal((await tick(free.data.id)).state, 'fetching');
+        const freeResult = await tick(free.data.id);
+        assert.equal(freeResult.state, 'completed');
+        assert.equal(freeResult.takeId, null);
+        assert.equal(freeResult.instance.id, aId);
       } finally {
         await Promise.all([a.close(), b.close()]);
       }

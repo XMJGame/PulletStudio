@@ -1,8 +1,9 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 export async function exerciseScriptImport(page: Page, otherPage: Page) {
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '项目剧本');
   await page.getByRole('button', { name: '导入剧本', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '导入剧本', exact: true });
   await expect(page.getByLabel('导入后的剧本标题')).toBeFocused();
@@ -44,7 +45,7 @@ export async function exerciseScriptImport(page: Page, otherPage: Page) {
   await expect(page.getByLabel('剧本正文')).toHaveAttribute('readonly', '');
   await expect(page.getByRole('button', { name: '导入剧本', exact: true })).toBeDisabled();
   await page.reload();
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '项目剧本');
   await expect(page.getByText('当前定稿已锁定', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '解锁以继续修订', exact: true }).click();
   await expect(page.getByLabel('剧本正文')).not.toHaveAttribute('readonly', '');
@@ -56,7 +57,7 @@ export async function exerciseScriptImport(page: Page, otherPage: Page) {
   await page.getByLabel('粘贴原文').fill('30-second umbrella advert. White background, compact form.');
   await page.getByLabel('导入后的剧本标题').fill('Umbrella advert');
   await otherPage.reload();
-  await otherPage.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(otherPage, '项目剧本');
   await otherPage.getByLabel('剧本正文').fill('Second editor revision before import.');
   await otherPage.getByRole('button', { name: '保存剧本版本', exact: true }).click();
   await expect(otherPage.getByRole('status')).toContainText('v5');

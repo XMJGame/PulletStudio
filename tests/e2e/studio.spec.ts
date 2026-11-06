@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { test, expect } from '@playwright/test';
 import { exerciseScriptImport } from './script-import-flow';
 import { exerciseProductionStructure } from './production-structure-flow';
@@ -102,6 +103,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await expect(page.getByRole('status')).toHaveText('项目资料已保存');
   await expect(page.locator('.page-heading')).toContainText('16:9');
   await expect(page.locator('.page-heading')).toContainText('自定义');
+  await selectLegacyView(page);
   await page.getByRole('button', { name: '新建分集' }).click();
   await page.getByLabel('分集名称').fill('裂开的天空');
   await expect(page.getByLabel('分集编号')).toHaveCount(0);
@@ -125,6 +127,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await page.getByRole('button', { name: '保存镜头' }).click();
   await expect(page.getByRole('status')).toHaveText('镜头已保存');
   await page.reload();
+  await selectLegacyView(page);
   await page.locator('.shot-card').click();
   await expect(page.getByLabel('运镜与景别')).toHaveValue('中景，缓慢推进');
   const second = await browser.newContext();
@@ -133,6 +136,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await otherPage.getByLabel('邮箱', { exact: true }).fill('producer@example.test');
   await otherPage.getByLabel('密码', { exact: true }).fill('Studio8!');
   await otherPage.getByRole('button', { name: '登录工作室' }).click();
+  await selectLegacyView(otherPage);
   await otherPage.locator('.shot-card').click();
   await otherPage.getByLabel('画面描述').fill('另一个窗口的最新描述');
   await otherPage.getByRole('button', { name: '保存镜头' }).click();
@@ -158,13 +162,13 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await page.getByRole('button', { name: '取消', exact: true }).click();
 
   // Scripts preserve revisions, conflicting inputs and this tab's unsaved draft.
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '项目剧本');
   await page.getByLabel('剧本标题').fill('补天 · 项目剧本');
   await page.getByLabel('剧本正文').fill('第一幕：天空裂开。\n女娲抬头，五色石散落在河岸。');
   await page.getByLabel('本次修改说明').fill('故事初稿');
   await page.getByRole('button', { name: '保存剧本版本' }).click();
   await expect(page.getByRole('status')).toHaveText('剧本已保存为 v1');
-  await otherPage.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(otherPage, '项目剧本');
   await expect(otherPage.getByLabel('剧本正文')).toHaveValue(
     '第一幕：天空裂开。\n女娲抬头，五色石散落在河岸。',
   );
@@ -188,11 +192,12 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await expect(page.getByRole('status')).toContainText('保存为 v3');
   await expect(page.locator('.revision-item')).toHaveCount(3);
   await page.getByLabel('剧本正文').fill('本窗口还未提交的改动');
-  await page.getByRole('button', { name: '分集与镜头', exact: true }).click();
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '分集与镜头');
+  await selectLegacyView(page, '项目剧本');
   await expect(page.getByLabel('剧本正文')).toHaveValue('本窗口还未提交的改动');
   await page.reload();
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '项目剧本');
+  await selectLegacyView(page, '项目剧本');
   await expect(page.getByLabel('剧本正文')).toHaveValue('本窗口还未提交的改动');
   await page.getByRole('button', { name: '载入最新剧本' }).click();
   await expect(page.getByLabel('剧本正文')).toHaveValue('第一幕：天空裂开。\n女娲抬头，五色石散落在河岸。');
@@ -202,9 +207,9 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/script-workbench-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole('button', { name: '分集与镜头', exact: true }).click();
+  await selectLegacyView(page, '分集与镜头');
   await page.locator('.shot-card').click();
-  await otherPage.getByRole('button', { name: '分集与镜头', exact: true }).click();
+  await selectLegacyView(otherPage, '分集与镜头');
   // Exercise the actual invitation and project-role UI, with a separate browser account.
   await page.getByRole('button', { name: '团队协作' }).click();
   await page.getByLabel('邀请邮箱').fill('editor-browser@example.test');
@@ -225,16 +230,18 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await page.getByRole('button', { name: '分配角色' }).click();
   await expect(page.getByRole('status')).toHaveText('项目角色已保存');
   await memberPage.reload();
+  await selectLegacyView(memberPage);
   await memberPage.locator('.shot-card').click();
   await expect(memberPage.getByRole('button', { name: '保存镜头' })).toBeDisabled();
   await expect(memberPage.getByRole('button', { name: '新建镜头' })).toHaveCount(0);
-  await memberPage.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(memberPage, '项目剧本');
   await expect(memberPage.getByLabel('剧本正文')).toHaveAttribute('readonly', '');
   await expect(memberPage.getByRole('button', { name: '保存剧本版本' })).toHaveCount(0);
   await page.getByLabel('项目角色').selectOption('EDITOR');
   await page.getByRole('button', { name: '分配角色' }).click();
   await expect(page.getByRole('status')).toHaveText('项目角色已保存');
   await memberPage.reload();
+  await selectLegacyView(memberPage);
   await memberPage.locator('.shot-card').click();
   await expect(memberPage.getByRole('button', { name: '保存镜头' })).toBeEnabled();
   await memberPage.getByLabel('对白 / 旁白').fill('天，还没有塌。');
@@ -300,6 +307,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   expect(await page.getByRole('dialog').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/trash-mobile.png', fullPage: true });
   await page.getByRole('button', { name: '恢复项目 补天计划', exact: true }).click();
+  await selectLegacyView(page);
   await expect(page.getByRole('heading', { name: '补天计划' })).toBeVisible();
   await expect(page.getByText('EP01', { exact: false }).first()).toBeVisible();
   await page.setViewportSize({ width: 977, height: 800 });
@@ -314,6 +322,7 @@ test('initialize, create a storyboard, keep conflicting edits, and sign back in'
   await page.getByRole('button', { name: '登录工作室' }).click();
   await expect(page.getByRole('heading', { name: '补天计划' })).toBeVisible();
   expect(errors).toEqual([]);
+  await selectLegacyView(page);
   await exerciseScriptImport(page, otherPage);
   await exerciseProductionStructure(page, otherPage);
   await exerciseTextAnalysis(page);

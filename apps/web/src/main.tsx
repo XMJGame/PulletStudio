@@ -16,6 +16,7 @@ import { ProjectSetupFields } from './components/ProjectSetupFields';
 import { StructureWorkbench } from './components/StructureWorkbench';
 import { AnalysisWorkbench } from './components/AnalysisWorkbench';
 import { projectFormData } from './project-settings';
+import { CreationWorkspace } from './components/CreationWorkspace';
 import './style.css';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
 const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
@@ -181,9 +182,9 @@ function App() {
   const [projectForm, setProjectForm] = useState(false);
   const [editProject, setEditProject] = useState<Project>();
   const [editEpisode, setEditEpisode] = useState<Episode>();
-  const [projectView, setProjectView] = useState<'shots' | 'script' | 'structure' | 'analysis' | 'canvas'>(
-    'shots',
-  );
+  const [projectView, setProjectView] = useState<
+    'create' | 'shots' | 'script' | 'structure' | 'analysis' | 'canvas'
+  >('create');
   const [canvasUnit, setCanvasUnit] = useState<ProductionUnit>();
   const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState(false);
@@ -328,13 +329,7 @@ function App() {
   }, [projectId, workspaceId, user?.id, projects]);
   useEffect(() => {
     setEpisodes([]);
-    setProjectView(
-      window.location.hash.startsWith('#canvas')
-        ? 'canvas'
-        : project && project.workFormat !== 'custom' && project.workFormat !== 'series'
-          ? 'structure'
-          : 'shots',
-    );
+    setProjectView(window.location.hash.startsWith('#canvas') ? 'canvas' : 'create');
     setEpisodeId('');
     setAccess({ canEdit: false, canManage: false });
     setEpisodeForm(false);
@@ -515,7 +510,7 @@ function App() {
             )}
           </div>
           <span className="local-indicator">
-            <a href="/canvas-lab.html">创作画布原型 ↗</a>　<i /> 私有工作区
+            <i /> 私有工作区
           </span>
         </header>
         <main className="content">
@@ -680,7 +675,7 @@ function App() {
               <h1>{project?.title || '每个故事，都从这里开始'}</h1>
               <p className="muted">
                 {project
-                  ? `${project.code} · ${project.aspectRatio} · ${visualStyleLabel(project.stylePreset)} · ${episodes.length} 个分集`
+                  ? `${project.code} · ${project.aspectRatio} · ${visualStyleLabel(project.stylePreset)}`
                   : '整理你的想法，逐步搭建属于你的影像世界。'}
               </p>
             </div>
@@ -816,45 +811,57 @@ function App() {
             <>
               <div className="workbench-tabs" aria-label="项目工作台视图">
                 <button
-                  aria-pressed={projectView === 'script'}
+                  aria-pressed={projectView === 'create'}
                   onClick={() => {
-                    setProjectView('script');
-                    setMessage('');
-                    setError('');
+                    setProjectView('create');
+                    window.history.replaceState(null, '', window.location.pathname + window.location.search);
                   }}
                 >
-                  项目剧本
+                  项目创作
                 </button>
-                <button
-                  aria-pressed={projectView === 'shots'}
-                  onClick={() => {
-                    setProjectView('shots');
-                    setMessage('');
-                    setError('');
-                  }}
-                >
-                  分集与镜头
-                </button>
-                <button
-                  aria-pressed={projectView === 'structure'}
-                  onClick={() => {
-                    setProjectView('structure');
-                    setMessage('');
-                    setError('');
-                  }}
-                >
-                  制作结构
-                </button>
-                <button
-                  aria-pressed={projectView === 'analysis'}
-                  onClick={() => {
-                    setProjectView('analysis');
-                    setMessage('');
-                    setError('');
-                  }}
-                >
-                  AI 分镜
-                </button>
+                <details className="legacy-tools">
+                  <summary>兼容制作工具</summary>
+                  <button
+                    aria-pressed={projectView === 'script'}
+                    onClick={() => {
+                      setProjectView('script');
+                      setMessage('');
+                      setError('');
+                    }}
+                  >
+                    项目剧本
+                  </button>
+                  <button
+                    aria-pressed={projectView === 'shots'}
+                    onClick={() => {
+                      setProjectView('shots');
+                      setMessage('');
+                      setError('');
+                    }}
+                  >
+                    分集与镜头
+                  </button>
+                  <button
+                    aria-pressed={projectView === 'structure'}
+                    onClick={() => {
+                      setProjectView('structure');
+                      setMessage('');
+                      setError('');
+                    }}
+                  >
+                    制作结构
+                  </button>
+                  <button
+                    aria-pressed={projectView === 'analysis'}
+                    onClick={() => {
+                      setProjectView('analysis');
+                      setMessage('');
+                      setError('');
+                    }}
+                  >
+                    AI 分镜
+                  </button>
+                </details>
                 <button
                   aria-pressed={projectView === 'canvas'}
                   onClick={() => {
@@ -895,10 +902,22 @@ function App() {
                         window.location.pathname + window.location.search,
                       );
                       setCanvasUnit(undefined);
-                      setProjectView('structure');
+                      setProjectView('create');
                     }}
                   />
                 </Suspense>
+              ) : projectView === 'create' ? (
+                <CreationWorkspace
+                  key={projectId}
+                  projectId={projectId}
+                  canEdit={access.canEdit}
+                  onCanvas={() => {
+                    setCanvasUnit(undefined);
+                    setProjectView('canvas');
+                    window.history.replaceState(null, '', '#canvas');
+                  }}
+                  onWorkflows={() => setShowWorkflowCenter(true)}
+                />
               ) : projectView === 'script' ? (
                 <ScriptWorkbench
                   key={projectId}

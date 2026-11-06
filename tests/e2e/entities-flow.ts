@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 export async function exerciseEntities(page: Page, otherPage: Page) {
   await page.getByRole('button', { name: '资产库', exact: true }).click();
@@ -88,7 +89,7 @@ export async function exerciseEntities(page: Page, otherPage: Page) {
   await library.getByLabel('资产描述', { exact: true }).fill('Local unsaved description');
   await otherPage.reload();
   await otherPage.getByRole('button', { name: /Umbrella launch/ }).click();
-  await otherPage.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(otherPage, '制作结构');
   await otherPage.getByRole('button', { name: '资产库', exact: true }).click();
   const otherLibrary = otherPage.getByRole('dialog', { name: '资产库', exact: true });
   await otherLibrary.getByRole('button', { name: 'Mira · v1 · 草稿', exact: true }).click();

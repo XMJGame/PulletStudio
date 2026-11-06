@@ -1827,3 +1827,70 @@ details form {
     display: block;
   }
 }
+
+.creation-home {
+  display: grid;
+  gap: 20px;
+}
+.creation-intro {
+  padding: 28px;
+}
+.creation-intro h2 {
+  margin: 12px 0;
+  font-size: 26px;
+}
+.creation-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+}
+.creation-actions .panel {
+  padding: 22px;
+}
+.creation-actions p {
+  min-height: 44px;
+}
+.legacy-tools {
+  margin-left: auto;
+  order: 2;
+  position: relative;
+}
+.legacy-tools summary {
+  padding: 10px;
+  color: var(--muted, #a3acb8);
+  cursor: pointer;
+}
+.legacy-tools[open] {
+  background: var(--surface, #181c22);
+  border: 1px solid #343b47;
+  padding: 4px;
+  border-radius: 8px;
+}
+.candidate-preview {
+  display: block;
+  max-width: min(100%, 400px);
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.entity-reference img.candidate-preview {
+  width: min(100%, 400px);
+  height: auto;
+}
+.preserve-space {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .creation-intro {
+    padding: 18px;
+  }
+  .creation-intro h2 {
+    font-size: 22px;
+  }
+  .legacy-tools {
+    margin-left: 0;
+    width: 100%;
+  }
+}

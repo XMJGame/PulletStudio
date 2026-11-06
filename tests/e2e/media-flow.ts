@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -124,7 +125,7 @@ export async function exerciseMedia(page: Page) {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: '镜头素材', exact: true })).toBeFocused();
   await page.reload();
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(page, '制作结构');
   await page.locator('.structure-shot-list button').filter({ hasText: 'SH001' }).click();
   await page.getByRole('button', { name: '镜头素材', exact: true }).click();
   await expect(dialog.locator('.media-library article')).toHaveCount(4);

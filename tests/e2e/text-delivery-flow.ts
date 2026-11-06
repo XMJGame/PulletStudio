@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 export async function exerciseTextDelivery(page: Page, otherPage: Page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -11,7 +12,7 @@ export async function exerciseTextDelivery(page: Page, otherPage: Page) {
   await page.getByLabel('制作卡构图', { exact: true }).fill('Local composition before conflict');
   await otherPage.reload();
   await otherPage.getByRole('button', { name: /Umbrella launch/ }).click();
-  await otherPage.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(otherPage, '制作结构');
   await otherPage.locator('.structure-shot-list button').filter({ hasText: 'SH001' }).click();
   await otherPage.getByRole('button', { name: '编辑完整制作卡', exact: true }).click();
   await otherPage.getByLabel('制作卡构图', { exact: true }).fill('Other editor composition');

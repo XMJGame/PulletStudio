@@ -1,7 +1,8 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 
 export async function exerciseProductionStructure(page: Page, otherPage: Page) {
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(page, '制作结构');
   await expect(page.getByRole('button', { name: /选择制作单元 裂开的天空/ })).toBeVisible();
   await page.getByRole('button', { name: '新建制作单元', exact: true }).click();
   await expect(page.getByLabel('制作单元名称')).toBeFocused();
@@ -40,7 +41,7 @@ export async function exerciseProductionStructure(page: Page, otherPage: Page) {
   await page.getByRole('button', { name: '编辑制作单元', exact: true }).click();
   await page.getByLabel('单元概述').fill('Local unsaved outline.');
   await otherPage.reload();
-  await otherPage.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(otherPage, '制作结构');
   await otherPage.getByRole('button', { name: '选择制作单元 Platform', exact: true }).click();
   await otherPage.getByRole('button', { name: '编辑制作单元', exact: true }).click();
   await otherPage.getByLabel('单元概述').fill('Newer outline from another editor.');
@@ -92,6 +93,7 @@ export async function exerciseProductionStructure(page: Page, otherPage: Page) {
   await expect(page.getByLabel('叙事方式')).toHaveValue('none');
   await expect(page.getByLabel('项目目标时长（秒）')).toHaveValue('30');
   await page.getByRole('button', { name: '创建项目', exact: true }).click();
+  await selectLegacyView(page, '制作结构');
   await expect(page.getByRole('heading', { name: '制作结构', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '添加结构镜头', exact: true }).click();
   await page.getByLabel('镜头画面').fill('Compact umbrella on a bright studio surface.');
@@ -99,9 +101,10 @@ export async function exerciseProductionStructure(page: Page, otherPage: Page) {
   await page.getByRole('button', { name: '创建结构镜头', exact: true }).click();
   await expect(page.getByLabel('镜头编号', { exact: true })).toHaveValue('SH001');
   await page.reload();
+  await selectLegacyView(page, '制作结构');
   await expect(page.getByRole('heading', { name: '制作结构', exact: true })).toBeVisible();
   await expect(page.locator('.structure-shot-list')).toContainText('Compact umbrella');
-  await page.getByRole('button', { name: '分集与镜头', exact: true }).click();
+  await selectLegacyView(page, '分集与镜头');
   await expect(page.getByRole('tab', { name: /EP/ })).toHaveCount(0);
   await page.getByRole('button', { name: '项目设置', exact: true }).click();
   await expect(page.getByLabel('作品格式')).toHaveValue('ad');

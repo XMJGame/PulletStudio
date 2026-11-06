@@ -2,21 +2,21 @@
 
 Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Drizzle和SQLite。Provider与Storage保留独立边界，工作区/项目权限从第一版实施。
 
-基础生产链覆盖原文导入、AI 分镜草案、完整镜头卡、提示词、媒体生成、资产版本、候选审核、选片和标准交付。正式画布支持镜头生成与候选比较，实例池支持自动或手动选机。官方 MiniMax H3 单首帧 I2V 已独立实机验收，画布闭环和双实例调度使用 Mock。团队批次和正式部署仍在计划中。
+当前主线是资产、创作画布、工作流、生成候选与素材复用。空项目可以直接粘贴提示词生成，候选预览、下载、复用、存入素材库或引用回画布；不要求剧本、镜头或已编译提示词。原生产链和数据保留在兼容制作工具中。[产品 V2](docs/PRODUCT-V2.md) · [自由创作](docs/LIGHT-CREATION.md)
 
-产品入口为生产工作台和正式创作画布，正式剪辑/调色/转场/合成/混音交外部软件。保留轻量故事板预演，重点把原件、选片、版本与清单有序交给后期；不开发专业剪辑器。完整范围见[ADR-009](docs/ADR-009-production-and-postproduction-handoff.md)。
+正式剪辑/调色/转场/合成/混音交外部软件；不开发专业剪辑器。工作区权限、媒体版本、Provider/Storage 和实例调度保留。[V2 取舍审计与顺序](docs/architecture/PRODUCT-V2-AUDIT.md)
 
-右上角“创作画布原型”或`/canvas-lab.html`可体验参考/提示词/配置/多方案比较、连线、布局保存及本地媒体预览。当前是隔离样例，不读取项目或调用模型，见[CANVAS-LAB](docs/CANVAS-LAB.md)。
+G0 原型仅在 `/canvas-lab.html` 保留为隔离研究样例，主产品入口已移除。正式创作使用项目画布，不读取原型浏览器数据。[CANVAS-LAB](docs/CANVAS-LAB.md)
 
-正式项目点击「创作画布」，或在制作结构打开单元画布。选择镜头节点后，可以用发布的工作流生成，或并排比较候选并审核选片。生成队列在画布关闭后继续运行。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
+正式项目点击「创作画布」，创建/打开画布后点击「自由生成」，选中便签时带入文字。生成关闭窗口后继续执行。旧镜头节点仍可使用原正式工作流、候选比较与审核。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
 
-项目工作流中心支持 API 图导入、版本管理、四类创作参数和依赖诊断。配置管理员可用项目镜头试跑固定修订，审核者核对证据后发布给项目团队。[工作流中心](docs/WORKFLOW-CENTER.md)
+项目工作流中心支持 API 图导入、版本管理、创作参数和依赖诊断。管理员可直接粘贴提示词试跑；自由创作可用已保存固定版本，正式镜头保留团队发布机制。[工作流中心](docs/WORKFLOW-CENTER.md)
 
 ## 从哪里开始
 
 - [当前完成情况与后续计划](docs/IMPLEMENTATION-STATUS.md)：唯一实时排期与测试证据。
 - [文档导航](docs/README.md)：按产品、模块、运行、历史查阅，避免重读旧路线。
-- [产品基线](docs/MASTER-PLAN.md)：长期需求，用户当前决定及有效ADR优先。
+- [产品 V2](docs/PRODUCT-V2.md)：当前方向；[MASTER-PLAN](docs/MASTER-PLAN.md)保留长期及历史需求。
 - [工程目录与整理规则](docs/architecture/REPOSITORY-MAP.md)：代码、测试、文档与运行数据的实际位置。
 - [开发运行与恢复](docs/operations/DEVELOPMENT.md)：完整命令、Worker、检查节奏及备份。
 
@@ -39,9 +39,9 @@ npm run dev:api
 
 | 命令 | 用途 |
 |---|---|
-| `npm run worker:text` | 原文范围分析/AI分镜 |
+| `npm run worker:text` | 兼容原文分析/AI分镜，日常自由创作无需启动 |
 | `npm run worker:generation` | ComfyUI生成、结果核对与归档 |
-| `npm run worker:animatic` | 可选FFmpeg低清预演 |
+| `npm run worker:animatic` | 兼容轻量预演，按需启动 |
 
 未配置模型也可以手工创作、导入素材、审核与交付。ComfyUI使用管理员受信连接及固定API图，不移动、不重装用户的ComfyUI或模型。工作流绑定与参数见[使用说明](docs/COMFYUI-GENERATION.md)。
 
@@ -59,7 +59,7 @@ npm run test:e2e
 npm run db:backup
 ```
 
-G2-C2 本机验收通过 201 项 API 测试、4 项图解析测试、8 项工作流中心场景、5 项正式画布场景和 1 项生产全流程。[实施状态](docs/IMPLEMENTATION-STATUS.md)
+V2 L1 本机通过 203 项 API 测试、4 项图解析、9 项工作流场景、5 项正式画布场景和 1 项旧生产全流程。新增链路使用隔离 Mock；早期官方 MiniMax H3 单首帧 I2V 已独立实机验收。[实施状态](docs/IMPLEMENTATION-STATUS.md)
 
 SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 

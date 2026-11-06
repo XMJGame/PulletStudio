@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 export async function exerciseProposalReview(page: Page, otherPage: Page) {
   const preview = page.getByLabel('分镜草案预览');
@@ -7,7 +8,7 @@ export async function exerciseProposalReview(page: Page, otherPage: Page) {
   await page.getByLabel('候选计划时长（秒）').fill('8');
   await otherPage.reload();
   await otherPage.getByRole('button', { name: /Umbrella launch/ }).click();
-  await otherPage.getByRole('button', { name: 'AI 分镜', exact: true }).click();
+  await selectLegacyView(otherPage, 'AI 分镜');
   await otherPage.getByRole('button', { name: '编辑候选 1', exact: true }).click();
   await otherPage.getByLabel('候选画面描述').fill('Other editor proposal revision.');
   await otherPage.getByLabel('候选计划时长（秒）').fill('7');
@@ -57,7 +58,7 @@ export async function exerciseProposalReview(page: Page, otherPage: Page) {
   await expect(page.getByRole('dialog', { name: '完整镜头制作卡' })).toContainText('Human-reviewed umbrella');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(page, '制作结构');
   await expect(page.locator('.structure-shot-list button')).toHaveCount(2);
   await page.locator('.structure-shot-list button').filter({ hasText: 'Human-reviewed umbrella' }).click();
   await page

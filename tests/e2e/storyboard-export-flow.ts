@@ -1,3 +1,4 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -11,7 +12,7 @@ export async function exerciseStoryboardExports(page: Page, otherPage: Page) {
   await expect(page.getByLabel('分镜导出预览')).toContainText('历史输入');
   await otherPage.reload();
   await otherPage.getByRole('button', { name: /Umbrella launch/ }).click();
-  await otherPage.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(otherPage, '制作结构');
   await otherPage.locator('.structure-shot-list button').filter({ hasText: 'SH001' }).click();
   await otherPage
     .getByRole('textbox', { name: '画面描述', exact: true })

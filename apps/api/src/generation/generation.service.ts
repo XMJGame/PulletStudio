@@ -14,6 +14,8 @@ import {
   mediaVersions,
   workflowCatalogs,
   workflowCatalogRevisions,
+  boards,
+  mediaAssets,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -28,6 +30,7 @@ import { jobRoute, reserveInstance, routingOptions } from './generation-routing'
 import { ComfyProvider, GenerationError } from './comfy-provider';
 import {
   CreateJobInput,
+  CreateProjectJobInput,
   renderWorkflow,
   WorkflowInput,
   referenceImageLimit,
@@ -45,6 +48,7 @@ export type GenerationSnapshot = {
   image?: { id: string; fileName: string; version: number; mime: string; bytes: number; sha256: string };
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
+  prompt?: { positivePrompt: string; negativePrompt: string; source: string };
 };
 const now = () => new Date().toISOString();
 
@@ -72,6 +76,9 @@ export class GenerationService {
   manage(user: CurrentUser, workspaceId: string) {
     if (!this.canConfigure(user, workspaceId))
       fail(403, 'ENDPOINT_APPROVAL_REQUIRED', '配置生成连接或工作流需要实例和工作区管理权限');
+  }
+  authorizeCreation(user: CurrentUser, projectId: string) {
+    return this.authz.project(user, projectId, 'edit');
   }
   connection(id: string, workspaceId?: string) {
     const row = this.database.db
@@ -221,7 +228,7 @@ export class GenerationService {
       connections,
     };
   }
-  routingOptions(user: CurrentUser, workflowId: string) {
+  routingOptions(user: CurrentUser, workflowId: string, exploration = false) {
     const workflow = this.workflow(workflowId);
     this.authz.project(user, workflow.projectId, 'edit');
     const catalog = catalogState(this.database, workflowId);
@@ -229,9 +236,10 @@ export class GenerationService {
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     if (
       catalog?.archived ||
-      (release
-        ? release.action !== 'publish' || release.workflowId !== workflowId
-        : definition.reviewRequired)
+      (!exploration &&
+        (release
+          ? release.action !== 'publish' || release.workflowId !== workflowId
+          : definition.reviewRequired))
     )
       fail(409, 'WORKFLOW_NOT_PUBLISHED', '请选择项目当前可用的生产工作流版本');
     return { items: routingOptions(this.database, workflow) };
@@ -409,7 +417,9 @@ export class GenerationService {
   }
   private view(row: Job, user: CurrentUser, access = this.production.access(user, row.projectId)) {
     const workflow = this.workflow(row.workflowId);
-    const { image, parameterValues, fieldValues } = JSON.parse(row.snapshotJson) as GenerationSnapshot;
+    const { image, parameterValues, fieldValues, prompt } = JSON.parse(
+      row.snapshotJson,
+    ) as GenerationSnapshot;
     const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const result = row.mediaVersionId ? this.media.version(user, row.mediaVersionId) : null;
     const route = jobRoute(this.database, row.id);
@@ -418,6 +428,15 @@ export class GenerationService {
       purpose: row.purpose,
       instance: route ? { id: route.connectionId, name: route.instanceName, mode: route.mode } : null,
       shotId: row.shotId,
+      boardId: row.boardId,
+      prompt,
+      inLibrary: result
+        ? (this.database.db
+            .select({ value: mediaAssets.inLibrary })
+            .from(mediaAssets)
+            .where(eq(mediaAssets.id, result.assetId))
+            .get()?.value ?? false)
+        : false,
       shotVersion: row.shotVersion,
       promptId: row.promptId,
       image: image ? { id: image.id, fileName: image.fileName, version: image.version } : null,
@@ -450,17 +469,53 @@ export class GenerationService {
     key: string,
     purpose: Job['purpose'] = 'production',
   ) {
+    return this.enqueue(user, { shotId }, input, key, purpose);
+  }
+  createProjectJob(
+    user: CurrentUser,
+    projectId: string,
+    input: CreateProjectJobInput,
+    key: string,
+    purpose: Job['purpose'] = 'production',
+  ) {
+    return this.enqueue(user, { projectId }, input, key, purpose);
+  }
+  private enqueue(
+    user: CurrentUser,
+    context: { shotId: string; projectId?: never } | { projectId: string; shotId?: never },
+    input: Omit<CreateJobInput, 'promptId'> & {
+      promptId?: string;
+      positivePrompt?: string;
+      negativePrompt?: string;
+      source?: string;
+      boardId?: string;
+    },
+    key: string,
+    purpose: Job['purpose'],
+  ) {
     return this.database.db.transaction(
       () => {
-        const shot = this.production.shot(user, shotId, 'edit'),
-          project = this.authz.project(user, shot.projectId);
+        const shot = context.shotId ? this.production.shot(user, context.shotId, 'edit') : null,
+          shotId = shot?.id ?? null,
+          project = this.authz.project(user, shot?.projectId ?? context.projectId!, 'edit');
         if (purpose === 'workflow_test') this.manage(user, project.workspaceId);
+        if (
+          input.boardId &&
+          !this.database.db
+            .select({ id: boards.id })
+            .from(boards)
+            .where(and(eq(boards.id, input.boardId), eq(boards.projectId, project.id)))
+            .get()
+        )
+          fail(404, 'NOT_FOUND', '画布不属于当前项目');
         const replay = this.database.db
           .select()
           .from(generationJobs)
           .where(
             and(
-              eq(generationJobs.shotId, shotId),
+              shotId
+                ? eq(generationJobs.shotId, shotId)
+                : and(isNull(generationJobs.shotId), eq(generationJobs.projectId, project.id)),
               eq(generationJobs.creatorId, user.id),
               eq(generationJobs.requestKey, key),
             ),
@@ -473,7 +528,8 @@ export class GenerationService {
             route?.mode !== input.routing?.mode ||
             (input.routing?.mode === 'manual' && route?.connectionId !== input.routing.connectionId) ||
             replay.workflowId !== input.workflowId ||
-            replay.promptId !== input.promptId ||
+            replay.promptId !== (input.promptId ?? null) ||
+            replay.boardId !== (input.boardId ?? null) ||
             (input.canvasShotVersion !== undefined && replay.shotVersion !== input.canvasShotVersion) ||
             (JSON.parse(replay.snapshotJson) as GenerationSnapshot).image?.id !== input.imageVersionId
           )
@@ -481,6 +537,16 @@ export class GenerationService {
           const definition = JSON.parse(this.workflow(replay.workflowId).definitionJson) as WorkflowInput;
           const requested = resolveParameters(definition, input.parameterValues);
           const snapshot = JSON.parse(replay.snapshotJson) as GenerationSnapshot;
+          if (
+            !shot &&
+            JSON.stringify(snapshot.prompt) !==
+              JSON.stringify({
+                positivePrompt: input.positivePrompt,
+                negativePrompt: input.negativePrompt ?? '',
+                source: input.source ?? '',
+              })
+          )
+            fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他提示词');
           if (JSON.stringify(snapshot.parameterValues ?? {}) !== JSON.stringify(requested))
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成参数');
           if (
@@ -490,14 +556,14 @@ export class GenerationService {
             fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他创作字段值');
           return this.view(replay, user);
         }
-        if (input.canvasShotVersion !== undefined && shot.version !== input.canvasShotVersion)
+        if (input.canvasShotVersion !== undefined && shot?.version !== input.canvasShotVersion)
           fail(409, 'CANVAS_SHOT_OUTDATED', '制作卡已有新版本，请更新画布镜头引用后再生成');
         const workflow = this.workflow(input.workflowId);
         if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
         const catalog = catalogState(this.database, workflow.id);
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
-        if (purpose === 'production') {
+        if (shot && purpose === 'production') {
           const release = catalog && latestRelease(this.database, catalog.familyId);
           if (
             release
@@ -508,33 +574,37 @@ export class GenerationService {
         }
         const boundConnection = this.connection(workflow.connectionId, project.workspaceId);
         if (!input.routing && !boundConnection.enabled) fail(409, 'CONNECTION_DISABLED', '生成连接已停用');
-        const prompt = this.database.db
-          .select()
-          .from(promptArtifacts)
-          .where(and(eq(promptArtifacts.id, input.promptId), eq(promptArtifacts.shotId, shotId)))
-          .get();
-        if (!prompt) fail(404, 'NOT_FOUND', '提示词不属于当前镜头');
-        if (prompt.cardVersion !== shot.version || prompt.projectVersion !== project.version)
+        const prompt = shot
+          ? this.database.db
+              .select()
+              .from(promptArtifacts)
+              .where(and(eq(promptArtifacts.id, input.promptId!), eq(promptArtifacts.shotId, shot.id)))
+              .get()
+          : null;
+        if (shot && !prompt) fail(404, 'NOT_FOUND', '提示词不属于当前镜头');
+        if (prompt && (prompt.cardVersion !== shot!.version || prompt.projectVersion !== project.version))
           fail(409, 'PROMPT_OUTDATED', '请按当前制作卡及项目设定重新保存提示词');
-        const active = this.database.db
-          .select({ id: generationJobs.id })
-          .from(generationJobs)
-          .where(
-            and(
-              eq(generationJobs.shotId, shotId),
-              inArray(generationJobs.state, [
-                'queued',
-                'preparing',
-                'submitting',
-                'submitted',
-                'fetching',
-                'needs_reconciliation',
-              ]),
-            ),
-          )
-          .get();
+        const active = shot
+          ? this.database.db
+              .select({ id: generationJobs.id })
+              .from(generationJobs)
+              .where(
+                and(
+                  eq(generationJobs.shotId, shot.id),
+                  inArray(generationJobs.state, [
+                    'queued',
+                    'preparing',
+                    'submitting',
+                    'submitted',
+                    'fetching',
+                    'needs_reconciliation',
+                  ]),
+                ),
+              )
+              .get()
+          : null;
         if (active) fail(409, 'GENERATION_ACTIVE', '此镜头已有待处理任务，请先查看任务记录');
-        const approvals = this.approvals(user, shotId);
+        const approvals = shot ? this.approvals(user, shot.id) : [];
         if ((workflow.capability === 'video.image_to_video') !== Boolean(input.imageVersionId))
           fail(400, 'REFERENCE_IMAGE_REQUIRED', '图生视频须选择一个项目图片版本');
         let image: GenerationSnapshot['image'];
@@ -557,7 +627,11 @@ export class GenerationService {
             sha256: source.sha256,
           };
         }
-        const rendered = JSON.parse(prompt.renderedJson) as {
+        const rendered = (
+          prompt
+            ? JSON.parse(prompt.renderedJson)
+            : { positivePrompt: input.positivePrompt!, negativePrompt: input.negativePrompt ?? '' }
+        ) as {
           positivePrompt: string;
           negativePrompt: string;
         };
@@ -580,16 +654,24 @@ export class GenerationService {
             id,
             purpose,
             shotId,
+            boardId: input.boardId,
             projectId: project.id,
             workspaceId: project.workspaceId,
             workflowId: workflow.id,
-            promptId: prompt.id,
-            shotVersion: shot.version,
+            promptId: prompt?.id,
+            shotVersion: shot?.version,
             projectVersion: project.version,
             connectionVersion: connection.version,
             creatorId: user.id,
             requestKey: key,
-            snapshotJson: JSON.stringify({ graph, approvals, image, parameterValues, fieldValues }),
+            snapshotJson: JSON.stringify({
+              graph,
+              approvals,
+              image,
+              parameterValues,
+              fieldValues,
+              ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),
+            }),
             state: 'queued',
             nextAt: Date.now(),
             createdAt,
@@ -634,6 +716,79 @@ export class GenerationService {
       .all();
     return rows.map((row) => this.view(row, user, access));
   }
+  projectJobs(user: CurrentUser, projectId: string, boardId?: string, cursor?: string) {
+    const access = this.production.access(user, projectId);
+    if (
+      boardId &&
+      !this.database.db
+        .select({ id: boards.id })
+        .from(boards)
+        .where(and(eq(boards.id, boardId), eq(boards.projectId, projectId)))
+        .get()
+    )
+      fail(404, 'NOT_FOUND', '画布不属于当前项目');
+    const scope = and(
+      eq(generationJobs.projectId, projectId),
+      isNull(generationJobs.shotId),
+      eq(generationJobs.purpose, 'production'),
+      boardId ? eq(generationJobs.boardId, boardId) : undefined,
+    );
+    const boundary = cursor
+      ? this.database.db
+          .select()
+          .from(generationJobs)
+          .where(and(scope, eq(generationJobs.id, cursor)))
+          .get()
+      : undefined;
+    if (cursor && !boundary) fail(400, 'INVALID_CURSOR', '任务分页位置无效');
+    const rows = this.database.db
+      .select()
+      .from(generationJobs)
+      .where(
+        and(
+          scope,
+          boundary
+            ? or(
+                lt(generationJobs.createdAt, boundary.createdAt),
+                and(eq(generationJobs.createdAt, boundary.createdAt), lt(generationJobs.id, boundary.id)),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
+      .limit(31)
+      .all();
+    return {
+      items: rows.slice(0, 30).map((row) => this.view(row, user, access)),
+      nextCursor: rows.length > 30 ? rows[29].id : null,
+    };
+  }
+  saveCandidate(user: CurrentUser, id: string) {
+    return this.database.db.transaction(
+      () => {
+        const job = this.job(id);
+        this.authz.project(user, job.projectId, 'edit');
+        if (job.shotId || job.purpose !== 'production' || job.state !== 'completed' || !job.mediaVersionId)
+          fail(409, 'CANDIDATE_NOT_READY', '请选择已完成的自由创作结果');
+        const version = this.media.version(user, job.mediaVersionId);
+        const saved = this.database.db
+          .update(mediaAssets)
+          .set({ inLibrary: true })
+          .where(
+            and(
+              eq(mediaAssets.id, version.assetId),
+              eq(mediaAssets.projectId, job.projectId),
+              eq(mediaAssets.inLibrary, false),
+            ),
+          )
+          .returning()
+          .get();
+        if (saved) this.audit(user, job.workspaceId, 'generation.candidate.save', job.id);
+        return this.view(job, user);
+      },
+      { behavior: 'immediate' },
+    );
+  }
   testJobs(user: CurrentUser, workflowId: string) {
     const workflow = this.workflow(workflowId);
     const access = this.production.access(user, workflow.projectId);
@@ -641,7 +796,7 @@ export class GenerationService {
     const rows = this.database.db
       .select({ job: generationJobs, shotCode: shots.code })
       .from(generationJobs)
-      .innerJoin(shots, eq(shots.id, generationJobs.shotId))
+      .leftJoin(shots, eq(shots.id, generationJobs.shotId))
       .where(and(eq(generationJobs.workflowId, workflowId), eq(generationJobs.purpose, 'workflow_test')))
       .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
       .limit(30)

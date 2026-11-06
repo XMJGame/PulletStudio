@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, CursorPage } from '../api';
 import { CardEditor, PromptArtifact } from '../prompt-types';
 import { Dialog } from './Dialog';
@@ -7,15 +7,19 @@ import { ParameterValues, parameterLabels, describeParameters } from './Generati
 import type { GenerationConfig as Config, Workflow } from '../workflows/workflow-types';
 import { GenerationSettings } from '../workflows/GenerationSettings';
 import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
+import type { MediaVersion } from '../media-types';
 
 export type GenerationJob = {
   id: string;
-  shotId: string;
+  shotId: string | null;
+  boardId?: string | null;
+  inLibrary?: boolean;
+  prompt?: { positivePrompt: string; negativePrompt: string; source: string };
   createdAt: string;
   shotCode?: string;
   evidenceCurrent?: boolean;
   state: string;
-  shotVersion: number;
+  shotVersion: number | null;
   workflowName: string;
   workflowRevision: number;
   instance: { id: string; name: string; mode: 'auto' | 'manual' } | null;
@@ -91,16 +95,28 @@ export function GenerationDialog({
   onClose,
   testWorkflow,
   canvas,
+  creation,
 }: {
-  shotId: string;
+  shotId?: string;
   onClose: () => void;
   testWorkflow?: Workflow;
   canvas?: CanvasGeneration;
+  creation?: {
+    projectId: string;
+    boardId?: string;
+    initialPrompt?: string;
+    onPin?: (media: MediaVersion) => Promise<void>;
+  };
 }) {
   const [context, setContext] = useState<CardEditor>();
   const [config, setConfig] = useState<Config>();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [positivePrompt, setPositivePrompt] = useState(creation?.initialPrompt ?? '');
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [source, setSource] = useState('');
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const expandedHistory = useRef(false);
   const [workflowId, setWorkflowId] = useState(testWorkflow?.id ?? '');
   const [pinnedWorkflow, setPinnedWorkflow] = useState<Workflow>();
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
@@ -120,14 +136,18 @@ export function GenerationDialog({
   const [instanceOptions, setInstanceOptions] = useState<InstanceOption[]>();
   const [optionsError, setOptionsError] = useState('');
   const [optionsRefresh, setOptionsRefresh] = useState(0);
-  const jobPath = testWorkflow
-    ? `/generation-workflows/${testWorkflow.id}/test-jobs`
-    : `/shots/${shotId}/generation-jobs`;
-  const projectPath = `/projects/${context?.shot.projectId}`;
+  const jobPath = creation
+    ? testWorkflow
+      ? `/generation-workflows/${testWorkflow.id}/test-jobs`
+      : `/projects/${creation.projectId}/generation-jobs${creation.boardId ? `?boardId=${creation.boardId}` : ''}`
+    : testWorkflow
+      ? `/generation-workflows/${testWorkflow.id}/test-jobs`
+      : `/shots/${shotId}/generation-jobs`;
+  const projectPath = `/projects/${creation?.projectId ?? context?.shot.projectId}`;
   const poolRouting = Boolean(config?.poolConfigured && !testWorkflow);
-  const availableWorkflows = (config?.productionWorkflows ?? []).filter(
-    (workflow) => !canvas || workflow.releaseState === 'published',
-  );
+  const availableWorkflows = (
+    creation ? (config?.workflows ?? []) : (config?.productionWorkflows ?? [])
+  ).filter((workflow) => !canvas || workflow.releaseState === 'published');
   const selectedWorkflow =
     testWorkflow ??
     (pinnedWorkflow?.id === workflowId
@@ -156,6 +176,7 @@ export function GenerationDialog({
   const canCreateJob =
     config?.canEdit && (!testWorkflow || config.canConfigure) && (!canvas || canvas.canEdit) && canvasCurrent;
   const promptVerified =
+    Boolean(creation) ||
     !(testWorkflow || canvas) ||
     Boolean(
       preview &&
@@ -165,6 +186,25 @@ export function GenerationDialog({
     );
   useEffect(() => {
     let active = true;
+    if (creation) {
+      void Promise.all([
+        api<Config>(`${projectPath}/generation-config`),
+        api<Job[] | CursorPage<Job>>(jobPath),
+      ])
+        .then(([settings, history]) => {
+          if (active) {
+            setConfig(settings);
+            setJobs(Array.isArray(history) ? history : history.items);
+            setNextCursor(Array.isArray(history) ? null : history.nextCursor);
+          }
+        })
+        .catch((failure) => {
+          if (active) setError(failure instanceof Error ? failure.message : '读取生成设置失败');
+        });
+      return () => {
+        active = false;
+      };
+    }
     void api<CardEditor>(`/shots/${shotId}/card/editor`)
       .then(async (value) => {
         const [settings, history, available] = await Promise.all([
@@ -191,7 +231,9 @@ export function GenerationDialog({
     let active = true;
     setInstanceOptions(undefined);
     setOptionsError('');
-    void api<{ items: InstanceOption[] }>(`/generation-workflows/${workflowId}/routing-options`)
+    void api<{ items: InstanceOption[] }>(
+      `/generation-workflows/${workflowId}/routing-options${creation ? '?context=exploration' : ''}`,
+    )
       .then((value) => {
         if (active) setInstanceOptions(value.items);
       })
@@ -203,15 +245,24 @@ export function GenerationDialog({
     };
   }, [poolRouting, workflowId, canCreateJob, optionsRefresh]);
   useEffect(() => {
-    if (!context) return;
+    if (!context && !creation) return;
     let active = true;
     let polling = false;
     const timer = setInterval(() => {
       if (polling) return;
       polling = true;
-      void api<Job[]>(jobPath)
+      void api<Job[] | CursorPage<Job>>(jobPath)
         .then((value) => {
-          if (active) setJobs(value);
+          if (active) {
+            if (Array.isArray(value)) setJobs(value);
+            else {
+              setJobs((previous) => [
+                ...value.items,
+                ...previous.filter((item) => !value.items.some((row) => row.id === item.id)),
+              ]);
+              if (!expandedHistory.current) setNextCursor(value.nextCursor);
+            }
+          }
         })
         .catch(() => undefined)
         .finally(() => {
@@ -253,13 +304,15 @@ export function GenerationDialog({
   }
   return (
     <Dialog
-      title={testWorkflow ? '工作流试跑' : canvas ? '画布镜头生成' : '镜头媒体生成'}
+      title={testWorkflow ? '工作流试跑' : creation ? '自由生成' : canvas ? '画布镜头生成' : '镜头媒体生成'}
       description={
-        testWorkflow
-          ? '使用此镜头已保存的提示词验证固定修订。结果保存在工作流的试跑记录中。'
-          : canvas
-            ? `${canvas.title} · 固定制作卡 v${canvas.shotVersion} · 结果归档到此镜头的候选`
-            : '选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。'
+        creation
+          ? '粘贴提示词并选择工作流，结果先保留为候选，可预览、复用或存入素材库。'
+          : testWorkflow
+            ? '使用此镜头已保存的提示词验证固定修订。结果保存在工作流的试跑记录中。'
+            : canvas
+              ? `${canvas.title} · 固定制作卡 v${canvas.shotVersion} · 结果归档到此镜头的候选`
+              : '选定工作流和提示词，结果归档后会出现在镜头素材的候选列表中。'
       }
       busy={busy}
       onClose={onClose}
@@ -284,13 +337,25 @@ export function GenerationDialog({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (!confirmed || !promptVerified || manualChoiceRequired) return;
+              if ((!creation && !confirmed) || !promptVerified || manualChoiceRequired) return;
               void run(async () => {
                 const value = await api<Job>(
-                  jobPath,
+                  creation
+                    ? `${projectPath}/${testWorkflow ? 'workflow-trials' : 'generation-jobs'}`
+                    : jobPath,
                   'POST',
                   {
-                    ...(testWorkflow ? { shotId } : { workflowId }),
+                    ...(creation
+                      ? {
+                          workflowId: testWorkflow?.id ?? workflowId,
+                          positivePrompt,
+                          negativePrompt,
+                          source,
+                          ...(creation.boardId && !testWorkflow ? { boardId: creation.boardId } : {}),
+                        }
+                      : testWorkflow
+                        ? { shotId }
+                        : { workflowId }),
                     ...(canvas ? { canvasShotVersion: canvas.shotVersion } : {}),
                     ...(poolRouting
                       ? {
@@ -300,7 +365,7 @@ export function GenerationDialog({
                               : { mode: 'auto' },
                         }
                       : {}),
-                    promptId,
+                    ...(!creation ? { promptId } : {}),
                     parameterValues: selectedParameters,
                     fieldValues: creativeValues(selectedWorkflow?.fields ?? [], fieldOverrides),
                     ...(needsImage ? { imageVersionId } : {}),
@@ -532,91 +597,144 @@ export function GenerationDialog({
                   )}
                 </>
               )}
-              <label>
-                已保存提示词
-                <select
-                  aria-label="已保存提示词"
-                  value={promptId}
-                  required
-                  onChange={(event) => {
-                    setPromptId(event.target.value);
-                    setPreview(undefined);
-                    resetRequest();
-                  }}
-                >
-                  <option value="">选择当前制作卡的提示词</option>
-                  {prompts
-                    .filter((item) => item.cardVersion === context?.shot.version)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        制作卡 v{item.cardVersion} · {new Date(item.createdAt).toLocaleString()}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {(testWorkflow || canvas) &&
-                !prompts.some((item) => item.cardVersion === context?.shot.version) && (
-                  <p className="field-hint">请先为此镜头当前制作卡保存一版提示词。</p>
-                )}
-              <button
-                type="button"
-                disabled={!promptId}
-                onClick={() =>
-                  void run(async () =>
-                    setPreview(await api<PromptArtifact>(`/shots/${shotId}/prompts/${promptId}`)),
-                  )
-                }
-              >
-                核对提示词
-              </button>
-              {preview && (
+              {creation ? (
                 <>
                   <label>
                     正向提示词
                     <textarea
                       aria-label="正向提示词"
-                      rows={4}
-                      readOnly
-                      value={preview.rendered.positivePrompt}
+                      rows={5}
+                      value={positivePrompt}
+                      required
+                      maxLength={16000}
+                      onChange={(event) => {
+                        setPositivePrompt(event.target.value);
+                        resetRequest();
+                      }}
+                      placeholder="描述你想生成的画面、动作与氛围"
                     />
                   </label>
-                  {preview.rendered.negativePrompt && (
+                  <details>
+                    <summary>负向提示词与来源（可选）</summary>
                     <label>
                       负向提示词
                       <textarea
                         aria-label="负向提示词"
                         rows={2}
-                        readOnly
-                        value={preview.rendered.negativePrompt}
+                        value={negativePrompt}
+                        maxLength={16000}
+                        onChange={(event) => {
+                          setNegativePrompt(event.target.value);
+                          resetRequest();
+                        }}
                       />
                     </label>
+                    <label>
+                      提示词来源
+                      <input
+                        aria-label="提示词来源"
+                        value={source}
+                        maxLength={300}
+                        onChange={(event) => {
+                          setSource(event.target.value);
+                          resetRequest();
+                        }}
+                        placeholder="例如外部工具或创作笔记"
+                      />
+                    </label>
+                  </details>
+                </>
+              ) : (
+                <>
+                  <label>
+                    已保存提示词
+                    <select
+                      aria-label="已保存提示词"
+                      value={promptId}
+                      required
+                      onChange={(event) => {
+                        setPromptId(event.target.value);
+                        setPreview(undefined);
+                        resetRequest();
+                      }}
+                    >
+                      <option value="">选择当前制作卡的提示词</option>
+                      {prompts
+                        .filter((item) => item.cardVersion === context?.shot.version)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            制作卡 v{item.cardVersion} · {new Date(item.createdAt).toLocaleString()}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {(testWorkflow || canvas) &&
+                    !prompts.some((item) => item.cardVersion === context?.shot.version) && (
+                      <p className="field-hint">请先为此镜头当前制作卡保存一版提示词。</p>
+                    )}
+                  <button
+                    type="button"
+                    disabled={!promptId}
+                    onClick={() =>
+                      void run(async () =>
+                        setPreview(await api<PromptArtifact>(`/shots/${shotId}/prompts/${promptId}`)),
+                      )
+                    }
+                  >
+                    核对提示词
+                  </button>
+                  {preview && (
+                    <>
+                      <label>
+                        正向提示词
+                        <textarea
+                          aria-label="正向提示词"
+                          rows={4}
+                          readOnly
+                          value={preview.rendered.positivePrompt}
+                        />
+                      </label>
+                      {preview.rendered.negativePrompt && (
+                        <label>
+                          负向提示词
+                          <textarea
+                            aria-label="负向提示词"
+                            rows={2}
+                            readOnly
+                            value={preview.rendered.negativePrompt}
+                          />
+                        </label>
+                      )}
+                      {preview.freshness.reasons.map((item) => (
+                        <p className="field-hint" key={item}>
+                          {item}
+                        </p>
+                      ))}
+                      {!promptVerified && <p className="notice">请按当前制作卡和项目设定重新保存提示词。</p>}
+                    </>
                   )}
-                  {preview.freshness.reasons.map((item) => (
-                    <p className="field-hint" key={item}>
-                      {item}
-                    </p>
-                  ))}
-                  {!promptVerified && <p className="notice">请按当前制作卡和项目设定重新保存提示词。</p>}
                 </>
               )}
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={(event) => setConfirmed(event.target.checked)}
-                />
-                {testWorkflow
-                  ? '确认将所选输入发送到 ComfyUI 并消耗试跑资源'
-                  : needsImage
-                    ? '确认发送所选提示词和首帧图片到该工作流并消耗生成资源'
-                    : '确认发送所选提示词到该工作流并消耗生成资源'}
-              </label>
+              {!creation && (
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(event) => setConfirmed(event.target.checked)}
+                  />
+                  {testWorkflow
+                    ? '确认将所选输入发送到 ComfyUI 并消耗试跑资源'
+                    : needsImage
+                      ? '确认发送所选提示词和首帧图片到该工作流并消耗生成资源'
+                      : '确认发送所选提示词到该工作流并消耗生成资源'}
+                </label>
+              )}
               <button
                 className="primary"
                 disabled={
                   !workflowId ||
-                  !promptId ||
-                  !confirmed ||
+                  (creation ? !positivePrompt.trim() : !promptId) ||
+                  (!creation && !confirmed) ||
                   (needsImage && !imageVersionId) ||
                   !promptVerified ||
                   manualChoiceRequired
@@ -627,13 +745,14 @@ export function GenerationDialog({
             </fieldset>
           </form>
         )}
-        <h3>{testWorkflow ? '此修订的试跑任务' : '此镜头的生成任务'}</h3>
+        <h3>{testWorkflow ? '此修订的试跑任务' : creation ? '生成候选' : '此镜头的生成任务'}</h3>
         {!jobs.length && <p className="field-hint">暂无生成任务。</p>}
         {jobs.map((job) => (
           <article className="entity-reference" key={job.id}>
             <div>
               <strong>
-                {job.workflowName} · 工作流 v{job.workflowRevision} · 制作卡 v{job.shotVersion}
+                {job.workflowName} · 工作流 v{job.workflowRevision}
+                {job.shotVersion !== null ? ` · 制作卡 v${job.shotVersion}` : ''}
               </strong>
               {job.instance && (
                 <p className="field-hint">
@@ -670,7 +789,121 @@ export function GenerationDialog({
                   {job.result.metadata.frameRate ? ` · ${job.result.metadata.frameRate} fps` : ''}
                 </p>
               )}
-              <p>{generationStates[job.state] ?? job.state}</p>
+              <p>
+                {!job.shotId && job.state === 'completed'
+                  ? job.inLibrary
+                    ? '已存入素材库'
+                    : '候选已生成'
+                  : (generationStates[job.state] ?? job.state)}
+              </p>
+              {creation &&
+                job.result &&
+                (job.result.mediaType === 'image' ? (
+                  <img
+                    className="candidate-preview"
+                    src={job.result.contentUrl}
+                    alt="生成候选"
+                    loading="lazy"
+                  />
+                ) : (
+                  <video
+                    className="candidate-preview"
+                    src={job.result.contentUrl}
+                    controls
+                    preload="none"
+                    playsInline
+                  />
+                ))}
+              {creation && job.prompt && (
+                <details>
+                  <summary>查看此次提示词</summary>
+                  <p className="preserve-space">{job.prompt.positivePrompt}</p>
+                  {job.prompt.negativePrompt && <p>负向：{job.prompt.negativePrompt}</p>}
+                  {job.prompt.source && <p>来源：{job.prompt.source}</p>}
+                </details>
+              )}
+              {creation && !testWorkflow && job.state === 'completed' && (
+                <div className="review-actions">
+                  {!job.inLibrary && config?.canEdit && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          const value = await api<Job>(
+                            `/generation-jobs/${job.id}/save-to-library`,
+                            'POST',
+                            {},
+                          );
+                          setJobs((previous) =>
+                            previous.map((item) => (item.id === value.id ? value : item)),
+                          );
+                          setMessage('已存入项目素材库。');
+                        })
+                      }
+                    >
+                      存入素材库
+                    </button>
+                  )}
+                  {config?.canEdit && job.prompt && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        setPositivePrompt(job.prompt!.positivePrompt);
+                        setNegativePrompt(job.prompt!.negativePrompt);
+                        setSource(job.prompt!.source);
+                        resetRequest();
+                        setMessage('提示词已复用，可继续修改生成。');
+                      }}
+                    >
+                      复用提示词
+                    </button>
+                  )}
+                  {config?.canEdit &&
+                    job.mediaVersionId &&
+                    selectedWorkflow?.capability === 'video.image_to_video' &&
+                    job.result?.mediaType === 'image' && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const media = await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`);
+                            setImages((previous) => ({
+                              items: [
+                                {
+                                  id: media.id,
+                                  fileName: media.fileName,
+                                  version: media.version,
+                                  createdAt: job.createdAt,
+                                },
+                                ...(previous?.items.filter((item) => item.id !== media.id) ?? []),
+                              ],
+                              nextCursor: previous?.nextCursor ?? null,
+                            }));
+                            setImageVersionId(media.id);
+                            resetRequest();
+                          })
+                        }
+                      >
+                        用作首帧
+                      </button>
+                    )}
+                  {creation.onPin && job.mediaVersionId && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await creation.onPin!(
+                            await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`),
+                          );
+                          setMessage('已添加到画布，请保存画布。');
+                        })
+                      }
+                    >
+                      添加到画布
+                    </button>
+                  )}
+                </div>
+              )}
               {job.errorCode && (
                 <p className="field-hint">
                   {errors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
@@ -727,7 +960,27 @@ export function GenerationDialog({
             )}
           </article>
         ))}
-        {config && !testWorkflow && !canvas && (
+        {creation && !testWorkflow && nextCursor && (
+          <button
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const more = await api<CursorPage<Job>>(
+                  `${jobPath}${jobPath.includes('?') ? '&' : '?'}cursor=${nextCursor}`,
+                );
+                expandedHistory.current = true;
+                setJobs((previous) => [
+                  ...previous,
+                  ...more.items.filter((item) => !previous.some((row) => row.id === item.id)),
+                ]);
+                setNextCursor(more.nextCursor);
+              })
+            }
+          >
+            更多生成记录
+          </button>
+        )}
+        {config && !testWorkflow && !canvas && !creation && (
           <GenerationSettings
             config={config}
             projectPath={projectPath}

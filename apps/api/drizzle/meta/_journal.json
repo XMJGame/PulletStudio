@@ -274,6 +274,20 @@
       "when": 1793934046480,
       "tag": "0038_generation_job_routing",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1793936502816,
+      "tag": "0039_project_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1793938036475,
+      "tag": "0040_free_generation_worker_guard",
+      "breakpoints": true
     }
   ]
 }

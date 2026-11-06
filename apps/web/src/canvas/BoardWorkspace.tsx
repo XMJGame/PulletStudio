@@ -62,6 +62,7 @@ export default function BoardWorkspace({
     version: number;
     title: string;
   }>();
+  const [freeGeneration, setFreeGeneration] = useState(false);
   const [newTitle, setNewTitle] = useState('创作探索');
   const [refresh, setRefresh] = useState(0);
   const [pan, setPan] = useState(false);
@@ -618,6 +619,9 @@ export default function BoardWorkspace({
       ) : (
         <>
           <div className="creative-toolbar">
+            <button disabled={busy} onClick={() => setFreeGeneration(true)}>
+              {base.canEdit ? '自由生成' : '生成与结果'}
+            </button>
             <input
               aria-label="当前画布名称"
               value={title}
@@ -790,6 +794,17 @@ export default function BoardWorkspace({
             /100 节点 · {layout.edges.length}/200 连线
           </div>
         </>
+      )}
+      {freeGeneration && base && !denied && (
+        <GenerationDialog
+          creation={{
+            projectId,
+            boardId: base.id,
+            initialPrompt: node?.data.text,
+            onPin: editable ? pinCandidate : undefined,
+          }}
+          onClose={() => setFreeGeneration(false)}
+        />
       )}
       {shotTool?.type === 'generation' && (
         <GenerationDialog

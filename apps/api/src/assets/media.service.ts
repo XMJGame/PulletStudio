@@ -358,6 +358,13 @@ export class MediaService {
               projectId: row.projectId,
               workspaceId: row.workspaceId,
               name: row.fileName,
+              inLibrary:
+                !row.generationJobId ||
+                this.database.db
+                  .select({ shotId: generationJobs.shotId })
+                  .from(generationJobs)
+                  .where(eq(generationJobs.id, row.generationJobId))
+                  .get()?.shotId != null,
               version: 1,
               createdBy: row.createdBy,
               createdAt: now,
@@ -620,17 +627,20 @@ export class MediaService {
   }
   assets(user: CurrentUser, projectId: string, cursor?: string) {
     this.authz.project(user, projectId);
-    const productionAsset = notExists(
-      this.database.db
-        .select({ id: mediaVersions.id })
-        .from(mediaVersions)
-        .where(
-          and(
-            eq(mediaVersions.assetId, mediaAssets.id),
-            eq(mediaVersions.version, 1),
-            eq(mediaVersions.origin, 'workflow_test'),
+    const productionAsset = and(
+      eq(mediaAssets.inLibrary, true),
+      notExists(
+        this.database.db
+          .select({ id: mediaVersions.id })
+          .from(mediaVersions)
+          .where(
+            and(
+              eq(mediaVersions.assetId, mediaAssets.id),
+              eq(mediaVersions.version, 1),
+              eq(mediaVersions.origin, 'workflow_test'),
+            ),
           ),
-        ),
+      ),
     );
     const boundary = cursor
       ? this.database.db

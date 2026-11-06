@@ -208,6 +208,8 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await page.getByRole('button', { name: '回到保留的草稿' }).click();
   await page.getByRole('dialog', { name: '画布修订历史' }).getByLabel('关闭对话框').click();
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await page.getByText('兼容制作工具', { exact: true }).click();
+  await page.getByRole('button', { name: '制作结构', exact: true }).click();
   await page.getByRole('button', { name: new RegExp(unit.title) }).click();
   await page.getByRole('button', { name: '打开单元画布', exact: true }).click();
   const scopedId = await createBoard(page, 'Harbor unit board');

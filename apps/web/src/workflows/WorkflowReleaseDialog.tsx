@@ -69,6 +69,7 @@ export function WorkflowReleaseDialog({
   const [shots, setShots] = useState<CursorPage<TrialShot>>();
   const [shotId, setShotId] = useState('');
   const [trialOpen, setTrialOpen] = useState(false);
+  const [freeTrial, setFreeTrial] = useState(false);
   const [evidence, setEvidence] = useState('');
   const [action, setAction] = useState<'publish' | 'revoke'>('publish');
   const [reason, setReason] = useState('');
@@ -146,40 +147,52 @@ export function WorkflowReleaseDialog({
           <p className="field-hint">项目已有新修订。返回工作流列表可打开最新版本。</p>
         )}
         {config?.canConfigure && currentHead && current?.enabled && (
-          <section aria-label="选择试跑镜头">
-            <h3>使用项目镜头试跑</h3>
-            {shots && (
-              <label>
-                试跑镜头
-                <select
-                  aria-label="试跑镜头"
-                  value={shotId}
-                  onChange={(event) => setShotId(event.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">选择已有镜头</option>
-                  {shots.items.map((shot) => (
-                    <option key={shot.id} value={shot.id}>
-                      {shot.code} · {shot.description.slice(0, 90)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {(!shots || shots.nextCursor) && (
-              <button disabled={busy} onClick={() => void run(loadShots)}>
-                {shots ? '更多镜头' : '读取项目镜头'}
-              </button>
-            )}
-            {shots?.items.length === 0 && (
-              <p className="field-hint">请先在项目制作结构中创建镜头并保存提示词。</p>
-            )}
-            {shots && (
-              <button disabled={busy || !shotId} onClick={() => setTrialOpen(true)}>
-                打开试跑表单
-              </button>
-            )}
+          <section aria-label="提示词试跑">
+            <h3>直接试跑</h3>
+            <p className="field-hint">粘贴提示词验证当前工作流，结果仅保留为试跑证据。</p>
+            <button disabled={busy} onClick={() => setFreeTrial(true)}>
+              粘贴提示词试跑
+            </button>
           </section>
+        )}
+        {config?.canConfigure && currentHead && current?.enabled && (
+          <details>
+            <summary>使用旧镜头试跑（兼容）</summary>
+            <section aria-label="选择试跑镜头">
+              <h3>使用项目镜头试跑</h3>
+              {shots && (
+                <label>
+                  试跑镜头
+                  <select
+                    aria-label="试跑镜头"
+                    value={shotId}
+                    onChange={(event) => setShotId(event.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">选择已有镜头</option>
+                    {shots.items.map((shot) => (
+                      <option key={shot.id} value={shot.id}>
+                        {shot.code} · {shot.description.slice(0, 90)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {(!shots || shots.nextCursor) && (
+                <button disabled={busy} onClick={() => void run(loadShots)}>
+                  {shots ? '更多镜头' : '读取项目镜头'}
+                </button>
+              )}
+              {shots?.items.length === 0 && (
+                <p className="field-hint">请先在项目制作结构中创建镜头并保存提示词。</p>
+              )}
+              {shots && (
+                <button disabled={busy || !shotId} onClick={() => setTrialOpen(true)}>
+                  打开试跑表单
+                </button>
+              )}
+            </section>
+          </details>
         )}
         <section aria-label="试跑证据">
           <h3>试跑证据</h3>
@@ -187,7 +200,7 @@ export function WorkflowReleaseDialog({
           {jobs.map((job) => (
             <article className="panel" key={job.id}>
               <strong>
-                {job.shotCode} · 制作卡 v{job.shotVersion}
+                {job.shotCode ? `${job.shotCode} · 制作卡 v${job.shotVersion}` : '项目提示词试跑'}
               </strong>
               <p className="field-hint">
                 {new Date(job.createdAt).toLocaleString()} · {generationStates[job.state] ?? job.state}
@@ -325,6 +338,16 @@ export function WorkflowReleaseDialog({
           关闭
         </button>
       </div>
+      {freeTrial && (
+        <GenerationDialog
+          creation={{ projectId }}
+          testWorkflow={workflow}
+          onClose={() => {
+            setFreeTrial(false);
+            void run(load);
+          }}
+        />
+      )}
       {trialOpen && (
         <GenerationDialog
           shotId={shotId}

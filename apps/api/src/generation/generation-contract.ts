@@ -162,6 +162,13 @@ export const createJobInput = z
 export const reconcileInput = z.object({ remoteId: z.uuid().optional() }).strict();
 export type WorkflowInput = z.infer<typeof workflowInput>;
 export type CreateJobInput = z.infer<typeof createJobInput>;
+export const createProjectJobInput = createJobInput.omit({ promptId: true, canvasShotVersion: true }).extend({
+  positivePrompt: z.string().trim().min(1).max(16000),
+  negativePrompt: z.string().max(16000).default(''),
+  boardId: z.uuid().optional(),
+  source: z.string().trim().max(300).default(''),
+});
+export type CreateProjectJobInput = z.infer<typeof createProjectJobInput>;
 export const referenceImageLimit = 16 * 1024 * 1024;
 export const referenceImageExtensions: Readonly<Record<string, string>> = {
   'image/png': 'png',

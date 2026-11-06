@@ -48,6 +48,10 @@ test.afterAll(async () => {
   await owner?.dispose();
   await remote?.close();
 });
+test.beforeEach(() => {
+  remote.mock.submissions.length = 0;
+  remote.mock.mode = 'normal';
+});
 async function project(title: string) {
   return api('POST', '/projects', { workspaceId: setup.workspace.id, title });
 }
@@ -64,6 +68,84 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
   await page.getByRole('button', { name: '工作流中心', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '工作流中心', exact: true })).toBeVisible();
 }
+test('empty project and canvas generate pasted prompts, save candidates and reopen without a shot', async ({
+  page,
+}) => {
+  const value = await project('Free canvas creation');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Free fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, {
+    ...fixtureWorkflow(connection.id),
+    name: 'Free draft T2I',
+    reviewRequired: true,
+  });
+  await open(page, value);
+  await page
+    .getByRole('dialog', { name: '工作流中心', exact: true })
+    .getByRole('button', { name: '关闭工作流中心', exact: true })
+    .click();
+  await expect(page.getByRole('region', { name: '项目创作' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'AI 分镜', exact: true })).not.toBeVisible();
+  await page.screenshot({ path: 'test-results/light-project-desktop.png', fullPage: true });
+  await page.getByRole('button', { name: '创作画布', exact: true }).click();
+  await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Prompt study');
+  await page.getByRole('button', { name: '创建画布', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByLabel('画布文字内容', { exact: true }).fill('A train entering a sunlit station');
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+  await expect(generation.getByLabel('正向提示词', { exact: true })).toHaveValue(
+    'A train entering a sunlit station',
+  );
+  await expect(generation.getByLabel('已保存提示词', { exact: true })).toHaveCount(0);
+  await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
+  remote.mock.mode = 'hold';
+  await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+  await expect(generation.getByRole('status')).toContainText('生成任务已加入队列');
+  await generation.getByRole('button', { name: '关闭', exact: true }).click();
+  remote.mock.mode = 'normal';
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(generation.getByAltText('生成候选')).toBeVisible();
+  expect((await api('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
+  await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
+  await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+  await generation.getByRole('button', { name: '添加到画布', exact: true }).click();
+  await expect(generation.getByRole('status')).toContainText('已添加到画布');
+  await generation.getByRole('button', { name: '复用提示词', exact: true }).click();
+  await expect(generation.getByLabel('正向提示词', { exact: true })).toHaveValue(
+    'A train entering a sunlit station',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => generation.evaluate((element) => element.scrollWidth <= element.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: 'test-results/light-generation-mobile.png' });
+  await generation.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  await expect(page.locator('.creative-save-state')).toContainText('已保存');
+  await page.reload();
+  await expect(page.locator('.react-flow__node')).toHaveCount(2);
+  await page.getByRole('button', { name: '自由生成', exact: true }).click();
+  await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+  const history = await api('GET', `/projects/${value.id}/generation-jobs`);
+  expect(history.items).toHaveLength(1);
+  expect(history.items[0].shotId).toBeNull();
+  expect(history.items[0].takeId).toBeNull();
+  await generation.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await page.getByRole('button', { name: '工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '试跑与发布', exact: true }).click();
+  await page.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
+  const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+  await trial.getByLabel('正向提示词', { exact: true }).fill('A quiet testing scene');
+  await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
+  await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+});
+
 test('project workflow center imports, visualizes and maps existing API fields without submitting generation', async ({
   page,
 }) => {
@@ -296,6 +378,7 @@ test('creator form renders declared scalar controls and freezes overrides into a
   });
   await open(page, value);
   await page.getByRole('button', { name: '关闭工作流中心' }).click();
+  await page.getByText('兼容制作工具', { exact: true }).click();
   await page.getByRole('button', { name: '制作结构', exact: true }).click();
   await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
   await page.getByRole('button', { name: '媒体生成', exact: true }).click();
@@ -376,6 +459,7 @@ test('manager runs a fixed draft and releases only the reviewed evidence', async
   await expect(center.getByText('待审核发布', { exact: true })).toBeVisible();
   await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
   const review = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+  await review.getByText('使用旧镜头试跑（兼容）', { exact: true }).click();
   await review.getByRole('button', { name: '读取项目镜头', exact: true }).click();
   await review.getByLabel('试跑镜头', { exact: true }).selectOption(shot.id);
   await review.getByRole('button', { name: '打开试跑表单', exact: true }).click();
@@ -528,6 +612,7 @@ test('generation defaults to automatic routing and records the manually selected
     });
     await open(page, value);
     await page.getByRole('button', { name: '关闭工作流中心' }).click();
+    await page.getByText('兼容制作工具', { exact: true }).click();
     await page.getByRole('button', { name: '制作结构', exact: true }).click();
     await page.locator('.structure-shot-list button').filter({ hasText: shot.code }).click();
     await page.getByRole('button', { name: '媒体生成', exact: true }).click();

@@ -1,12 +1,13 @@
+import { selectLegacyView } from './legacy-navigation';
 import { expect, Page } from '@playwright/test';
 
 export async function exerciseTextAnalysis(page: Page) {
-  await page.getByRole('button', { name: '项目剧本', exact: true }).click();
+  await selectLegacyView(page, '项目剧本');
   await page.getByLabel('剧本标题').fill('Umbrella brief');
   await page.getByLabel('剧本正文').fill('30-second advert. A compact umbrella opens on a studio table.');
   await page.getByRole('button', { name: '保存剧本版本', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('v1');
-  await page.getByRole('button', { name: 'AI 分镜', exact: true }).click();
+  await selectLegacyView(page, 'AI 分镜');
   await page.getByRole('button', { name: '文本模型连接', exact: true }).click();
   await page.getByRole('button', { name: '新增文本连接', exact: true }).click();
   await page.getByLabel('连接名称', { exact: true }).fill('隔离浏览器模拟');
@@ -42,8 +43,8 @@ export async function exerciseTextAnalysis(page: Page) {
   await page.screenshot({ path: 'test-results/analysis-draft-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: 'test-results/analysis-draft-desktop.png', fullPage: true });
-  await page.getByRole('button', { name: '制作结构', exact: true }).click();
+  await selectLegacyView(page, '制作结构');
   await expect(page.locator('.structure-shot-list button')).toHaveCount(1);
-  await page.getByRole('button', { name: 'AI 分镜', exact: true }).click();
+  await selectLegacyView(page, 'AI 分镜');
   await expect(page.getByLabel('分镜草案预览')).toContainText('Mock storyboard draft');
 }

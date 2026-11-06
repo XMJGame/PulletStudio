@@ -1,5 +1,7 @@
 # Pullet Studio — V1.0 通用 AI 影视创作平台完整实施方案
 
+> 2026-11-06 产品 V2 优先：[当前方向](PRODUCT-V2.md)、[ADR-011](ADR-011-asset-led-creation.md)、[自由创作](LIGHT-CREATION.md)。资产/画布/工作流/通用生成是主线；已解除 Shot、完整卡、编译提示词和正式发布对自由创作的强制前置。下文旧镜头/剧本合同作为兼容参考，不再驱动新增核心需求。实际顺序唯一来源为 [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md)。
+
 > 2026-11-05 决策说明：本文保留长期产品需求；主技术栈已由 ADR-001 确定为 NestJS/React/Drizzle/SQLite，下文 FastAPI/SQLAlchemy/Alembic 及重建 M0 的示例不再执行。团队级模块规格见 `architecture/TEAM-V1-TECHNICAL-BLUEPRINT.md`，实际状态与顺序唯一来源为 `IMPLEMENTATION-STATUS.md`。
 
 > G1与实例决策更新：[正式画布合同](modules/CANVAS-G1-IMPLEMENTATION.md)采用Board/不可变修订、固定业务引用及原RBAC/CAS，连线仅注释。[ADR-010](ADR-010-comfy-instances-and-board-boundary.md)冻结原生POST /prompt＋多个独立实例，默认auto、高级manual；指定实例不可用不静默换机，端点/密钥只在后端。G1不做调度。后续G2生成闭环→独立实例调度→团队/批量/交付/部署，替代原Distributed路线及“画布全部排后”的旧建议。

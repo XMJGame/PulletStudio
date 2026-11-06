@@ -77,7 +77,11 @@ export class GenerationWorker {
             return null;
           }
         }
-        const leaseId = route ? `pool:${randomUUID()}` : randomUUID();
+        const leaseId = route
+          ? `${row.shotId ? 'pool:' : 'pool:free:'}${randomUUID()}`
+          : row.shotId
+            ? randomUUID()
+            : `free:${randomUUID()}`;
         return this.database.db
           .update(generationJobs)
           .set({
@@ -130,14 +134,19 @@ export class GenerationWorker {
     if (job.purpose === 'workflow_test') this.jobs.manage(user, job.workspaceId);
     const connection = this.jobs.connection(connectionId, job.workspaceId);
     if (
-      this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
-      this.production.project(user, job.projectId).version !== job.projectVersion ||
+      (job.shotId !== null &&
+        (this.production.shot(user, job.shotId, 'edit').version !== job.shotVersion ||
+          this.production.project(user, job.projectId).version !== job.projectVersion)) ||
       connection.version !== job.connectionVersion
     )
       throw new GenerationError('GENERATION_INPUT_CHANGED');
     if (route && !checkReservedInstance(this.database, connection, job.workflowId, route))
       throw new GenerationError('INSTANCE_CHECK_EXPIRED');
-    if (JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals))
+    this.jobs.authorizeCreation(user, job.projectId);
+    if (
+      job.shotId &&
+      JSON.stringify(this.jobs.approvals(user, job.shotId)) !== JSON.stringify(snapshot.approvals)
+    )
       throw new GenerationError('GENERATION_APPROVAL_CHANGED');
   }
   private async readImage(
@@ -209,7 +218,8 @@ export class GenerationWorker {
   }
   private async process(job: Job, signal: AbortSignal) {
     const user = this.actor(job),
-      shot = this.production.shot(user, job.shotId, 'edit');
+      shot = job.shotId ? this.production.shot(user, job.shotId, 'edit') : null;
+    this.jobs.authorizeCreation(user, job.projectId);
     const workflow = this.jobs.workflow(job.workflowId),
       definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
     const route = jobRoute(this.database, job.id);
@@ -230,7 +240,7 @@ export class GenerationWorker {
           return;
         }
       }
-      if (route || definition.fields?.length)
+      if (!shot || route || definition.fields?.length)
         await provider.validate({ ...definition, graph: snapshot.graph });
       if (definition.image) {
         if (!snapshot.image) throw new GenerationError('REFERENCE_IMAGE_INVALID');
@@ -330,15 +340,17 @@ export class GenerationWorker {
       () => {
         this.owns(job);
         if (!this.jobs.connection(connection.id).enabled) throw new GenerationError('CONNECTION_DISABLED');
-        const currentShot = this.production.shot(user, shot.id, 'edit');
+        this.jobs.authorizeCreation(user, job.projectId);
+        const currentShot = shot ? this.production.shot(user, shot.id, 'edit') : null;
         if (job.purpose === 'workflow_test') {
           this.jobs.audit(user, job.workspaceId, 'generation.test.complete', job.id);
           this.release(job, { state: 'test_completed', mediaVersionId, errorCode: null });
           return;
         }
-        const take = this.media.addTake(user, shot.id, mediaVersionId, currentShot.version);
+        const take =
+          shot && currentShot ? this.media.addTake(user, shot.id, mediaVersionId, currentShot.version) : null;
         this.jobs.audit(user, job.workspaceId, 'generation.job.complete', job.id);
-        this.release(job, { state: 'completed', mediaVersionId, takeId: take.id, errorCode: null });
+        this.release(job, { state: 'completed', mediaVersionId, takeId: take?.id ?? null, errorCode: null });
       },
       { behavior: 'immediate' },
     );

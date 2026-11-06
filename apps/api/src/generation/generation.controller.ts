@@ -6,6 +6,7 @@ import {
   connectionInput,
   connectionUpdate,
   createJobInput,
+  createProjectJobInput,
   reconcileInput,
   workflowInput,
 } from './generation-contract';
@@ -21,6 +22,53 @@ export class GenerationController {
   @Get('projects/:id/generation-config')
   config(@Req() req: StudioRequest, @Param('id') id: string) {
     return this.generation.config(req.user, parse(uuid, id));
+  }
+  @Get('projects/:id/generation-jobs')
+  projectJobs(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('boardId') boardId?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.generation.projectJobs(
+      req.user,
+      parse(uuid, id),
+      boardId === undefined ? undefined : parse(uuid, boardId),
+      cursor === undefined ? undefined : parse(uuid, cursor),
+    );
+  }
+  @Post('projects/:id/generation-jobs')
+  projectSubmit(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Headers('idempotency-key') key: string,
+    @Body() body: unknown,
+  ) {
+    return this.generation.createProjectJob(
+      req.user,
+      parse(uuid, id),
+      parse(createProjectJobInput, body),
+      parse(uuid, key),
+    );
+  }
+  @Post('projects/:id/workflow-trials')
+  projectTrial(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Headers('idempotency-key') key: string,
+    @Body() body: unknown,
+  ) {
+    return this.generation.createProjectJob(
+      req.user,
+      parse(uuid, id),
+      parse(createProjectJobInput.omit({ routing: true, boardId: true }), body),
+      parse(uuid, key),
+      'workflow_test',
+    );
+  }
+  @Post('generation-jobs/:id/save-to-library')
+  saveCandidate(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.saveCandidate(req.user, parse(uuid, id));
   }
   @Get('projects/:id/generation-images')
   images(@Req() req: StudioRequest, @Param('id') id: string, @Query('cursor') cursor?: string) {
@@ -62,8 +110,8 @@ export class GenerationController {
     return this.generation.jobs(req.user, parse(uuid, id));
   }
   @Get('generation-workflows/:id/routing-options')
-  routingOptions(@Req() req: StudioRequest, @Param('id') id: string) {
-    return this.generation.routingOptions(req.user, parse(uuid, id));
+  routingOptions(@Req() req: StudioRequest, @Param('id') id: string, @Query('context') context?: string) {
+    return this.generation.routingOptions(req.user, parse(uuid, id), context === 'exploration');
   }
   @Post('shots/:id/generation-jobs')
   submit(
