@@ -13,7 +13,14 @@ export async function startComfyMock(files) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     requests.push(url.pathname);
-    if (url.pathname === '/system_stats') return send(res, { system: { comfyui_version: 'fixture' } });
+    if (url.pathname === '/system_stats')
+      return mock.mode === 'probe-down'
+        ? send(res, {}, 503)
+        : send(res, { system: { comfyui_version: 'fixture' } });
+    if (url.pathname === '/queue') {
+      await mock.beforeQueue?.();
+      return send(res, mock.queue ?? { queue_running: [], queue_pending: [] });
+    }
     if (url.pathname.startsWith('/object_info/')) {
       const type = decodeURIComponent(url.pathname.split('/').at(-1));
       const info = {

@@ -178,6 +178,17 @@
   flex: none;
   margin: 0;
 }
+.workflow-instance-pool section {
+  margin-bottom: 20px;
+}
+.workflow-instance-pool article {
+  margin: 12px 0;
+  padding: 14px;
+  overflow-wrap: anywhere;
+}
+.workflow-instance-pool .dialog-field-row {
+  flex-wrap: wrap;
+}
 .workflow-release details img,
 .workflow-release details video {
   display: block;

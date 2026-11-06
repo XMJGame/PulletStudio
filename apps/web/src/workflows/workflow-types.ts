@@ -17,7 +17,16 @@ export type Workflow = {
   releaseState?: 'compatible' | 'published' | 'draft';
   publishedWorkflowId?: string | null;
 };
-export type Connection = { id: string; name: string; version: number; enabled: boolean };
+export type Connection = {
+  id: string;
+  name: string;
+  version: number;
+  enabled: boolean;
+  poolEnabled: boolean;
+  poolVersion: number;
+  maxRunning: number;
+  maxPending: number;
+};
 export type GenerationConfig = {
   canConfigure: boolean;
   canEdit: boolean;

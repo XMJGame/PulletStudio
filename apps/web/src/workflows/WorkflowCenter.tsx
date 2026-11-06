@@ -11,6 +11,7 @@ import {
 } from './workflow-types';
 import { DependencyView, type Inspection } from './DependencyView';
 import { WorkflowReleaseDialog } from './WorkflowReleaseDialog';
+import { InstancePoolDialog } from './InstancePoolDialog';
 import './workflow-center.css';
 type History = {
   familyId: string;
@@ -50,6 +51,7 @@ export default function WorkflowCenter({
     [inspection, setInspection] = useState<Inspection>();
   const [inspectionName, setInspectionName] = useState('');
   const [releaseWorkflow, setReleaseWorkflow] = useState<Workflow>();
+  const [showInstancePool, setShowInstancePool] = useState(false);
   const restoreAttempt = useState(() => ({ body: '', key: '' }))[0];
   const path = `/projects/${projectId}`;
   function report(reason: unknown) {
@@ -166,6 +168,11 @@ export default function WorkflowCenter({
             {config?.canConfigure && (
               <button disabled={busy} onClick={() => requestEditor()}>
                 新建工作流配置
+              </button>
+            )}
+            {config?.canConfigure && (
+              <button disabled={busy} onClick={() => setShowInstancePool(true)}>
+                管理实例池
               </button>
             )}
             <div className="workflow-saved-list">
@@ -406,6 +413,13 @@ export default function WorkflowCenter({
             )}
           </div>
         </Dialog>
+      )}
+      {showInstancePool && config?.canConfigure && (
+        <InstancePoolDialog
+          config={config}
+          onRefresh={refreshConfig}
+          onClose={() => setShowInstancePool(false)}
+        />
       )}
       {releaseWorkflow && (
         <WorkflowReleaseDialog

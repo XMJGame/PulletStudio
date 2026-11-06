@@ -25,6 +25,7 @@ export type RemoteObservation =
   { state: 'pending' | 'failed' } | { state: 'ready'; result: ResultDescriptor };
 export interface MediaProvider {
   probe(signal?: AbortSignal): Promise<void>;
+  queueStatus(signal?: AbortSignal): Promise<{ running: number; pending: number }>;
   validate(workflow: WorkflowInput): Promise<void>;
   inspect(workflow: WorkflowInput): Promise<DependencyReport>;
   uploadImage(jobId: string, mime: string, image: Buffer, signal: AbortSignal): Promise<string>;
@@ -131,6 +132,12 @@ export class ComfyProvider {
       async probe(signal) {
         const data = await json('/system_stats', signal);
         if (!data.system) throw new GenerationError('COMFY_RESPONSE_INVALID');
+      },
+      async queueStatus(signal) {
+        const data = await json('/queue', signal);
+        if (!Array.isArray(data.queue_running) || !Array.isArray(data.queue_pending))
+          throw new GenerationError('COMFY_RESPONSE_INVALID');
+        return { running: data.queue_running.length, pending: data.queue_pending.length };
       },
       async validate(workflow) {
         const cache = new Map<string, Promise<Record<string, unknown>>>();

@@ -1103,9 +1103,18 @@ export const generationConnections = sqliteTable(
     encryptedSecret: text('encrypted_secret'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     version: integer('version').notNull().default(1),
+    poolEnabled: integer('pool_enabled', { mode: 'boolean' }).notNull().default(false),
+    poolVersion: integer('pool_version').notNull().default(1),
+    maxRunning: integer('max_running').notNull().default(1),
+    maxPending: integer('max_pending').notNull().default(2),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId)],
+  (t) => [
+    uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId),
+    uniqueIndex('generation_pool_endpoint')
+      .on(t.workspaceId, t.baseUrl)
+      .where(sql`${t.poolEnabled} = 1`),
+  ],
 );
 
 export const timelineRevisions = sqliteTable(
@@ -1201,6 +1210,44 @@ export const generationWorkflows = sqliteTable(
     }),
     uniqueIndex('generation_workflow_scope').on(t.id, t.projectId, t.workspaceId),
     index('generation_workflow_project').on(t.projectId, t.createdAt),
+  ],
+);
+
+export const generationInstanceChecks = sqliteTable(
+  'generation_instance_checks',
+  {
+    workflowId: text('workflow_id').notNull(),
+    connectionId: text('connection_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    connectionVersion: integer('connection_version').notNull(),
+    poolVersion: integer('pool_version').notNull(),
+    checkedAt: integer('checked_at').notNull(),
+    reachable: integer('reachable', { mode: 'boolean' }).notNull(),
+    running: integer('running'),
+    pending: integer('pending'),
+    status: text('status', { enum: ['compatible', 'incompatible', 'unverified'] }).notNull(),
+    binding: text('binding', { enum: ['passed', 'failed', 'unverified'] }).notNull(),
+    reportJson: text('report_json'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workflowId, t.connectionId] }),
+    foreignKey({
+      columns: [t.workflowId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        generationWorkflows.id,
+        generationWorkflows.projectId,
+        generationWorkflows.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.connectionId, t.workspaceId],
+      foreignColumns: [generationConnections.id, generationConnections.workspaceId],
+    }),
+    check(
+      'generation_instance_check_counts',
+      sql`(${t.running} IS NULL AND ${t.pending} IS NULL) OR (${t.running} IS NOT NULL AND ${t.pending} IS NOT NULL AND ${t.running}>=0 AND ${t.pending}>=0)`,
+    ),
   ],
 );
 

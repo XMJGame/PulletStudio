@@ -260,6 +260,13 @@
       "when": 1793931495885,
       "tag": "0036_workflow_release",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1793933326863,
+      "tag": "0037_generation_instance_pool",
+      "breakpoints": true
     }
   ]
 }

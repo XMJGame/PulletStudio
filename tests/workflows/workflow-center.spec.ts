@@ -422,3 +422,67 @@ test('manager runs a fixed draft and releases only the reviewed evidence', async
   expect((await api('GET', `/projects/${value.id}/generation-config`)).productionWorkflows).toEqual([]);
   expect((await api('GET', `/shots/${shot.id}/takes`)).items).toEqual([]);
 });
+
+test('workspace pool enrolls two instances and displays different workflow checks', async ({ page }) => {
+  const alternate = await startComfyMock({});
+  try {
+    const value = await project('Instance pool evidence');
+    const first = await api('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Local A',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const second = await api('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Local B',
+      baseUrl: alternate.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, {
+      ...fixtureWorkflow(first.id),
+      name: 'Pool comparison workflow',
+    });
+    const draft = await api('POST', `/workflow-catalogs/${workflow.familyId}/revisions`, {
+      expectedVersion: 1,
+      summary: 'Keep production v1 while editing v2',
+      definition: { ...fixtureWorkflow(first.id), name: 'Pool comparison draft', reviewRequired: true },
+    });
+    alternate.mock.objectInfoOverrides = { ImageOutput: null };
+    alternate.mock.queue = { queue_running: [['private remote work']], queue_pending: [] };
+    await open(page, value);
+    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await center.getByRole('button', { name: '管理实例池', exact: true }).click();
+    const pool = page.getByRole('dialog', { name: 'ComfyUI 实例池', exact: true });
+    for (const connection of [first, second]) {
+      await pool.getByLabel('实例连接', { exact: true }).selectOption(connection.id);
+      await pool.getByLabel('加入工作区实例池').check();
+      await pool.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+      await expect(pool.getByRole('status')).toContainText('实例池设置已保存');
+    }
+    await expect(pool.getByRole('heading', { name: '工作区实例 · 2/12', exact: true })).toBeVisible();
+    await expect(pool.getByLabel('检查工作流修订').locator(`option[value="${draft.id}"]`)).toHaveCount(1);
+    await pool.getByLabel('检查工作流修订', { exact: true }).selectOption(workflow.id);
+    const a = pool.locator('article').filter({ hasText: 'Local A' });
+    const b = pool.locator('article').filter({ hasText: 'Local B' });
+    const submissions = remote.mock.submissions.length;
+    await a.getByRole('button', { name: '检查 Local A', exact: true }).click();
+    await expect(a).toContainText('声明匹配 · 负载低于阈值');
+    await b.getByRole('button', { name: '检查 Local B', exact: true }).click();
+    await expect(b).toContainText('依赖不匹配 · 已达到负载阈值');
+    await b.getByText('查看依赖明细', { exact: true }).click();
+    await expect(b.getByText('节点类型未安装', { exact: true })).toBeVisible();
+    await expect(pool).not.toContainText('private remote work');
+    expect(remote.mock.submissions).toHaveLength(submissions);
+    expect(alternate.mock.submissions).toHaveLength(0);
+    await pool.getByLabel('实例连接', { exact: true }).selectOption(first.id);
+    await pool.getByLabel('运行任务阈值').fill('2');
+    await pool.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+    await expect(a).toContainText('检查已过期');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(() => pool.evaluate((element) => element.scrollWidth <= element.clientWidth))
+      .toBe(true);
+    await page.screenshot({ path: 'test-results/workflow-instance-pool-mobile.png' });
+  } finally {
+    await alternate.close();
+  }
+});

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { applyMigrations } from '../dist/db/apply-migrations.js';
 import { DatabaseService } from '../dist/db/database.service.js';
 import { fixtureWorkflow } from '../../../tests/fixtures/comfy-mock.mjs';
-test('0035 adopts legacy immutable workflows without modifying any pre-existing rows', async () => {
+test('legacy workflow upgrade preserves original values and leaves old connections outside the pool', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pullet-workflow-upgrade-')),
     source = fileURLToPath(new URL('../drizzle', import.meta.url));
   const journal = JSON.parse(await readFile(join(source, 'meta/_journal.json'), 'utf8'));
@@ -67,17 +67,27 @@ test('0035 adopts legacy immutable workflows without modifying any pre-existing 
       )
       .all()
       .map((row) => row.name);
-    const rows = Object.fromEntries(
-      names.map((name) => [name, legacy.prepare(`SELECT * FROM "${name}"`).all()]),
-    );
+    const queries = names.map((name) => {
+      const columns = legacy.pragma(`table_info("${name}")`).map((column) => `"${column.name}"`);
+      return { name, select: `SELECT ${columns.join(', ')} FROM "${name}"` };
+    });
+    const rows = Object.fromEntries(queries.map(({ name, select }) => [name, legacy.prepare(select).all()]));
     const hashes = legacy
       .prepare('SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at')
       .all();
     legacy.close();
     legacy = undefined;
     next = new DatabaseService({ databasePath: path });
-    for (const name of names)
-      assert.deepEqual(next.sqlite.prepare(`SELECT * FROM "${name}"`).all(), rows[name], name);
+    for (const { name, select } of queries)
+      assert.deepEqual(next.sqlite.prepare(select).all(), rows[name], name);
+    assert.deepEqual(
+      next.sqlite
+        .prepare(
+          'SELECT pool_enabled,pool_version,max_running,max_pending FROM generation_connections WHERE id=?',
+        )
+        .get(connection),
+      { pool_enabled: 0, pool_version: 1, max_running: 1, max_pending: 2 },
+    );
     assert.deepEqual(
       next.sqlite
         .prepare('SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 35')

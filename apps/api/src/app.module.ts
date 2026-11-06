@@ -55,6 +55,8 @@ import { BoardReferencesService } from './boards/board-references.service';
 import { BoardsController } from './boards/boards.controller';
 import { WorkflowCatalogService } from './generation/workflow-catalog.service';
 import { WorkflowCatalogController } from './generation/workflow-catalog.controller';
+import { GenerationInstancesController } from './generation/generation-instances.controller';
+import { GenerationInstancesService } from './generation/generation-instances.service';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 300 }])],
@@ -78,6 +80,7 @@ import { WorkflowCatalogController } from './generation/workflow-catalog.control
     TimelineController,
     BoardsController,
     WorkflowCatalogController,
+    GenerationInstancesController,
   ],
   providers: [
     AppConfig,
@@ -114,6 +117,7 @@ import { WorkflowCatalogController } from './generation/workflow-catalog.control
     BoardsService,
     BoardReferencesService,
     WorkflowCatalogService,
+    GenerationInstancesService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

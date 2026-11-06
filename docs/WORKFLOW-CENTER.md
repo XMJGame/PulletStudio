@@ -69,6 +69,21 @@ generation-config 的 workflows 列出目录当前修订。productionWorkflows �
 
 ## 限制与下一门禁
 
-正式画布使用项目当前发布的工作流修订。下一阶段是 G2-C 多实例能力匹配和调度。真实模型兼容性由对应工作流的实机试跑验证。[画布使用指南](CREATIVE-CANVAS.md)
+正式画布使用项目当前发布的工作流修订。真实模型兼容性由对应工作流的实机试跑验证。[画布使用指南](CREATIVE-CANVAS.md)
 
-`npm run test:workflows` 包含图解析与 6 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。试跑功能使用同一版本的 API 和 Generation Worker。详见 [A3 合同](modules/WORKFLOW-CENTER-G2-A3.md)和[验收](history/WORKFLOW-CENTER-G2-A3-2026-11-06.md)。
+## 管理 ComfyUI 实例池
+
+1. 在工作流中心添加生成连接。实例管理员和工作区管理者可打开「管理实例池」，选择连接并勾选「加入工作区实例池」。每工作区最多 12 个池实例。
+2. 设置运行任务阈值（1–16）和等待任务阈值（1–64），保存设置。同一工作区的同一 API 地址只加入一次。已有连接默认处于池外。
+3. 选择固定工作流修订，逐台点击「检查」。界面分别显示健康、声明匹配和队列负载，展开可看缺失节点、模型选项或输入问题。
+4. 用「刷新实例池」读取已记录的结果。结果从检查开始起保留 15 分钟的有效期，连接状态或池设置版本变动后需要重新检查。负载计数来自远端队列快照，两项都低于阈值时显示「负载低于阈值」。
+
+本阶段用原生 `/system_stats`、`/queue` 和 `/object_info/{node_class}` 获取观测，服务端只保留负载计数和诊断结果。声明匹配、负载余量和真实试跑分别记录。正式生成目前按工作流绑定的连接执行，C2 接入自动与指定实例路由。[ComfyUI 原生接口](https://docs.comfy.org/development/comfyui-server/comms_routes)
+
+| 方法和路径 | 合同 |
+|---|---|
+| PATCH `/generation-connections/:id/pool` | 管理权限。提交 expectedPoolVersion、poolEnabled、maxRunning、maxPending |
+| GET `/generation-workflows/:id/instance-checks` | 按固定修订读取同工作区实例池检查 |
+| POST `/generation-workflows/:id/instance-checks/:connectionId` | 核对启用的池实例，记录连接与池版本及观察时间 |
+
+`npm run test:workflows` 包含图解析与 7 项浏览器验收。它与 test:boards 共用隔离端口 3112/5192，须顺序执行。[C1 实施合同](modules/COMFY-INSTANCES-G2-C1.md) · [C1 验收](history/COMFY-INSTANCES-G2-C1-2026-11-06.md)

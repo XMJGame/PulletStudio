@@ -664,6 +664,158 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
       },
     );
     await t.test(
+      'two scoped instances report exact workflow compatibility and bounded queue evidence',
+      async () => {
+        const alternate = await startComfyMock({});
+        try {
+          const register = (name, baseUrl, projectId = project.id) =>
+            owner('POST', `/projects/${projectId}/generation-connections`, {
+              name,
+              baseUrl,
+              token: 'never-return-instance-token',
+              trustedPrivate: true,
+            });
+          const second = (await register('Second instance', alternate.baseUrl)).data;
+          const duplicate = (await register('Duplicate instance', remote.baseUrl)).data;
+          const poolPath = (id) => `/generation-connections/${id}/pool`;
+          const pool = { poolEnabled: true, expectedPoolVersion: 1, maxRunning: 1, maxPending: 2 };
+          const workflow = structuredClone(definition);
+          workflow.name = 'Fixed matching fixture';
+          workflow.graph['6'] = {
+            class_type: 'CheckpointLoaderSimple',
+            inputs: { ckpt_name: 'fixture.safetensors' },
+          };
+          const created = await create(workflow);
+          assert.equal(created.status, 201, JSON.stringify(created.data));
+          const checks = `/generation-workflows/${created.data.id}/instance-checks`;
+          const inspect = (id) => owner('POST', `${checks}/${id}`, {});
+          assert.deepEqual((await owner('GET', checks)).data.items, []);
+          assert.equal((await inspect(connection.id)).data.code, 'INSTANCE_NOT_ENABLED');
+          assert.equal((await reader('GET', checks)).status, 403);
+          assert.equal((await reader('PATCH', poolPath(connection.id), pool)).status, 403);
+          assert.equal((await outsider('GET', checks)).status, 404);
+          const beforeVersion = db()
+            .prepare('SELECT version FROM generation_connections WHERE id=?')
+            .get(connection.id).version;
+          assert.equal(
+            (await owner('PATCH', poolPath(connection.id), { ...pool, maxRunning: 17 })).status,
+            400,
+          );
+          assert.equal((await owner('PATCH', poolPath(connection.id), pool)).data.poolVersion, 2);
+          assert.equal(
+            db().prepare('SELECT version FROM generation_connections WHERE id=?').get(connection.id).version,
+            beforeVersion,
+          );
+          assert.equal(
+            (await owner('PATCH', poolPath(connection.id), pool)).data.code,
+            'INSTANCE_POOL_VERSION_CONFLICT',
+          );
+          assert.equal(
+            (await owner('PATCH', poolPath(duplicate.id), pool)).data.code,
+            'INSTANCE_POOL_DUPLICATE',
+          );
+          assert.equal((await owner('PATCH', poolPath(second.id), pool)).status, 200);
+          const otherWorkspace = (await owner('POST', '/workspaces', { name: 'Separate instance workspace' }))
+            .data;
+          const otherProject = (
+            await owner('POST', '/projects', { workspaceId: otherWorkspace.id, title: 'Foreign instance' })
+          ).data;
+          const foreign = (await register('Foreign instance', alternate.baseUrl, otherProject.id)).data;
+          assert.equal((await owner('PATCH', poolPath(foreign.id), pool)).status, 200);
+          assert.equal((await inspect(foreign.id)).status, 404);
+          alternate.mock.objectInfoOverrides = {
+            CheckpointLoaderSimple: {
+              input: { required: { ckpt_name: [['different.safetensors']] } },
+              output: ['MODEL'],
+            },
+          };
+          alternate.mock.queue = { queue_running: [['private-queue-data']], queue_pending: [[], []] };
+          const beforeSubmissions = remote.mock.submissions.length;
+          const [matched, mismatched] = await Promise.all([inspect(connection.id), inspect(second.id)]);
+          assert.equal(matched.status, 201, JSON.stringify(matched.data));
+          assert.equal(matched.data.check.status, 'compatible');
+          assert.equal(matched.data.capacity, 'available');
+          assert.equal(mismatched.status, 201, JSON.stringify(mismatched.data));
+          assert.equal(mismatched.data.check.status, 'incompatible');
+          assert.equal(mismatched.data.capacity, 'busy');
+          assert.ok(
+            mismatched.data.check.report.nodes.some((node) =>
+              node.issues.some((issue) => issue.code === 'OPTION_UNAVAILABLE'),
+            ),
+          );
+          const list = (await owner('GET', checks)).data.items;
+          assert.equal(list.length, 2);
+          for (const value of [
+            'private-queue-data',
+            remote.baseUrl,
+            alternate.baseUrl,
+            'never-return-instance-token',
+            'different.safetensors',
+          ]) {
+            assert.ok(!JSON.stringify(list).includes(value));
+          }
+          alternate.mock.queue = { unexpected: true };
+          const unknownQueue = (await inspect(second.id)).data;
+          assert.equal(unknownQueue.check.reachable, true);
+          assert.equal(unknownQueue.check.pending, null);
+          assert.equal(unknownQueue.capacity, 'unverified');
+          alternate.mock.mode = 'probe-down';
+          const down = (await inspect(second.id)).data;
+          assert.equal(down.check.reachable, false);
+          assert.equal(down.check.status, 'unverified');
+          assert.equal(remote.mock.submissions.length, beforeSubmissions);
+          assert.equal(alternate.mock.submissions.length, 0);
+          db()
+            .prepare(
+              'UPDATE generation_instance_checks SET checked_at=? WHERE workflow_id=? AND connection_id=?',
+            )
+            .run(Date.now() - 16 * 60 * 1000, created.data.id, connection.id);
+          assert.equal(
+            (await owner('GET', checks)).data.items.find((item) => item.id === connection.id).fresh,
+            false,
+          );
+          assert.equal((await inspect(connection.id)).data.fresh, true);
+          let releaseQueue;
+          const blockedQueue = new Promise((resolve) => {
+            releaseQueue = resolve;
+          });
+          let entered;
+          const enteredQueue = new Promise((resolve) => {
+            entered = resolve;
+          });
+          remote.mock.beforeQueue = () => {
+            entered();
+            return blockedQueue;
+          };
+          const inFlight = inspect(connection.id);
+          await enteredQueue;
+          try {
+            assert.equal((await inspect(connection.id)).data.code, 'INSTANCE_CHECK_BUSY');
+            assert.equal(
+              (
+                await owner('PATCH', poolPath(connection.id), {
+                  ...pool,
+                  maxRunning: 2,
+                  expectedPoolVersion: 2,
+                })
+              ).status,
+              200,
+            );
+          } finally {
+            releaseQueue();
+            delete remote.mock.beforeQueue;
+          }
+          assert.equal((await inFlight).data.code, 'INSTANCE_CHECK_OUTDATED');
+          assert.equal(
+            (await owner('GET', checks)).data.items.find((item) => item.id === connection.id).fresh,
+            false,
+          );
+        } finally {
+          await alternate.close();
+        }
+      },
+    );
+    await t.test(
       'history pagination and independent backup preserve catalogs and immutable definitions',
       async () => {
         let head = (await owner('GET', `/projects/${project.id}/generation-config`)).data.workflows.find(
@@ -698,8 +850,14 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
             'generation_workflows',
             'generation_jobs',
             'workflow_release_events',
+            'generation_instance_checks',
           ]) {
-            const key = name === 'workflow_catalog_revisions' ? 'workflow_id' : 'id';
+            const key =
+              name === 'workflow_catalog_revisions'
+                ? 'workflow_id'
+                : name === 'generation_instance_checks'
+                  ? 'workflow_id,connection_id'
+                  : 'id';
             assert.deepEqual(
               restored.sqlite.prepare(`SELECT * FROM ${name} ORDER BY ${key}`).all(),
               db().prepare(`SELECT * FROM ${name} ORDER BY ${key}`).all(),

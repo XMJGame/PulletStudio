@@ -59,7 +59,7 @@ npm run test:e2e
 npm run db:backup
 ```
 
-G2-B 本机验收通过 199 项 API 测试、4 项图解析测试、6 项工作流中心场景、5 项正式画布场景和 1 项生产全流程。模型执行使用隔离 ComfyUI Mock。[实施状态](docs/IMPLEMENTATION-STATUS.md)
+G2-C1 本机验收通过 200 项 API 测试、4 项图解析测试、7 项工作流中心场景、5 项正式画布场景和 1 项生产全流程。实例池按固定工作流修订检查健康、依赖与负载，自动与指定实例调度是下一阶段。[实施状态](docs/IMPLEMENTATION-STATUS.md)
 
 SQLite默认data/studio.sqlite，必须放后端本地持久化盘，不能放SMB/NFS。API启动会应用迁移，生成迁移文件之前先备份。数据库快照不包含媒体和Provider加密密钥；完整备份与恢复见[LOCAL-MEDIA](docs/LOCAL-MEDIA.md)。运行数据、密钥、备份、截图和依赖不提交到Git。
 

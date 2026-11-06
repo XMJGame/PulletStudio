@@ -140,6 +140,10 @@ export class GenerationService {
             name: generationConnections.name,
             enabled: generationConnections.enabled,
             version: generationConnections.version,
+            poolEnabled: generationConnections.poolEnabled,
+            poolVersion: generationConnections.poolVersion,
+            maxRunning: generationConnections.maxRunning,
+            maxPending: generationConnections.maxPending,
           })
           .from(generationConnections)
           .where(eq(generationConnections.workspaceId, project.workspaceId))
