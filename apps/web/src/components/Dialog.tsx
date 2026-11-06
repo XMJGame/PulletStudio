@@ -1,4 +1,4 @@
-import { ReactNode, useContext, useEffect, useId, useRef } from 'react';
+import { ReactNode, useContext, useEffect, useId, useRef, type ClipboardEventHandler } from 'react';
 import { createPortal } from 'react-dom';
 import { StudioTheme } from '../shared/ui/StudioTheme';
 import '../shared/styles/studio-dialog.css';
@@ -12,6 +12,7 @@ export function Dialog({
   className = '',
   hideHeader = false,
   theme,
+  onPaste,
 }: {
   title: string;
   description: string;
@@ -21,6 +22,7 @@ export function Dialog({
   className?: string;
   hideHeader?: boolean;
   theme?: 'light' | 'dark';
+  onPaste?: ClipboardEventHandler<HTMLDialogElement>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const appTheme = useContext(StudioTheme);
@@ -46,6 +48,7 @@ export function Dialog({
       ref={ref}
       className={`studio-dialog studio-v2 studio-modal ${className}`.trim()}
       data-theme={theme ?? appTheme}
+      onPaste={onPaste}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onKeyDown={(event) => {

@@ -116,6 +116,168 @@ async function save(page: Page) {
   await page.getByRole('button', { name: '保存画布', exact: true }).click();
   await expect(page.locator('.creative-save-state')).toContainText('已保存');
 }
+async function localTransfer(page: Page, files: { name: string; fixture: string; type: string }[]) {
+  return page.evaluateHandle(
+    (entries) => {
+      const transfer = new DataTransfer();
+      for (const entry of entries)
+        transfer.items.add(new File([new Uint8Array(entry.bytes)], entry.name, { type: entry.type }));
+      return transfer;
+    },
+    files.map((file) => ({ ...file, bytes: [...fixtures[file.fixture].bytes] })),
+  );
+}
+async function dropFiles(page: Page, transfer: any) {
+  const surface = page.locator('.creative-surface');
+  const box = (await surface.boundingBox())!;
+  await surface.dispatchEvent('dragenter', { dataTransfer: transfer });
+  await surface.dispatchEvent('dragover', { dataTransfer: transfer });
+  await surface.dispatchEvent('drop', { dataTransfer: transfer, clientX: box.x + 260, clientY: box.y + 130 });
+}
+async function pasteFiles(page: Page, transfer: any) {
+  return page.evaluate((transfer) => {
+    const event = new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true });
+    document.querySelector('.creative-surface')!.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, transfer);
+}
+test('local media drops and image paste create fixed references while text controls keep their paste', async ({
+  page,
+}) => {
+  const value = await project('Direct import');
+  await open(page, value);
+  const id = await createBoard(page, 'Local references');
+  await page.getByRole('button', { name: 'Zoom Out', exact: true }).click();
+  await save(page);
+  const before = await call('GET', `/boards/${id}`);
+  const transfer = await localTransfer(page, [
+    { name: 'local-image.png', fixture: 'image.png', type: 'image/png' },
+    { name: 'local-video.mp4', fixture: 'clip.mp4', type: 'video/mp4' },
+    { name: 'local-audio.wav', fixture: 'sound.wav', type: 'audio/wav' },
+  ]);
+  await dropFiles(page, transfer);
+  await expect(page.getByRole('status').filter({ hasText: '素材已导入并加入画布' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
+  await save(page);
+  const board = await call('GET', `/boards/${id}`);
+  expect(board.layout.nodes).toHaveLength(3);
+  expect(board.layout.nodes[0].position.x).toBeCloseTo(
+    (260 - before.layout.viewport.x) / before.layout.viewport.zoom,
+    1,
+  );
+  expect(board.layout.nodes[0].position.y).toBeCloseTo(
+    (130 - before.layout.viewport.y) / before.layout.viewport.zoom,
+    1,
+  );
+  expect(
+    Object.values(board.resolved)
+      .map((item: any) => item.media.mediaType)
+      .sort(),
+  ).toEqual(['audio', 'image', 'video']);
+  const image = await localTransfer(page, [
+    { name: 'clipboard.png', fixture: 'image.png', type: 'image/png' },
+  ]);
+  expect(await pasteFiles(page, image)).toBeTruthy();
+  await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
+  await expect(page.locator('.creative-surface img[alt="clipboard.png"]')).toBeVisible();
+  await save(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '导入本地文件', exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({ name: 'picked.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
+  await expect(page.locator('.creative-surface img[alt="picked.png"]')).toBeVisible();
+  await save(page);
+  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByLabel('画布文字内容').fill('Preserve this note');
+  const intercepted = await page.evaluate((transfer) => {
+    const event = new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true });
+    document.querySelector('[aria-label="画布文字内容"]')!.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, image);
+  expect(intercepted).toBeFalsy();
+  await expect(page.getByLabel('画布文字内容')).toHaveValue('Preserve this note');
+  await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
+  await save(page);
+  await page.reload();
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Local references');
+  const nodes = (await call('GET', `/boards/${id}`)).layout.nodes;
+  expect(nodes).toHaveLength(6);
+  for (const [index, node] of nodes.entries())
+    for (const other of nodes.slice(index + 1))
+      expect(
+        node.position.x < other.position.x + other.width &&
+          node.position.x + node.width > other.position.x &&
+          node.position.y < other.position.y + other.height &&
+          node.position.y + node.height > other.position.y,
+      ).toBeFalsy();
+  const media = await call('GET', `/projects/${value.id}/media-assets`);
+  expect(media.items).toHaveLength(5);
+  await page.screenshot({ path: 'test-results/canvas-direct-import.png' });
+});
+
+test('direct imports reuse upload intents after failed and lost responses', async ({ page }) => {
+  const value = await project('Recover direct imports');
+  await open(page, value);
+  const id = await createBoard(page, 'Recover media');
+  const dialog = page.getByRole('dialog', { name: '导入到画布', exact: true });
+  for (const [index, mode] of ['content-failed', 'content-lost', 'intent-lost'].entries()) {
+    let dropped = false;
+    const routePath =
+      mode === 'intent-lost' ? `**/projects/${value.id}/media-uploads` : '**/media-uploads/*/content';
+    await page.route(routePath, async (route) => {
+      if (!dropped && route.request().method() === (mode === 'intent-lost' ? 'POST' : 'PUT')) {
+        dropped = true;
+        if (mode !== 'content-failed') await route.fetch();
+        await route.abort('failed');
+      } else await route.continue();
+    });
+    await dropFiles(
+      page,
+      await localTransfer(page, [{ name: `${mode}.png`, fixture: 'image.png', type: 'image/png' }]),
+    );
+    if (mode !== 'content-lost') {
+      await expect(dialog.getByRole('alert')).toBeVisible();
+      if (index === 0) {
+        await page.setViewportSize({ width: 390, height: 844 });
+        expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+        await page.screenshot({ path: 'test-results/direct-import-mobile.png' });
+      }
+      await page.screenshot({ path: `test-results/direct-import-${mode}.png` });
+      await dialog.getByRole('button', { name: '重试未完成', exact: true }).click();
+    }
+    await expect(page.locator(`.creative-surface img[alt="${mode}.png"]`)).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    await page.unroute(routePath);
+    await save(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(index + 1);
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(index + 1);
+    expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(index + 1);
+  }
+  await dropFiles(
+    page,
+    await localTransfer(page, [{ name: 'unsupported.txt', fixture: 'image.png', type: 'text/plain' }]),
+  );
+  await expect(dialog.getByRole('alert')).toContainText('不支持此文件格式');
+  await dialog.getByRole('button', { name: '关闭导入', exact: true }).click();
+  expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(3);
+  await dropFiles(
+    page,
+    await localTransfer(
+      page,
+      Array.from({ length: 21 }, (_, index) => ({
+        name: `many-${index}.png`,
+        fixture: 'image.png',
+        type: 'image/png',
+      })),
+    ),
+  );
+  await expect(page.getByRole('alert')).toContainText('一次最多导入20份文件');
+  await expect(dialog).toHaveCount(0);
+  expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(3);
+});
+
 test('a new project imports media and a workflow, generates and shares its result through the UI', async ({
   page,
 }) => {
@@ -345,6 +507,7 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await page.getByRole('button', { name: '添加分组', exact: true }).click();
   await page.getByLabel('分组名称', { exact: true }).fill('Reference collection');
   await page.getByLabel('折叠分组', { exact: false }).check();
+  await page.getByRole('button', { name: 'Fit View', exact: true }).click();
   await save(page);
   await expect(page.locator('.react-flow__node')).toHaveCount(9);
   const saved = await call('GET', `/boards/${id}`);
@@ -482,6 +645,14 @@ test('readonly board, protected voice metadata, and revoked project access', asy
     await expect(page.locator('.creative-save-state')).toContainText('只读');
     await expect(page.getByRole('button', { name: '保存画布', exact: true })).toHaveCount(0);
     await expect(page.getByLabel('当前画布名称')).toBeDisabled();
+    await expect(page.getByRole('button', { name: '导入本地文件', exact: true })).toHaveCount(0);
+    const transfer = await localTransfer(page, [
+      { name: 'readonly.png', fixture: 'image.png', type: 'image/png' },
+    ]);
+    await dropFiles(page, transfer);
+    expect(await pasteFiles(page, transfer)).toBeFalsy();
+    await expect(page.getByRole('dialog', { name: '导入到画布', exact: true })).toHaveCount(0);
+    expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(1);
     await expect(page.locator('.creative-surface')).toContainText('引用不可用');
     await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).not.toContainText(
       'PRIVATE VOICE IDENTITY',

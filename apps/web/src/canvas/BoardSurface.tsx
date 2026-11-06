@@ -140,6 +140,7 @@ export function BoardSurface({
   pan,
   theme,
   onDropResource,
+  onDropFiles,
   overlay,
 }: {
   nodes: CanvasNode[];
@@ -149,23 +150,48 @@ export function BoardSurface({
   pan: boolean;
   theme: 'light' | 'dark';
   onDropResource: (position: { x: number; y: number }) => void;
+  onDropFiles: (files: File[], position: { x: number; y: number }) => void;
   overlay?: React.ReactNode;
   onNodesChange: OnNodesChange<CanvasNode>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
   onViewportChange: (value: Viewport) => void;
 }) {
+  const [fileDrag, setFileDrag] = useState(false);
   return (
     <div className="creative-stage">
       <div
         className="creative-surface"
         aria-label="正式画布工作区"
+        tabIndex={0}
+        onDragEnter={(event) => {
+          if (editable && event.dataTransfer.types.includes('Files')) setFileDrag(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDrag(false);
+        }}
         onDragOver={(event) => {
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = editable ? 'copy' : 'none';
+            return;
+          }
           if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={(event) => {
+          setFileDrag(false);
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault();
+            if (!editable) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            onDropFiles([...event.dataTransfer.files], {
+              x: (event.clientX - rect.left - viewport.x) / viewport.zoom,
+              y: (event.clientY - rect.top - viewport.y) / viewport.zoom,
+            });
+            return;
+          }
           if (!editable || !event.dataTransfer.types.includes(boardResourceDrag)) return;
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
@@ -207,6 +233,7 @@ export function BoardSurface({
           <MiniMap nodeColor={theme === 'light' ? '#91a3bf' : '#7187a7'} pannable zoomable />
           <Controls showInteractive={false} />
         </ReactFlow>
+        {fileDrag && <div className="v2-file-drop">松开，导入到画布</div>}
       </div>
       {overlay}
     </div>
