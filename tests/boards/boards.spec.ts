@@ -1507,8 +1507,8 @@ test('readonly board, protected voice metadata, and revoked project access', asy
     );
     await page.screenshot({ path: 'test-results/review-board-readonly.png' });
     await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
-    await page.getByText('更多操作', { exact: true }).click();
-    await page.getByRole('button', { name: '刷新引用', exact: true }).click();
+    // Focus revalidates access even when polling already removed the now-unauthorized controls.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await expect(page.getByRole('main', { name: '创作画布', exact: true })).toContainText(
       '画布或项目已不可访问',
     );
@@ -1749,7 +1749,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await expect(view.getByRole('button', { name: '执行生成节点', exact: true })).toHaveCount(0);
       await expect(view.getByRole('button', { name: '加入画布结果', exact: true })).toHaveCount(0);
       await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
-      await view.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+      await readonly.evaluate(() => window.dispatchEvent(new Event('focus')));
       await expect(readonly.getByRole('main', { name: '创作画布' }).getByRole('alert').first()).toContainText(
         /无权|不可访问/,
       );
