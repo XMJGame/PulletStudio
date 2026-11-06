@@ -287,6 +287,124 @@ test('formal boards persist immutable references with project permissions and co
       },
     );
     await t.test(
+      'library folders scope resources, preserve fixed references and recover conflicts',
+      async () => {
+        const path = `/projects/${project.id}/library-folders`;
+        const key = randomUUID();
+        const first = await owner('POST', path, { name: 'References' }, { 'Idempotency-Key': key });
+        assert.equal(first.status, 201, JSON.stringify(first.data));
+        const folder = first.data;
+        assert.equal(
+          (await owner('POST', path, { name: 'References' }, { 'Idempotency-Key': key })).data.id,
+          folder.id,
+        );
+        assert.equal(
+          (await owner('POST', path, { name: 'Different' }, { 'Idempotency-Key': key })).status,
+          409,
+        );
+        assert.equal(
+          (await editor('POST', path, { name: 'references' }, { 'Idempotency-Key': randomUUID() })).status,
+          409,
+        );
+        assert.equal((await viewer('GET', path)).data.length, 1);
+        assert.equal(
+          (await viewer('POST', path, { name: 'Denied' }, { 'Idempotency-Key': randomUUID() })).status,
+          403,
+        );
+        assert.equal((await outsider('GET', path)).status, 404);
+        const movePath = `/projects/${project.id}/library-placement`;
+        const ref = { kind: 'media', id: media['image.png'].id };
+        const before = (await owner('GET', `/boards/${board.id}`)).data;
+        const move = await editor('POST', movePath, { ref, folderId: folder.id, expectedVersion: 0 });
+        assert.equal(move.status, 201, JSON.stringify(move.data));
+        assert.equal(move.data.version, 1);
+        assert.equal(
+          (await editor('POST', movePath, { ref, folderId: folder.id, expectedVersion: 0 })).data.version,
+          1,
+        );
+        assert.equal(
+          (await editor('POST', movePath, { ref, folderId: null, expectedVersion: 0 })).status,
+          409,
+        );
+        assert.equal(
+          (await viewer('POST', movePath, { ref, folderId: null, expectedVersion: 1 })).status,
+          403,
+        );
+        const sources = `/projects/${project.id}/board-sources`;
+        const filtered = await owner('GET', `${sources}?kind=media&folderId=${folder.id}`);
+        assert.deepEqual(
+          filtered.data.items.map((item) => item.ref),
+          [ref],
+        );
+        assert.equal(filtered.data.items[0].placement.version, 1);
+        assert.ok(
+          !(await owner('GET', `${sources}?kind=media&folderId=root`)).data.items.some(
+            (item) => item.ref.id === ref.id,
+          ),
+        );
+        assert.equal(
+          (await owner('GET', `${sources}?kind=media&folderId=${folder.id}&mediaType=video`)).data.items
+            .length,
+          0,
+        );
+        const allEntities = db()
+          .prepare(
+            'SELECT e.id, r.id AS current_revision_id FROM asset_entities e JOIN asset_entity_revisions r ON r.entity_id=e.id AND r.version=e.version WHERE e.project_id=? ORDER BY e.id',
+          )
+          .all(project.id);
+        const target = allEntities.at(-1);
+        const entityRef = { kind: 'entity', id: target.id, revisionId: target.current_revision_id };
+        assert.equal(
+          (await owner('POST', movePath, { ref: entityRef, folderId: folder.id, expectedVersion: 0 })).status,
+          201,
+        );
+        assert.deepEqual(
+          (await owner('GET', `${sources}?kind=entities&folderId=${folder.id}`)).data.items.map(
+            (item) => item.ref,
+          ),
+          [entityRef],
+        );
+        const other = (
+          await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Other library' })
+        ).data;
+        assert.equal(
+          (
+            await owner('POST', `/projects/${other.id}/library-placement`, {
+              ref,
+              folderId: folder.id,
+              expectedVersion: 0,
+            })
+          ).status,
+          404,
+        );
+        assert.equal(
+          (await owner('GET', `/projects/${other.id}/board-sources?kind=media&folderId=${folder.id}`)).status,
+          400,
+        );
+        const renamed = await owner('PATCH', `${path}/${folder.id}`, {
+          name: 'Selected references',
+          expectedVersion: 1,
+        });
+        assert.equal(renamed.data.version, 2);
+        assert.equal((await owner('DELETE', `${path}/${folder.id}`, { expectedVersion: 1 })).status, 409);
+        assert.equal((await owner('DELETE', `${path}/${folder.id}`, { expectedVersion: 2 })).status, 200);
+        assert.equal((await owner('GET', path)).data.length, 0);
+        const restored = (await owner('GET', `${sources}?kind=media&folderId=root`)).data.items.find(
+          (item) => item.ref.id === ref.id,
+        );
+        assert.deepEqual(restored.ref, ref);
+        assert.deepEqual(restored.placement, { folderId: null, version: 2 });
+        const after = (await owner('GET', `/boards/${board.id}`)).data;
+        assert.equal(after.revision, before.revision);
+        assert.deepEqual(after.layout, before.layout);
+        assert.equal(
+          (await owner('GET', restored.value.media.contentUrl.replace('/api/v1', ''))).status,
+          200,
+        );
+        assert.equal(db().pragma('foreign_key_check').length, 0);
+      },
+    );
+    await t.test(
       'stale writers get 409 and response-loss replays retain the exact saved revision',
       async () => {
         const old = structuredClone(board),

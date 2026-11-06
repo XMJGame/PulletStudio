@@ -820,6 +820,63 @@ export const mediaAssets = sqliteTable(
     check('media_asset_version_positive', sql`${t.version} > 0`),
   ],
 );
+export const libraryFolders = sqliteTable(
+  'library_folders',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('library_folder_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('library_folder_name').on(t.projectId, t.nameKey),
+    uniqueIndex('library_folder_creation').on(t.projectId, t.createdBy, t.creationKey),
+    check('library_folder_version', sql`${t.version} > 0`),
+  ],
+);
+export const libraryPlacements = sqliteTable(
+  'library_placements',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    mediaAssetId: text('media_asset_id'),
+    entityId: text('entity_id'),
+    folderId: text('folder_id'),
+    version: integer('version').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.mediaAssetId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaAssets.id, mediaAssets.projectId, mediaAssets.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.entityId, t.projectId, t.workspaceId],
+      foreignColumns: [assetEntities.id, assetEntities.projectId, assetEntities.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.projectId, t.workspaceId],
+      foreignColumns: [libraryFolders.id, libraryFolders.projectId, libraryFolders.workspaceId],
+    }),
+    uniqueIndex('library_placement_media').on(t.mediaAssetId),
+    uniqueIndex('library_placement_entity').on(t.entityId),
+    index('library_placement_folder').on(t.projectId, t.folderId),
+    check('library_placement_target', sql`(${t.mediaAssetId} IS NOT NULL) <> (${t.entityId} IS NOT NULL)`),
+    check('library_placement_version', sql`${t.version} > 0`),
+  ],
+);
 export const mediaVersions = sqliteTable(
   'media_versions',
   {

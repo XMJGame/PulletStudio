@@ -84,4 +84,9 @@ export type BoardListItem = {
   createdAt: string;
   updatedAt: string;
 };
-export type BoardSource = { ref: BoardReference; value: BoardResolved; ready: boolean };
+export type BoardSource = {
+  ref: BoardReference;
+  value: BoardResolved;
+  ready: boolean;
+  placement?: { folderId: string | null; version: number };
+};

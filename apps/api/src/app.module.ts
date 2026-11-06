@@ -54,6 +54,8 @@ import { TimelineController } from './timeline/timeline.controller';
 import { AnimaticRenderer } from './timeline/animatic-renderer';
 import { AnimaticWorker } from './timeline/animatic-worker';
 import { BoardsService } from './boards/boards.service';
+import { LibraryFoldersService } from './boards/library-folders.service';
+import { LibraryFoldersController } from './boards/library-folders.controller';
 import { BoardReferencesService } from './boards/board-references.service';
 import { BoardsController } from './boards/boards.controller';
 import { BoardGenerationController } from './boards/board-generation.controller';
@@ -85,6 +87,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     MediaPackageController,
     TimelineController,
     BoardsController,
+    LibraryFoldersController,
     BoardGenerationController,
     WorkflowCatalogController,
     GenerationInstancesController,
@@ -124,6 +127,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     AnimaticRenderer,
     AnimaticWorker,
     BoardsService,
+    LibraryFoldersService,
     BoardGenerationService,
     BoardReferencesService,
     WorkflowCatalogService,

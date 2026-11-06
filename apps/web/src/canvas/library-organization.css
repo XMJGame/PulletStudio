@@ -1,0 +1,77 @@
+.studio-live-board .creative-workspace-library {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.v2-library-container {
+  grid-area: 1 / 2;
+  position: relative;
+  width: var(--library-width);
+  height: 100%;
+  min-height: 0;
+}
+.v2-library-resizer {
+  position: absolute;
+  z-index: 10;
+  left: -4px;
+  top: 12px;
+  bottom: 12px;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.v2-library-resizer:hover,
+.v2-library-resizer:focus-visible {
+  background: var(--accent-soft);
+  border-left: 2px solid var(--accent);
+  outline: none;
+}
+.v2-library-container .creative-sources {
+  width: calc(100% - 12px);
+}
+.creative-library-folders {
+  margin: 10px 0;
+}
+.creative-folder-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.creative-folder-form {
+  display: grid;
+  gap: 6px;
+}
+.studio-live-board .creative-folder-actions button {
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.creative-folder-move {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.creative-source-item:has(.creative-folder-move) > .creative-source-card {
+  height: auto;
+}
+.creative-folder-move select {
+  width: 100%;
+  padding: 4px;
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .studio-live-board .creative-workspace-library {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .v2-library-container {
+    grid-area: 1 / 1;
+    justify-self: end;
+    z-index: 8;
+    width: min(310px, 90vw);
+  }
+  .v2-library-container .creative-sources {
+    width: calc(100% - 12px);
+  }
+  .v2-library-resizer {
+    display: none;
+  }
+}

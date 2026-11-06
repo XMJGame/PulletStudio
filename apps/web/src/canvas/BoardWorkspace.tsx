@@ -24,6 +24,7 @@ import { BoardExecutionPanel } from './BoardExecutionPanel';
 import type { GenerationJob } from '../components/GenerationDialog';
 import { BoardInspector, BoardNodeLayout } from './BoardInspector';
 import { BoardSources } from './BoardSources';
+import { ResizableLibrary } from './ResizableLibrary';
 import type { CanvasNode } from './board-types';
 import './board.css';
 import { StudioBrand, StudioButton } from '../shared/ui/StudioUI';
@@ -1184,24 +1185,26 @@ export default function BoardWorkspace({
           )}
           <div className={`creative-workspace ${showSources ? 'creative-workspace-library' : ''}`}>
             {showSources && (
-              <BoardSources
-                projectId={projectId}
-                editable={editable}
-                refresh={refresh}
-                add={(source) => {
-                  const added = add('reference', source);
-                  if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
-                  return Boolean(added);
-                }}
-                onDragSource={(source) => {
-                  draggedResource.current = source;
-                }}
-                onImport={() => setMediaLibrary(true)}
-                onClose={() => setShowSources(false)}
-                report={(reason) => {
-                  if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
-                }}
-              />
+              <ResizableLibrary userId={userId}>
+                <BoardSources
+                  projectId={projectId}
+                  editable={editable}
+                  refresh={refresh}
+                  add={(source) => {
+                    const added = add('reference', source);
+                    if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
+                    return Boolean(added);
+                  }}
+                  onDragSource={(source) => {
+                    draggedResource.current = source;
+                  }}
+                  onImport={() => setMediaLibrary(true)}
+                  onClose={() => setShowSources(false)}
+                  report={(reason) => {
+                    if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
+                  }}
+                />
+              </ResizableLibrary>
             )}
             <nav className="v2-live-tools" aria-label="画布工具">
               <StudioButton

@@ -4,6 +4,8 @@ import { kindLabels, statusLabels } from './board-types';
 import { useBoardSources } from './useBoardSources';
 import { StudioIcon } from '../shared/ui/StudioUI';
 import { BoardSourcePreview } from './BoardSourcePreview';
+import { api } from '../api';
+import { LibraryFolderControls, type LibraryFolder } from './LibraryFolderControls';
 export const boardResourceDrag = 'application/x-pullet-board-resource';
 export function BoardSources({
   projectId,
@@ -27,10 +29,14 @@ export function BoardSources({
   const [kind, setKind] = useState('media');
   const [mediaType, setMediaType] = useState('');
   const [query, setQuery] = useState('');
+  const [folderId, setFolderId] = useState('');
+  const [folders, setFolders] = useState<LibraryFolder[]>([]);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState('');
   const [preview, setPreview] = useState<{ source: BoardSource; scope: string }>();
   const trigger = useRef('');
   const previewPrefix = useId();
-  const path = `/projects/${projectId}/board-sources?kind=${kind}&q=${encodeURIComponent(query)}${kind === 'media' && mediaType ? `&mediaType=${mediaType}` : ''}`;
+  const path = `/projects/${projectId}/board-sources?kind=${kind}&q=${encodeURIComponent(query)}${kind === 'media' && mediaType ? `&mediaType=${mediaType}` : ''}${folderId ? `&folderId=${folderId}` : ''}`;
   const { rows, cursor, loading, error, loadMore, reload } = useBoardSources(path, refresh, report);
   return (
     <aside className="creative-sources" aria-label="正式项目资源">
@@ -73,6 +79,14 @@ export function BoardSources({
               </button>
             ))}
           </div>
+          <LibraryFolderControls
+            projectId={projectId}
+            editable={editable}
+            value={folderId}
+            onChange={setFolderId}
+            folders={folders}
+            onFolders={setFolders}
+          />
           {kind === 'media' && (
             <div className="creative-media-filters" role="group" aria-label="媒体类型筛选">
               {[
@@ -108,6 +122,7 @@ export function BoardSources({
             </div>
           )}
           {loading && <p role="status">正在读取…</p>}
+          {moveError && <p role="alert">{moveError}</p>}
           {!loading && !error && !rows.length && (
             <div className="creative-library-empty">
               <StudioIcon name={kind === 'media' ? 'image' : 'layers'} size={28} />
@@ -179,6 +194,41 @@ export function BoardSources({
                 >
                   <StudioIcon name="eye" size={16} />
                 </button>
+                {editable && folders.length > 0 && row.ref.kind !== 'shot' && (
+                  <label className="creative-folder-move">
+                    移至文件夹
+                    <select
+                      aria-label={`移动 ${row.value.title} 到文件夹`}
+                      disabled={moving || !row.ready}
+                      value={row.placement?.folderId ?? ''}
+                      onChange={async (event) => {
+                        const target = event.target.value || null;
+                        setMoving(true);
+                        setMoveError('');
+                        try {
+                          await api(`/projects/${projectId}/library-placement`, 'POST', {
+                            ref: row.ref,
+                            folderId: target,
+                            expectedVersion: row.placement?.version ?? 0,
+                          });
+                          reload();
+                        } catch (reason) {
+                          setMoveError(reason instanceof Error ? reason.message : '移动素材失败');
+                          reload();
+                        } finally {
+                          setMoving(false);
+                        }
+                      }}
+                    >
+                      <option value="">未分类</option>
+                      {folders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
             ))}
           </div>

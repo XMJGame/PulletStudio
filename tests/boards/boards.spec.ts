@@ -117,6 +117,83 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('resource library resizes persistently and folders organize without changing canvas references', async ({
+  page,
+}) => {
+  const value = await project('Organized library');
+  const image = await uploadMedia(value.id, 'image.png');
+  await uploadMedia(value.id, 'clip.mp4');
+  await open(page, value);
+  const id = await createBoard(page, 'Folder references');
+  const sources = page.getByRole('complementary', { name: '正式项目资源' });
+  const separator = page.getByRole('separator', { name: '调整资源库宽度' });
+  const previous = Number(await separator.getAttribute('aria-valuenow'));
+  const grip = (await separator.boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 100 + grip.width / 2, grip.y + 50, { steps: 10 });
+  await page.mouse.up();
+  await expect(separator).toHaveAttribute('aria-valuenow', String(previous + 100));
+  await separator.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(separator).toHaveAttribute('aria-valuenow', String(previous + 84));
+  await page.reload();
+  await expect(separator).toHaveAttribute('aria-valuenow', String(previous + 84));
+  let loseCreate = true;
+  await page.route('**/library-folders', async (route) => {
+    if (route.request().method() === 'POST' && loseCreate) {
+      await route.fetch();
+      loseCreate = false;
+      await route.abort();
+    } else await route.continue();
+  });
+  await sources.getByRole('button', { name: '新建文件夹', exact: false }).click();
+  await sources.getByRole('textbox', { name: '文件夹名称', exact: true }).fill('镜头参考');
+  await sources.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  await expect(sources.getByRole('alert')).toBeVisible();
+  await expect(sources.getByRole('textbox', { name: '文件夹名称', exact: true })).toHaveValue('镜头参考');
+  await sources.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  const folderSelect = sources.getByRole('combobox', { name: '资源文件夹', exact: true });
+  await expect(folderSelect.locator('option:checked')).toHaveText('镜头参考');
+  const folderId = await folderSelect.inputValue();
+  expect((await call('GET', `/projects/${value.id}/library-folders`)).length).toBe(1);
+  await expect(sources.locator('.creative-source-card')).toHaveCount(0);
+  await folderSelect.selectOption('');
+  await expect(sources.locator('.creative-source-card')).toHaveCount(2);
+  await sources.getByRole('button', { name: '添加 image.png', exact: true }).click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  await expect(page.locator('.creative-save-state')).toContainText('已保存');
+  const before = await call('GET', `/boards/${id}`);
+  await sources
+    .getByRole('combobox', { name: '移动 image.png 到文件夹', exact: true })
+    .selectOption(folderId);
+  await folderSelect.selectOption(folderId);
+  await expect(sources.getByRole('button', { name: '添加 image.png', exact: true })).toBeVisible();
+  await expect(sources.locator('.creative-source-card')).toHaveCount(1);
+  await sources.getByRole('button', { name: '重命名文件夹', exact: true }).click();
+  await sources.getByRole('textbox', { name: '文件夹名称', exact: true }).fill('已选参考');
+  await sources.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  await expect(folderSelect.locator('option:checked')).toHaveText('已选参考');
+  await page.screenshot({ path: 'test-results/library-folders-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(separator).toBeHidden();
+  await page.getByRole('button', { name: '资源库', exact: true }).click();
+  await folderSelect.selectOption(folderId);
+  await expect(sources).toBeInViewport();
+  await expect(sources.getByRole('button', { name: '添加 image.png', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/library-folders-mobile.png' });
+  await sources.getByRole('button', { name: '删除文件夹', exact: true }).click();
+  await sources.getByRole('button', { name: '确认删除文件夹', exact: true }).click();
+  await expect(folderSelect).toHaveValue('root');
+  await expect(sources.locator('.creative-source-card')).toHaveCount(2);
+  const after = await call('GET', `/boards/${id}`);
+  expect(after.layout).toEqual(before.layout);
+  expect(after.revision).toBe(before.revision);
+  expect(after.layout.nodes[0].data.ref.id).toBe(image.id);
+});
+
 test('project main view keeps drafts and isolates modal focus and clipboard input', async ({ page }) => {
   const value = await project('Project workspace');
   await open(page, value);
