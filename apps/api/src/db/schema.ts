@@ -961,6 +961,93 @@ export const mediaUploads = sqliteTable(
     index('media_upload_lease').on(t.state, t.leaseUntil),
   ],
 );
+export const workspaceMediaFolders = sqliteTable(
+  'workspace_media_folders',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_folder_scope').on(t.id, t.workspaceId),
+    uniqueIndex('workspace_folder_name').on(t.workspaceId, t.nameKey),
+    uniqueIndex('workspace_folder_creation').on(t.workspaceId, t.createdBy, t.creationKey),
+    check('workspace_folder_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaResources = sqliteTable(
+  'workspace_media_resources',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    sourceMediaVersionId: text('source_media_version_id').notNull(),
+    sourceProjectId: text('source_project_id').notNull(),
+    folderId: text('folder_id'),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+    creationKey: text('creation_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceMediaVersionId, t.sourceProjectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.workspaceId],
+      foreignColumns: [workspaceMediaFolders.id, workspaceMediaFolders.workspaceId],
+    }),
+    uniqueIndex('workspace_resource_scope').on(t.id, t.workspaceId),
+    uniqueIndex('workspace_resource_creation').on(t.workspaceId, t.createdBy, t.creationKey),
+    uniqueIndex('workspace_resource_active_source')
+      .on(t.workspaceId, t.sourceMediaVersionId)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('workspace_resource_page').on(t.workspaceId, t.folderId, t.id),
+    check('workspace_resource_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaImports = sqliteTable(
+  'workspace_media_imports',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    uploadId: text('upload_id')
+      .notNull()
+      .unique()
+      .references(() => mediaUploads.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.resourceId, t.workspaceId],
+      foreignColumns: [workspaceMediaResources.id, workspaceMediaResources.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('workspace_media_import_key').on(t.projectId, t.createdBy, t.creationKey),
+  ],
+);
 export const takes = sqliteTable(
   'takes',
   {

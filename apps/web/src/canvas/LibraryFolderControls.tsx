@@ -8,6 +8,7 @@ export function LibraryFolderControls({
   onFolders,
   value,
   onChange,
+  apiPath,
 }: {
   projectId: string;
   editable: boolean;
@@ -15,6 +16,7 @@ export function LibraryFolderControls({
   onFolders: (folders: LibraryFolder[]) => void;
   value: string;
   onChange: (id: string) => void;
+  apiPath?: string;
 }) {
   const [action, setAction] = useState<'create' | 'rename' | 'delete'>();
   const [name, setName] = useState('');
@@ -26,7 +28,7 @@ export function LibraryFolderControls({
   const selection = useRef(value);
   selection.current = value;
   const selected = folders.find((folder) => folder.id === value);
-  const path = `/projects/${projectId}/library-folders`;
+  const path = apiPath ?? `/projects/${projectId}/library-folders`;
   useEffect(() => {
     let active = true;
     api<LibraryFolder[]>(path).then(

@@ -53,6 +53,37 @@
 .creative-source-item:has(.creative-folder-move) > .creative-source-card {
   height: auto;
 }
+.creative-source-item:has(.creative-public-action) > .creative-source-card {
+  height: auto;
+}
+.creative-library-scopes {
+  margin-bottom: 10px;
+}
+.studio-live-board .creative-source-list .creative-public-action {
+  width: 100%;
+  margin-top: 5px;
+  padding: 6px 4px;
+  font-size: 11px;
+  text-align: center;
+  display: block;
+}
+.creative-public-item select {
+  width: 100%;
+  margin-top: 5px;
+  font-size: 11px;
+  padding: 4px;
+}
+.creative-public-preview {
+  display: grid;
+  gap: 10px;
+}
+.creative-public-preview img,
+.creative-public-preview video,
+.creative-public-preview audio {
+  width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+}
 .creative-folder-move select {
   width: 100%;
   padding: 4px;

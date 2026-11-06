@@ -32,6 +32,7 @@
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
 | 历史轻量预演 | [ANIMATICS](ANIMATICS.md) | 前端已删除；API/旧归档数据及媒体处理依赖保留 |
 | 创作画布 | [直接导入、浮动生成与结果复用](CREATIVE-CANVAS.md) | [直接导入合同](modules/CANVAS-DIRECT-IMPORT.md)、[体验改版合同](modules/BOARD-CREATION-UX.md)、[L2-C 合同](modules/BOARD-EXECUTION-L2C.md) |
+| 资源库与公共素材 | [画布资源库使用](CREATIVE-CANVAS.md) | [项目分类与宽度](modules/PROJECT-LIBRARY-ORGANIZATION.md)、[工作区公共媒体库](modules/WORKSPACE-MEDIA-LIBRARY.md)；主动归档与独立项目导入，指定项目/用户的可撤销共享后续实施 |
 | UI 重建分支 | [重建审计与阶段门禁](modules/STUDIO-UI-V2.md)、[设计规范](modules/STUDIO-DESIGN-SYSTEM.md)、[接入 A](modules/STUDIO-UI-V2-INTEGRATION-A.md)、[接入 B](modules/STUDIO-UI-V2-INTEGRATION-B.md)、[接入 C](modules/STUDIO-UI-V2-INTEGRATION-C.md) | 项目、画布、生成面板、工作流中心与提示词库已接真实接口。评审原型使用隔离示例数据 |
 
 ## 技术规格与参考

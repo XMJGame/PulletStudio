@@ -330,6 +330,13 @@
       "when": 1793981400000,
       "tag": "0046_library_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1793981700000,
+      "tag": "0047_workspace_media_library",
+      "breakpoints": true
     }
   ]
 }

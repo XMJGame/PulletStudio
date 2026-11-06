@@ -117,6 +117,108 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('public library collects, organizes and imports media across projects with recoverable responses', async ({
+  page,
+}) => {
+  const source = await project('Public library source');
+  const original = await uploadMedia(source.id, 'image.png');
+  await uploadMedia(source.id, 'clip.mp4');
+  await uploadMedia(source.id, 'sound.wav');
+  await open(page, source);
+  await createBoard(page, 'Shared references');
+  const library = page.getByRole('complementary', { name: '正式项目资源' });
+  for (const name of ['image.png', 'clip.mp4', 'sound.wav']) {
+    const collected = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().endsWith('/public-library/resources'),
+    );
+    await library.getByRole('button', { name: `收录 ${name} 到公共库`, exact: true }).click();
+    expect((await collected).status()).toBe(201);
+  }
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  const common = library.getByRole('region', { name: '工作区公共媒体库' });
+  await expect(common.locator('.creative-source-card')).toHaveCount(3);
+  await common.getByRole('button', { name: '新建文件夹', exact: true }).click();
+  await common.getByRole('textbox', { name: '文件夹名称', exact: true }).fill('团队参考');
+  await common.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  const folders = common.getByRole('combobox', { name: '资源文件夹', exact: true });
+  await expect(folders.locator('option:checked')).toHaveText('团队参考');
+  const folderId = await folders.inputValue();
+  await folders.selectOption('');
+  const moved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' && response.url().includes('/public-library/resources/'),
+  );
+  await common
+    .getByRole('combobox', { name: '移动公共素材 image.png 到文件夹', exact: true })
+    .selectOption(folderId);
+  expect((await moved).ok()).toBe(true);
+  await folders.selectOption(folderId);
+  await expect(common.locator('.creative-source-card')).toHaveCount(1);
+  await folders.selectOption('');
+  await common.getByRole('button', { name: '预览公共素材 clip.mp4', exact: true }).click();
+  const preview = library.getByRole('region', { name: '公共素材预览' });
+  await expect(preview.getByRole('button', { name: '已在本项目', exact: true })).toBeDisabled();
+  await preview.locator('video').evaluate(async (video: HTMLVideoElement) => {
+    await video.play();
+  });
+  await expect
+    .poll(() => preview.locator('video').evaluate((video: HTMLVideoElement) => video.readyState))
+    .toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Escape');
+  await expect(common.getByRole('button', { name: '预览公共素材 clip.mp4', exact: true })).toBeFocused();
+  const target = await project('Public library destination');
+  await open(page, target);
+  const boardId = await createBoard(page, 'Imported references');
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await expect(common.locator('.creative-source-card')).toHaveCount(3);
+  let lost = true;
+  await page.route('**/public-library/resources/*/import', async (route) => {
+    if (lost) {
+      await route.fetch();
+      lost = false;
+      await route.abort();
+    } else await route.continue();
+  });
+  await common.getByRole('button', { name: '添加公共素材 image.png 到本项目', exact: true }).click();
+  await expect(common.getByRole('alert')).toBeVisible();
+  await common.getByRole('button', { name: '添加公共素材 image.png 到本项目', exact: true }).click();
+  await expect(library.getByRole('button', { name: '本项目', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(library.getByRole('button', { name: '添加 image.png', exact: true })).toBeVisible();
+  const media = await call('GET', `/projects/${target.id}/media-assets`);
+  expect(media.items).toHaveLength(1);
+  expect(media.items[0].latest.id).not.toBe(original.id);
+  expect(media.items[0].latest.sha256).toBe(original.sha256);
+  expect((await call('GET', `/boards/${boardId}`)).layout.nodes).toHaveLength(0);
+  await library.getByRole('button', { name: '添加 image.png', exact: true }).click();
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  await expect(page.locator('.creative-save-state')).toContainText('已保存');
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await expect(
+    common.getByRole('button', { name: '添加公共素材 image.png 到本项目', exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({ path: 'test-results/public-library-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '资源库', exact: true }).click();
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await expect(common.locator('.creative-source-card')).toHaveCount(3);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/public-library-mobile.png' });
+  await common.getByRole('button', { name: '移除公共素材 image.png', exact: true }).click();
+  await common.getByRole('button', { name: '确认移除公共素材', exact: true }).click();
+  await expect(common.getByRole('button', { name: '预览公共素材 image.png', exact: true })).toHaveCount(0);
+  await library.getByRole('button', { name: '本项目', exact: true }).click();
+  await expect(library.getByRole('button', { name: '添加 image.png', exact: true })).toBeVisible();
+  expect((await call('GET', `/boards/${boardId}`)).layout.nodes[0].data.ref.id).toBe(
+    media.items[0].latest.id,
+  );
+  const bytes = await owner.get(`/api/v1/media-versions/${media.items[0].latest.id}/content`);
+  expect(await bytes.body()).toEqual(fixtures['image.png'].bytes);
+});
+
 test('resource library resizes persistently and folders organize without changing canvas references', async ({
   page,
 }) => {

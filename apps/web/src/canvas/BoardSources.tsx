@@ -6,6 +6,7 @@ import { StudioIcon } from '../shared/ui/StudioUI';
 import { BoardSourcePreview } from './BoardSourcePreview';
 import { api } from '../api';
 import { LibraryFolderControls, type LibraryFolder } from './LibraryFolderControls';
+import { PublicLibraryPanel, type PublicLibraryFilters } from './PublicLibraryPanel';
 export const boardResourceDrag = 'application/x-pullet-board-resource';
 export function BoardSources({
   projectId,
@@ -27,6 +28,15 @@ export function BoardSources({
   onClose: () => void;
 }) {
   const [kind, setKind] = useState('media');
+  const [publicLibrary, setPublicLibrary] = useState(false);
+  const [publicFilters, setPublicFilters] = useState<PublicLibraryFilters>({
+    folderId: '',
+    query: '',
+    mediaType: '',
+  });
+  const [collecting, setCollecting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const collectAttempts = useRef(new Map<string, string>());
   const [mediaType, setMediaType] = useState('');
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState('');
@@ -42,14 +52,43 @@ export function BoardSources({
     <aside className="creative-sources" aria-label="正式项目资源">
       <div className="creative-pane-heading">
         <div>
-          <span className="creative-kicker">PROJECT LIBRARY</span>
-          <h3>项目资源库</h3>
+          <span className="creative-kicker">{publicLibrary ? 'SHARED LIBRARY' : 'PROJECT LIBRARY'}</span>
+          <h3>{publicLibrary ? '工作区公共库' : '项目资源库'}</h3>
         </div>
         <button className="creative-icon-button" aria-label="收起资源库" onClick={onClose}>
           ×
         </button>
       </div>
-      {preview?.scope === path ? (
+      <div className="creative-source-tabs creative-library-scopes" role="group" aria-label="资源库范围">
+        <button aria-pressed={!publicLibrary} onClick={() => setPublicLibrary(false)}>
+          本项目
+        </button>
+        <button aria-pressed={publicLibrary} onClick={() => setPublicLibrary(true)}>
+          公共库
+        </button>
+      </div>
+      {notice && (
+        <p role="status" className="field-hint">
+          {notice}
+        </p>
+      )}
+      {publicLibrary ? (
+        <PublicLibraryPanel
+          projectId={projectId}
+          editable={editable}
+          filters={publicFilters}
+          onFiltersChange={setPublicFilters}
+          onImported={() => {
+            setPublicLibrary(false);
+            setFolderId('');
+            setKind('media');
+            setMediaType('');
+            setQuery('');
+            setNotice('已添加到项目资源库');
+            reload();
+          }}
+        />
+      ) : preview?.scope === path ? (
         <BoardSourcePreview
           key={JSON.stringify(preview.source.ref)}
           projectId={projectId}
@@ -228,6 +267,37 @@ export function BoardSources({
                       ))}
                     </select>
                   </label>
+                )}
+                {editable && row.ref.kind === 'media' && (
+                  <button
+                    className="creative-public-action"
+                    disabled={collecting || !row.ready}
+                    aria-label={`收录 ${row.value.title} 到公共库`}
+                    onClick={async () => {
+                      if (collecting) return;
+                      setCollecting(true);
+                      setMoveError('');
+                      setNotice('');
+                      try {
+                        if (!collectAttempts.current.has(row.ref.id))
+                          collectAttempts.current.set(row.ref.id, crypto.randomUUID());
+                        await api(
+                          `/projects/${projectId}/public-library/resources`,
+                          'POST',
+                          { mediaVersionId: row.ref.id },
+                          { 'Idempotency-Key': collectAttempts.current.get(row.ref.id)! },
+                        );
+                        setNotice('已收录到工作区公共库');
+                        collectAttempts.current.delete(row.ref.id);
+                      } catch (reason) {
+                        setMoveError(reason instanceof Error ? reason.message : '收录失败');
+                      } finally {
+                        setCollecting(false);
+                      }
+                    }}
+                  >
+                    收录到公共库
+                  </button>
                 )}
               </div>
             ))}
