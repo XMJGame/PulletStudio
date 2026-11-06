@@ -14,7 +14,7 @@ test('project gallery opens the actual blank canvas and supports resource insert
   await page.goto(review);
   await expect(page.getByRole('heading', { name: '我的项目' })).toBeVisible();
   await snapshot(page, '01-projects');
-  await page.getByRole('textbox', { name: '搜索项目' }).fill('未命名');
+  await page.getByRole('searchbox', { name: '搜索项目' }).fill('未命名');
   await page.getByRole('button', { name: /未命名试验/ }).click();
   await expect(page.getByRole('heading', { name: '从第一帧开始' })).toBeVisible();
   await snapshot(page, '02-empty-canvas');

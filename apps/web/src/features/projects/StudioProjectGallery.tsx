@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { StudioBrand, StudioButton, StudioIcon } from '../../shared/ui/StudioUI';
 import './studio-projects.css';
 
@@ -8,7 +8,7 @@ export type StudioProjectCard = {
   category: string;
   updated: string;
   cover?: string;
-  boards: number;
+  boards?: number;
 };
 export function StudioProjectGallery({
   projects,
@@ -16,10 +16,24 @@ export function StudioProjectGallery({
   onCreate,
   dark,
   toggleTheme,
+  requestCreate,
+  recentIds,
+  reviewMode = false,
+  topActions,
+  railActions,
+  notice,
+  emptyText,
 }: {
   projects: StudioProjectCard[];
   onOpen: (project: StudioProjectCard) => void;
-  onCreate: (title: string) => void;
+  onCreate?: (title: string) => void;
+  requestCreate?: () => void;
+  recentIds?: string[];
+  reviewMode?: boolean;
+  topActions?: ReactNode;
+  railActions?: ReactNode;
+  notice?: ReactNode;
+  emptyText?: string;
   dark: boolean;
   toggleTheme: () => void;
 }) {
@@ -27,10 +41,20 @@ export function StudioProjectGallery({
   const [recent, setRecent] = useState(false);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
-  const featured = projects.find((project) => project.cover);
+  const featured = recentIds
+    ? recentIds.map((id) => projects.find((project) => project.id === id)).find(Boolean)
+    : projects.find((project) => project.cover);
   const matches = projects.filter(
-    (p, index) => (!recent || index < 3) && p.title.toLowerCase().includes(query.trim().toLowerCase()),
+    (p, index) =>
+      (!recent || (recentIds ? recentIds.includes(p.id) : index < 3)) &&
+      p.title.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const meta = (project: StudioProjectCard) =>
+    project.boards === undefined
+      ? project.category
+      : project.boards
+        ? `${project.boards} 张画布`
+        : '尚无画布';
   return (
     <div className="v2-project-shell">
       <aside className="v2-project-rail">
@@ -48,7 +72,8 @@ export function StudioProjectGallery({
           <StudioButton variant="ghost" icon={dark ? 'sun' : 'moon'} onClick={toggleTheme}>
             {dark ? '浅色界面' : '深色界面'}
           </StudioButton>
-          <span className="v2-review-indicator">设计评审</span>
+          {railActions}
+          {reviewMode && <span className="v2-review-indicator">设计评审</span>}
         </div>
       </aside>
       <main className="v2-project-main">
@@ -59,24 +84,32 @@ export function StudioProjectGallery({
           <span>
             工作台 <b>/</b> 项目
           </span>
-          <span className="v2-review-indicator">原型 · 示例数据</span>
+          {reviewMode && <span className="v2-review-indicator">原型 · 示例数据</span>}
+          {topActions}
         </header>
         <div className="v2-project-content">
+          {notice}
           <div className="v2-project-heading">
             <div>
               <h1>我的项目</h1>
               <p>打开一个项目，在画布上继续创作。</p>
             </div>
-            <StudioButton variant="primary" icon="plus" onClick={() => setCreating(true)}>
-              新建项目
-            </StudioButton>
+            {(onCreate || requestCreate) && (
+              <StudioButton
+                variant="primary"
+                icon="plus"
+                onClick={() => (requestCreate ? requestCreate() : setCreating(true))}
+              >
+                新建项目
+              </StudioButton>
+            )}
           </div>
           {creating && (
             <form
               className="v2-project-create"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (title.trim()) onCreate(title.trim());
+                if (title.trim()) onCreate?.(title.trim());
               }}
             >
               <label htmlFor="review-project-name">项目名称</label>
@@ -95,17 +128,15 @@ export function StudioProjectGallery({
               <StudioButton onClick={() => setCreating(false)}>取消</StudioButton>
             </form>
           )}
-          {featured?.cover && !query && !recent && (
-            <section className="v2-featured" aria-label="继续创作">
-              <img src={featured.cover} alt="" />
+          {featured && !query && !recent && (
+            <section className="v2-featured" data-cover={Boolean(featured.cover)} aria-label="继续创作">
+              {featured.cover && <img src={featured.cover} alt="" />}
               <div className="v2-featured-copy">
                 <span>
                   <StudioIcon name="clock" size={14} /> 最近创作
                 </span>
                 <h2>{featured.title}</h2>
-                <p>
-                  {featured.category}　·　{featured.boards} 张画布
-                </p>
+                <p>{meta(featured)}</p>
                 <StudioButton icon="right" onClick={() => onOpen(featured)}>
                   继续创作
                 </StudioButton>
@@ -120,6 +151,7 @@ export function StudioProjectGallery({
               <StudioIcon name="search" size={16} />
               <input
                 className="v2-input"
+                type="search"
                 aria-label="搜索项目"
                 placeholder="搜索项目"
                 value={query}
@@ -129,19 +161,27 @@ export function StudioProjectGallery({
           </div>
           <div className="v2-project-grid">
             {matches.map((project) => (
-              <button className="v2-project-card" key={project.id} onClick={() => onOpen(project)}>
-                <div className="v2-project-cover">
+              <button
+                className="v2-project-card"
+                key={project.id}
+                aria-label={`打开项目 ${project.title}`}
+                onClick={() => onOpen(project)}
+              >
+                <div className="v2-project-cover" data-tone={project.id.charCodeAt(0) % 3}>
                   {project.cover ? (
                     <img src={project.cover} alt="" />
                   ) : (
-                    <StudioIcon name="folder" size={30} />
+                    <span className="v2-cover-mark">
+                      <StudioIcon name="folder" size={27} />
+                    </span>
                   )}
                 </div>
                 <div className="v2-project-card-body">
                   <div>
                     <strong>{project.title}</strong>
                     <small>
-                      {project.boards ? `${project.boards} 张画布` : '尚无画布'} · {project.updated}
+                      {meta(project)}
+                      {project.updated ? ` · ${project.updated}` : ''}
                     </small>
                   </div>
                   <StudioIcon name="right" size={16} />
@@ -149,7 +189,11 @@ export function StudioProjectGallery({
               </button>
             ))}
           </div>
-          {!matches.length && <p className="v2-gallery-empty">没有找到匹配的项目。试试其他关键词。</p>}
+          {!matches.length && (
+            <p className="v2-gallery-empty">
+              {!projects.length && !query ? (emptyText ?? '尚无项目。') : '没有找到匹配的项目。'}
+            </p>
+          )}
         </div>
       </main>
     </div>

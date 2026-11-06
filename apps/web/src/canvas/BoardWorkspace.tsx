@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Connection, EdgeChange, NodeChange } from '@xyflow/react';
 import type {
   BoardLayout,
@@ -23,6 +23,9 @@ import { BoardInspector } from './BoardInspector';
 import { BoardSources } from './BoardSources';
 import type { CanvasNode } from './board-types';
 import './board.css';
+import { StudioBrand, StudioButton } from '../shared/ui/StudioUI';
+import { EntityLibraryDialog } from '../components/EntityLibraryDialog';
+import '../features/canvas/studio-live-board.css';
 type History = {
   items: { revision: number; title: string; createdAt: string; authorName: string }[];
   nextCursor: number | null;
@@ -39,17 +42,27 @@ const unavailable = { status: 'unavailable', title: '引用不可用' } as const
 export default function BoardWorkspace({
   projectId,
   projectTitle,
+  projectMessage,
   userId,
   canEdit,
   onClose,
   onUnauthorized,
+  theme,
+  onToggleTheme,
+  onWorkflows,
+  projectActions,
 }: {
   projectId: string;
   projectTitle: string;
+  projectMessage?: string;
   userId: string;
   canEdit: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
+  onWorkflows: () => void;
+  projectActions?: ReactNode;
 }) {
   const [boards, setBoards] = useState<BoardListItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -68,15 +81,10 @@ export default function BoardWorkspace({
   const [detail, setDetail] = useState<BoardResolved>();
   const [freeGeneration, setFreeGeneration] = useState(false);
   const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft; target?: string }>();
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    try {
-      return localStorage.getItem('pullet.canvas.theme') === 'dark' ? 'dark' : 'light';
-    } catch {
-      return 'light';
-    }
-  });
   const [showSources, setShowSources] = useState(() => window.innerWidth > 760);
   const [mediaLibrary, setMediaLibrary] = useState(false);
+  const [entityLibrary, setEntityLibrary] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 760px)');
     const collapse = (event: MediaQueryListEvent) => {
@@ -166,18 +174,37 @@ export default function BoardWorkspace({
   }
   useEffect(() => {
     let live = true;
-    void api<CursorPage<BoardListItem>>(listPath)
-      .then((value) => {
-        if (live) {
-          setBoards(value.items);
-          setCursor(value.nextCursor);
+    const requested = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1];
+    const remembered = lastBoard(userId, projectId);
+    void (async () => {
+      try {
+        const value = await api<CursorPage<BoardListItem>>(listPath);
+        if (!live) return;
+        setBoards(value.items);
+        setCursor(value.nextCursor);
+        const choices = [
+          ...new Set([requested, remembered, value.items[0]?.id].filter((id): id is string => Boolean(id))),
+        ];
+        for (const id of choices) {
+          try {
+            const board = await api<BoardView>(`/boards/${id}`);
+            if (!live) return;
+            if (board.projectId === projectId) {
+              accept(board);
+              return;
+            }
+          } catch (reason) {
+            if (!(reason instanceof ApiError && [403, 404].includes(reason.status))) throw reason;
+          }
+          if (live && id === remembered) forgetBoard(userId, projectId);
         }
-      })
-      .catch((reason) => {
+        if (live && (requested || remembered)) window.history.replaceState(null, '', '#canvas');
+      } catch (reason) {
         if (live) report(reason);
-      });
-    const id = window.location.hash.match(/^#canvas\/([a-f0-9-]{36})$/i)?.[1] ?? lastBoard(userId, projectId);
-    if (id) void load(id);
+      } finally {
+        if (live) setInitialLoading(false);
+      }
+    })();
     return () => {
       live = false;
       epoch.current++;
@@ -261,7 +288,6 @@ export default function BoardWorkspace({
         'Idempotency-Key': saveAttempt.current.key,
       });
       accept(value, true);
-      setMessage(`已保存 v${value.revision}`);
       if (value.headRevision > value.revision) {
         setRemote(await api<BoardView>(`/boards/${base.id}`));
         return;
@@ -761,171 +787,100 @@ export default function BoardWorkspace({
       description={projectTitle}
       busy={busy}
       onClose={() => close()}
-      className={`creative-board-dialog creative-theme-${theme}`}
+      className={`creative-board-dialog creative-theme-${theme} studio-v2 studio-live-board`}
+      hideHeader
+      theme={theme}
     >
-      {denied ? (
-        <div className="dialog-body">
-          <p role="alert" className="notice error">
-            画布或项目已不可访问，已隐藏资源详情。{error}
-          </p>
-          <button onClick={onClose}>返回工作台</button>
-        </div>
-      ) : !base || !layout ? (
-        <div className="dialog-body creative-board-home">
-          {error && (
-            <p role="alert" className="notice error">
-              {error}
-            </p>
-          )}
-          <h3>项目画布</h3>
-          <p>每张画布独立保存布局与历史，共用此项目的资产和媒体。</p>
-          {canEdit && (
-            <form
-              className="creative-create"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void (async () => {
-                  const body = { title: newTitle, unitId: null },
-                    serialized = JSON.stringify(body);
-                  if (createAttempt.current.body !== serialized)
-                    createAttempt.current = { body: serialized, key: crypto.randomUUID() };
-                  setBusy(true);
-                  setError('');
-                  try {
-                    const value = await api<BoardView>(`/projects/${projectId}/boards`, 'POST', body, {
-                      'Idempotency-Key': createAttempt.current.key,
-                    });
-                    accept(value);
-                  } catch (reason) {
-                    report(reason);
-                  } finally {
-                    setBusy(false);
-                  }
-                })();
-              }}
-            >
-              <label>
-                画布名称
-                <input
-                  data-autofocus
-                  aria-label="画布名称"
-                  value={newTitle}
-                  onChange={(event) => setNewTitle(event.target.value)}
-                  required
-                  maxLength={100}
-                  disabled={busy}
-                />
-              </label>
-              <button className="primary" disabled={busy || !newTitle.trim()}>
-                创建画布
-              </button>
-            </form>
-          )}
-          <div className="creative-board-list">
-            {boards.map((item) => (
-              <button key={item.id} disabled={busy} onClick={() => void load(item.id)}>
-                <strong>{item.title}</strong>
-                <span>
-                  v{item.revision} · {item.unitId ? '制作单元' : '项目'} ·{' '}
-                  {new Date(item.updatedAt).toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
-          {!boards.length && !busy && <p className="field-hint">尚无画布。</p>}
-          {cursor && (
-            <button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  const value = await api<CursorPage<BoardListItem>>(`${listPath}?cursor=${cursor}`);
-                  setBoards((current) => [...current, ...value.items]);
-                  setCursor(value.nextCursor);
-                } catch (reason) {
-                  report(reason);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              更多画布
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="creative-toolbar">
-            <button disabled={busy} onClick={() => close('boards')}>
-              切换 / 新建画布
-            </button>
-            <button disabled={busy} onClick={() => setFreeGeneration(true)}>
-              {base.canEdit ? '自由生成' : '生成与结果'}
-            </button>
-            <button disabled={busy} onClick={() => setPromptLibrary({})}>
-              提示词库
-            </button>
-            <button aria-pressed={showSources} onClick={() => setShowSources((value) => !value)}>
-              资源库
-            </button>
-            <button
-              onClick={() => {
-                const next = theme === 'light' ? 'dark' : 'light';
-                setTheme(next);
-                try {
-                  localStorage.setItem('pullet.canvas.theme', next);
-                } catch {
-                  /* Optional preference. */
-                }
-              }}
-            >
-              {theme === 'light' ? '深色画布' : '浅色画布'}
-            </button>
-            {editable && node?.type === 'note' && node.data.text?.trim() && (
-              <button
+      <header className="v2-live-top">
+        <div className="v2-live-path">
+          <StudioButton
+            variant="ghost"
+            icon="arrow"
+            aria-label="返回工作台"
+            title="返回工作台"
+            disabled={busy}
+            onClick={() => close()}
+          />
+          <StudioBrand compact />
+          <strong title={projectTitle}>{projectTitle}</strong>
+          {base && !denied && (
+            <>
+              <StudioButton
+                variant="ghost"
+                icon="chevron"
+                aria-label="切换 / 新建画布"
+                title="切换 / 新建画布"
                 disabled={busy}
-                onClick={() =>
-                  setPromptLibrary({ draft: { positivePrompt: node.data.text ?? '', ...node.data.prompt } })
-                }
-              >
-                将便签存入提示词库
-              </button>
+                onClick={() => close('boards')}
+              />
+              <input
+                aria-label="当前画布名称"
+                value={title}
+                disabled={!editable}
+                maxLength={100}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </>
+          )}
+        </div>
+        {!denied && (
+          <div className="v2-live-actions">
+            {base && (
+              <span role="status" className="creative-save-state">
+                {busy
+                  ? '处理中…'
+                  : !base.canEdit
+                    ? `只读 · v${base.revision}`
+                    : dirty
+                      ? `未保存 · 基于 v${base.revision}`
+                      : `已保存 v${base.revision}`}
+              </span>
             )}
-            <input
-              aria-label="当前画布名称"
-              value={title}
-              disabled={!editable}
-              maxLength={100}
-              onChange={(event) => setTitle(event.target.value)}
+            {base && (
+              <StudioButton
+                icon="layers"
+                variant="ghost"
+                aria-label="资源库"
+                title="资源库"
+                aria-pressed={showSources}
+                onClick={() => setShowSources((value) => !value)}
+              />
+            )}
+            <StudioButton
+              icon="book"
+              variant="ghost"
+              aria-label={base ? '提示词库' : '打开提示词库'}
+              title="提示词库"
+              onClick={() => setPromptLibrary({})}
             />
-            <span role="status" className="creative-save-state">
-              {busy
-                ? '处理中…'
-                : !base.canEdit
-                  ? `只读 · v${base.revision}`
-                  : dirty
-                    ? `未保存 · 基于 v${base.revision}`
-                    : `已保存 v${base.revision}`}
-            </span>
-            {base.canEdit && (
-              <>
-                <button onClick={() => add('note')} disabled={!editable}>
-                  添加便签
-                </button>
-                <button onClick={() => add('generation')} disabled={!editable}>
-                  添加生成节点
-                </button>
-                <button
-                  className="primary"
-                  disabled={!editable || !dirty || !title.trim()}
-                  onClick={() => void save()}
-                >
-                  保存画布
-                </button>
-              </>
+            <StudioButton
+              icon="spark"
+              variant="ghost"
+              aria-label={
+                base ? (base.canEdit ? '自由生成' : '生成与结果') : canEdit ? '开始生成' : '查看生成结果'
+              }
+              title="生成与结果"
+              onClick={() => setFreeGeneration(true)}
+            />
+            <StudioButton
+              icon={theme === 'light' ? 'moon' : 'sun'}
+              variant="ghost"
+              aria-label={theme === 'light' ? '深色画布' : '浅色画布'}
+              title={theme === 'light' ? '深色画布' : '浅色画布'}
+              onClick={onToggleTheme}
+            />
+            {base?.canEdit && (
+              <StudioButton
+                variant="primary"
+                className="v2-live-save"
+                disabled={!editable || !dirty || !title.trim()}
+                onClick={() => void save()}
+              >
+                保存画布
+              </StudioButton>
             )}
             <details
-              className="creative-toolbar-menu"
+              className="creative-toolbar-menu v2-live-menu"
               onBlur={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
               }}
@@ -936,36 +891,167 @@ export default function BoardWorkspace({
             >
               <summary>更多操作</summary>
               <div>
-                {base.canEdit && (
+                <StudioButton variant="ghost" onClick={onWorkflows}>
+                  工作流中心
+                </StudioButton>
+                <StudioButton variant="ghost" onClick={() => setMediaLibrary(true)}>
+                  打开素材库
+                </StudioButton>
+                <StudioButton variant="ghost" onClick={() => setEntityLibrary(true)}>
+                  角色与场景
+                </StudioButton>
+                {projectActions}
+                {base && (
                   <>
-                    <button onClick={() => add('brief')} disabled={!editable}>
-                      创作说明
-                    </button>
-                    <button onClick={() => add('group')} disabled={!editable}>
-                      添加分组
-                    </button>
+                    {editable && (
+                      <>
+                        <StudioButton variant="ghost" onClick={() => add('brief')}>
+                          创作说明
+                        </StudioButton>
+                        <StudioButton variant="ghost" onClick={() => add('group')}>
+                          添加分组
+                        </StudioButton>
+                        {node?.type === 'note' && node.data.text?.trim() && (
+                          <StudioButton
+                            variant="ghost"
+                            onClick={() =>
+                              setPromptLibrary({
+                                draft: { positivePrompt: node.data.text ?? '', ...node.data.prompt },
+                              })
+                            }
+                          >
+                            将便签存入提示词库
+                          </StudioButton>
+                        )}
+                      </>
+                    )}
+                    <StudioButton variant="ghost" onClick={() => void refreshReferences()}>
+                      刷新引用
+                    </StudioButton>
+                    <StudioButton
+                      variant="ghost"
+                      onClick={() =>
+                        void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report)
+                      }
+                    >
+                      修订历史
+                    </StudioButton>
                   </>
                 )}
-                <button aria-pressed={pan} onClick={() => setPan((value) => !value)}>
-                  {pan ? '切换框选' : '切换平移'}
-                </button>
-                <button disabled={busy} onClick={() => void refreshReferences()}>
-                  刷新引用
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    void api<History>(`/boards/${base.id}/revisions`).then(setHistory).catch(report);
-                  }}
-                >
-                  修订历史
-                </button>
               </div>
             </details>
-            <button disabled={busy} onClick={() => close()}>
-              返回工作台
-            </button>
           </div>
+        )}
+      </header>
+      {projectMessage && !denied && (
+        <p className="creative-notice" role="status">
+          {projectMessage}
+        </p>
+      )}
+      {denied ? (
+        <div className="dialog-body">
+          <p role="alert" className="notice error">
+            画布或项目已不可访问，已隐藏资源详情。{error}
+          </p>
+        </div>
+      ) : !base || !layout ? (
+        <div className="dialog-body creative-board-home v2-live-board-home">
+          {error && (
+            <p role="alert" className="notice error">
+              {error}
+            </p>
+          )}
+          {initialLoading ? (
+            <p role="status">正在读取项目画布…</p>
+          ) : (
+            <>
+              <span className="v2-live-empty-mark">
+                <StudioBrand compact />
+              </span>
+              <h3>{boards.length ? '项目画布' : '从第一帧开始'}</h3>
+              <p>
+                {boards.length
+                  ? '继续已有画布，或开启一个新探索。'
+                  : '创建画布，就可以加入素材、写提示词和生成。'}
+              </p>
+              {canEdit && (
+                <form
+                  className="creative-create"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void (async () => {
+                      const body = { title: newTitle, unitId: null },
+                        serialized = JSON.stringify(body);
+                      if (createAttempt.current.body !== serialized)
+                        createAttempt.current = { body: serialized, key: crypto.randomUUID() };
+                      setBusy(true);
+                      setError('');
+                      try {
+                        const value = await api<BoardView>(`/projects/${projectId}/boards`, 'POST', body, {
+                          'Idempotency-Key': createAttempt.current.key,
+                        });
+                        accept(value);
+                      } catch (reason) {
+                        report(reason);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  <label>
+                    画布名称
+                    <input
+                      data-autofocus
+                      aria-label="画布名称"
+                      value={newTitle}
+                      onChange={(event) => setNewTitle(event.target.value)}
+                      required
+                      maxLength={100}
+                      disabled={busy}
+                    />
+                  </label>
+                  <button className="primary" disabled={busy || !newTitle.trim()}>
+                    创建画布
+                  </button>
+                </form>
+              )}
+              <div className="creative-board-list">
+                {boards.map((item) => (
+                  <button key={item.id} disabled={busy} onClick={() => void load(item.id)}>
+                    <strong>{item.title}</strong>
+                    <span>
+                      v{item.revision} · {item.unitId ? '制作单元' : '项目'} ·{' '}
+                      {new Date(item.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {!boards.length && !busy && !canEdit && <p className="field-hint">项目还没有可查看的画布。</p>}
+              {cursor && (
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const value = await api<CursorPage<BoardListItem>>(`${listPath}?cursor=${cursor}`);
+                      setBoards((current) => [...current, ...value.items]);
+                      setCursor(value.nextCursor);
+                    } catch (reason) {
+                      report(reason);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  更多画布
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <>
           {error && (
             <p role="alert" className="notice error creative-notice">
               {error}
@@ -1023,6 +1109,45 @@ export default function BoardWorkspace({
                 }}
               />
             )}
+            <nav className="v2-live-tools" aria-label="画布工具">
+              <StudioButton
+                variant="ghost"
+                icon="cursor"
+                aria-label="选择"
+                title="选择"
+                aria-pressed={!pan}
+                onClick={() => setPan(false)}
+              />
+              <StudioButton
+                variant="ghost"
+                icon="hand"
+                aria-label="平移"
+                title="平移"
+                aria-pressed={pan}
+                onClick={() => setPan(true)}
+              />
+              {base.canEdit && (
+                <>
+                  <hr />
+                  <StudioButton
+                    variant="ghost"
+                    icon="note"
+                    aria-label="添加便签"
+                    title="添加便签"
+                    disabled={!editable}
+                    onClick={() => add('note')}
+                  />
+                  <StudioButton
+                    variant="primary"
+                    icon="spark"
+                    aria-label="添加生成节点"
+                    title="添加生成节点"
+                    disabled={!editable}
+                    onClick={() => add('generation')}
+                  />
+                </>
+              )}
+            </nav>
             <BoardSurface
               nodes={flowNodes}
               edges={flowEdges}
@@ -1133,18 +1258,18 @@ export default function BoardWorkspace({
           </div>
         </>
       )}
-      {freeGeneration && base && !denied && (
+      {freeGeneration && !denied && (
         <GenerationDialog
           creation={{
             projectId,
-            boardId: base.id,
+            boardId: base?.id,
             initialDraft: { positivePrompt: node?.data.text ?? '', ...node?.data.prompt },
             onPin: editable ? pinCandidate : undefined,
           }}
           onClose={() => setFreeGeneration(false)}
         />
       )}
-      {mediaLibrary && base && !denied && (
+      {mediaLibrary && !denied && (
         <MediaDialog
           projectId={projectId}
           onClose={() => {
@@ -1162,7 +1287,16 @@ export default function BoardWorkspace({
           }
         />
       )}
-      {promptLibrary && base && !denied && (
+      {entityLibrary && !denied && (
+        <EntityLibraryDialog
+          projectId={projectId}
+          onClose={() => {
+            setEntityLibrary(false);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      )}
+      {promptLibrary && !denied && (
         <PromptLibraryDialog
           projectId={projectId}
           initialDraft={promptLibrary.draft}

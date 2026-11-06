@@ -1487,28 +1487,6 @@ details form {
   }
 }
 
-.creation-home {
-  display: grid;
-  gap: 20px;
-}
-.creation-intro {
-  padding: 28px;
-}
-.creation-intro h2 {
-  margin: 12px 0;
-  font-size: 26px;
-}
-.creation-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 16px;
-}
-.creation-actions .panel {
-  padding: 22px;
-}
-.creation-actions p {
-  min-height: 44px;
-}
 .candidate-preview {
   display: block;
   max-width: min(100%, 400px);
@@ -1524,12 +1502,4 @@ details form {
 .preserve-space {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-@media (max-width: 600px) {
-  .creation-intro {
-    padding: 18px;
-  }
-  .creation-intro h2 {
-    font-size: 22px;
-  }
 }

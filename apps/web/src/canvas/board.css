@@ -54,22 +54,6 @@
   color: #a9b2c0;
   font-size: 12px;
 }
-.creative-toolbar {
-  padding: 12px 18px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid #343c48;
-}
-.creative-toolbar > input {
-  width: 190px;
-  min-width: 120px;
-  margin: 0;
-}
-.creative-toolbar > button {
-  padding: 9px 12px;
-}
 .creative-save-state {
   margin-right: auto;
   padding: 6px;
@@ -154,8 +138,7 @@
 .creative-source-tabs button {
   padding: 8px 12px;
 }
-.creative-source-tabs button[aria-pressed='true'],
-.creative-toolbar button[aria-pressed='true'] {
+.creative-source-tabs button[aria-pressed='true'] {
   border-color: #c9ad79;
   color: #dec28f;
 }
@@ -434,17 +417,6 @@
   .creative-board-dialog .dialog-header p {
     font-size: 11px;
   }
-  .creative-toolbar {
-    padding: 8px;
-    gap: 6px;
-  }
-  .creative-toolbar > input {
-    width: 145px;
-  }
-  .creative-toolbar > button {
-    padding: 7px 9px;
-    font-size: 12px;
-  }
   .creative-workspace-library {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -520,7 +492,6 @@
   color-scheme: light;
 }
 .creative-board-dialog .dialog-header,
-.creative-board-dialog .creative-toolbar,
 .creative-board-dialog .creative-help {
   border-color: var(--board-line);
 }
@@ -529,17 +500,6 @@
 }
 .creative-board-dialog label {
   color: var(--board-muted);
-}
-.creative-board-dialog .creative-toolbar {
-  padding: 8px 15px;
-  gap: 6px;
-}
-.creative-board-dialog .creative-toolbar > button {
-  padding: 7px 9px;
-  font-size: 12px;
-}
-.creative-board-dialog .creative-toolbar > input {
-  width: 150px;
 }
 .creative-board-dialog .creative-toolbar-menu summary {
   color: var(--board-muted);

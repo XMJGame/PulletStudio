@@ -55,6 +55,11 @@ test.beforeEach(() => {
 async function project(title: string) {
   return api('POST', '/projects', { workspaceId: setup.workspace.id, title });
 }
+async function openCenter(page: Page) {
+  await page.getByText('更多操作', { exact: true }).click();
+  await page.getByRole('button', { name: '工作流中心', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '工作流中心', exact: true })).toBeVisible();
+}
 async function open(page: Page, value: any, actor = owner, userId = setup.user.id) {
   await page.context().addCookies((await actor.storageState()).cookies);
   await page.addInitScript(
@@ -65,8 +70,8 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
     { uid: userId, wid: setup.workspace.id, pid: value.id },
   );
   await page.goto('/');
-  await page.getByRole('button', { name: '工作流中心', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '工作流中心', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
+  await openCenter(page);
 }
 test('empty project and canvas generate pasted prompts, save candidates and reopen without a shot', async ({
   page,
@@ -87,10 +92,9 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
     .getByRole('dialog', { name: '工作流中心', exact: true })
     .getByRole('button', { name: '关闭工作流中心', exact: true })
     .click();
-  await expect(page.getByRole('region', { name: '项目创作' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'AI 分镜', exact: true })).not.toBeVisible();
   await page.screenshot({ path: 'test-results/light-project-desktop.png', fullPage: true });
-  await page.getByRole('button', { name: '创作画布', exact: true }).click();
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Prompt study');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
@@ -137,7 +141,8 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
   expect(history.items[0].takeId).toBeNull();
   await generation.getByRole('button', { name: '关闭', exact: true }).click();
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await page.getByRole('button', { name: '工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
+  await openCenter(page);
   await page.getByRole('button', { name: '试跑与发布', exact: true }).click();
   await page.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
   const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
@@ -278,7 +283,6 @@ test('full prompt versions travel through generation and separate canvases witho
   });
   expect((await api('GET', `/generation-jobs/${job.id}`)).prompt.positivePrompt).toBe(text);
   await generation.getByRole('button', { name: '关闭', exact: true }).click();
-  await page.getByRole('button', { name: '创作画布', exact: true }).click();
   await page.getByLabel('画布名称', { exact: true }).fill('Original prompt study');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
   await page.getByRole('button', { name: '提示词库', exact: true }).click();
@@ -366,7 +370,7 @@ test('project workflow center imports, visualizes and maps existing API fields w
   expect(remote.mock.requests.some((path) => path.startsWith('/object_info/'))).toBeTruthy();
   await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole('button', { name: '工作流中心', exact: true }).click();
+  await openCenter(page);
   await expect(dialog.getByRole('region', { name: '已保存的工作流' })).toContainText(
     'Mapped studio workflow',
   );

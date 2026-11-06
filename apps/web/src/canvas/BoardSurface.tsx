@@ -39,6 +39,15 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
         id="in"
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
       />
+      {poster && !broken && (
+        <img
+          src={poster}
+          alt={value?.title}
+          draggable={false}
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      )}
       <span className="creative-node-kind">{kindLabels[value?.kind ?? domain.type] ?? '业务引用'}</span>
       <strong>
         {domain.type === 'reference' || domain.type === 'result'
@@ -47,15 +56,6 @@ const BoardCard = memo(function BoardCard({ data }: NodeProps<CanvasNode>) {
       </strong>
       {domain.type === 'reference' || domain.type === 'result' ? (
         <>
-          {poster && !broken && (
-            <img
-              src={poster}
-              alt={value?.title}
-              draggable={false}
-              loading="lazy"
-              onError={() => setBroken(true)}
-            />
-          )}
           {broken && <p className="creative-resource-error">媒体无法读取，请检查文件或权限</p>}
           {!poster && (
             <p className="creative-node-summary">

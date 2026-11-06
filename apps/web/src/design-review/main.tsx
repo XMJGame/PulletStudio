@@ -63,6 +63,7 @@ function App() {
         />
       ) : (
         <StudioProjectGallery
+          reviewMode
           projects={items}
           onOpen={open}
           onCreate={(title) =>

@@ -8,6 +8,8 @@ export function Dialog({
   onClose,
   children,
   className = '',
+  hideHeader = false,
+  theme,
 }: {
   title: string;
   description: string;
@@ -15,6 +17,8 @@ export function Dialog({
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  hideHeader?: boolean;
+  theme?: 'light' | 'dark';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -36,6 +40,7 @@ export function Dialog({
     <dialog
       ref={ref}
       className={`studio-dialog ${className}`.trim()}
+      data-theme={theme}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onKeyDown={(event) => {
@@ -76,21 +81,28 @@ export function Dialog({
           onClose();
       }}
     >
-      <div className="dialog-header">
-        <div>
+      {hideHeader ? (
+        <div className="v2-sr">
           <h2 id={titleId}>{title}</h2>
           <p id={descriptionId}>{description}</p>
         </div>
-        <button
-          type="button"
-          className="dialog-close"
-          aria-label="关闭对话框"
-          disabled={busy}
-          onClick={onClose}
-        >
-          ×
-        </button>
-      </div>
+      ) : (
+        <div className="dialog-header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            <p id={descriptionId}>{description}</p>
+          </div>
+          <button
+            type="button"
+            className="dialog-close"
+            aria-label="关闭对话框"
+            disabled={busy}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {children}
     </dialog>,
     document.body,

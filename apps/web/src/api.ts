@@ -14,6 +14,7 @@ export type Project = {
   narrativeMode: string;
   targetDurationSeconds: number | null;
   directorNotes: string;
+  updatedAt?: string;
   version: number;
   deletedAt: string | null;
   deletedBy: string | null;

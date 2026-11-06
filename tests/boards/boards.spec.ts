@@ -79,7 +79,7 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
     { uid: userId, wid: setup.workspace.id, pid: value.id },
   );
   await page.goto('/');
-  await page.getByRole('button', { name: '创作画布', exact: true }).click();
+  await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
   await expect(page.getByRole('dialog', { name: '创作画布', exact: true })).toBeVisible();
 }
 async function createBoard(page: Page, title: string) {
@@ -88,6 +88,30 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('project gallery restores its own board when a link points to another project', async ({ page }) => {
+  const first = await project('Gallery station');
+  const second = await project('Gallery skyline');
+  await call('POST', `/projects/${first.id}/boards`, { title: 'Earlier station' });
+  const foreign = await call('POST', `/projects/${second.id}/boards`, { title: 'Skyline only' });
+  await open(page, first);
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Earlier station');
+  await page.getByRole('button', { name: '切换 / 新建画布', exact: true }).click();
+  const remembered = await createBoard(page, 'Selected station');
+  await call('POST', `/projects/${first.id}/boards`, { title: 'Newest station' });
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: '搜索项目' });
+  await search.fill('Gallery station');
+  await expect(page.getByRole('button', { name: '打开项目 Gallery skyline' })).toHaveCount(0);
+  await search.clear();
+  await expect(page.getByRole('button', { name: '打开项目 Gallery skyline' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/studio-live-gallery-desktop.png' });
+  await page.goto(`/#canvas/${foreign.id}`);
+  await page.reload();
+  await expect(page.getByLabel('当前画布名称')).toHaveValue('Selected station');
+  await expect(page).toHaveURL(new RegExp(`#canvas/${remembered}$`));
+  await expect(page.getByText('Skyline only', { exact: true })).toHaveCount(0);
+});
+
 async function save(page: Page) {
   await page.getByRole('button', { name: '保存画布', exact: true }).click();
   await expect(page.locator('.creative-save-state')).toContainText('已保存');
@@ -335,7 +359,7 @@ test('readonly board, protected voice metadata, and revoked project access', asy
     const joined = await accepted.json();
     await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
     await open(page, value, reader, joined.user.id);
-    await page.getByRole('button', { name: /Read only exploration/ }).click();
+    await expect(page.getByLabel('当前画布名称')).toHaveValue('Read only exploration');
     await expect(page.locator('.creative-save-state')).toContainText('只读');
     await expect(page.getByRole('button', { name: '保存画布', exact: true })).toHaveCount(0);
     await expect(page.getByLabel('当前画布名称')).toBeDisabled();
@@ -564,7 +588,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
       const readonly = await context.newPage();
       await open(readonly, value, actor, joined.user.id);
-      await readonly.getByRole('button', { name: /Station generation/ }).click();
+      await expect(readonly.getByLabel('当前画布名称')).toHaveValue('Station generation');
       await readonly.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
       const view = readonly.getByRole('region', { name: '生成节点设置', exact: true });
       await expect(view.getByLabel('节点工作流')).toBeDisabled();
@@ -721,7 +745,7 @@ test('three canvases share project assets and an I2V result without shots or com
     await expect
       .poll(async () => (await call('GET', `/generation-jobs/${job.id}`)).state, { timeout: 15000 })
       .toBe('completed');
-    await page.getByRole('button', { name: '创作画布', exact: true }).click();
+    await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
     await expect(page.getByLabel('当前画布名称')).toHaveValue('Character study');
     await page.getByRole('button', { name: '自由生成', exact: true }).click();
     await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
@@ -746,6 +770,7 @@ test('three canvases share project assets and an I2V result without shots or com
     await expect(page.getByLabel('当前画布名称')).toHaveValue('Video study');
     await page.getByRole('button', { name: '返回工作台', exact: true }).click();
     await page.goto('/');
+    await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
     await expect(page.getByLabel('当前画布名称')).toHaveValue('Video study');
     const boards = await Promise.all([a, b, c].map((id) => call('GET', `/boards/${id}`)));
     for (const board of boards)
