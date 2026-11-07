@@ -18,6 +18,7 @@ import type { MediaVersion } from '../media-types';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
 import { GenerationOutputPicker, selectedGenerationOutput } from './GenerationOutputPicker';
+import { GenerationOutputBatchDialog } from './GenerationOutputBatchDialog';
 export type GenerationJob = {
   selectedOutputId?: string;
   outputs?: GenerationOutput[];
@@ -67,6 +68,8 @@ export type GenerationJob = {
   } | null;
   parameterValues: ParameterValues;
   result: {
+    fileName?: string;
+    byteLength?: number;
     mediaType: 'image' | 'video' | 'audio';
     contentUrl: string;
     posterUrl?: string | null;
@@ -170,6 +173,7 @@ export function GenerationDialog({
   const [config, setConfig] = useState<Config>();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [outputs, setOutputs] = useState<Record<string, string>>({});
+  const [batch, setBatch] = useState<GenerationJob>();
   const [positivePrompt, setPositivePrompt] = useState(creation.initialDraft?.positivePrompt ?? '');
   const [negativePrompt, setNegativePrompt] = useState(creation.initialDraft?.negativePrompt ?? '');
   const [source, setSource] = useState(creation.initialDraft?.source ?? '');
@@ -871,6 +875,14 @@ export function GenerationDialog({
                   job={job}
                   onChange={(id) => setOutputs((old) => ({ ...old, [job.id]: id }))}
                 />
+                {!testWorkflow &&
+                  !rawJob.shotId &&
+                  rawJob.state === 'completed' &&
+                  !!rawJob.outputs?.length && (
+                    <button disabled={busy} onClick={() => setBatch(rawJob)}>
+                      批量处理产物
+                    </button>
+                  )}
                 {job.result &&
                   (job.result.mediaType === 'image' ? (
                     <img
@@ -1113,6 +1125,16 @@ export function GenerationDialog({
             setLibrary(undefined);
             setMessage(`已应用 ${revision.title} · v${revision.version}`);
           }}
+        />
+      )}
+      {batch && (
+        <GenerationOutputBatchDialog
+          key={batch.id}
+          job={batch}
+          editable={Boolean(config?.canEdit)}
+          theme={theme}
+          onClose={() => setBatch(undefined)}
+          onSaved={(saved) => setJobs((old) => old.map((item) => (item.id === saved.id ? saved : item)))}
         />
       )}
     </Dialog>

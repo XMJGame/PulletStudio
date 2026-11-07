@@ -29,7 +29,7 @@
 | 多模态工作流 | [工作流中心](WORKFLOW-CENTER.md)、[B1 原始评审](review/workflow-media-contract/README.md) | [B3 输入合同](modules/BOARD-IMAGE-INPUTS-B3.md)；[B4 可选参考与音频输出](modules/WORKFLOW-OPTIONAL-MEDIA-AUDIO-B4.md)；[B6 扩展产物](modules/GENERATION-OUTPUTS-B6.md)；[B7 批量主结果](modules/GENERATION-PRIMARY-BATCH-B7.md)；支持必填/可选媒体、单份/批量主结果及已声明扩展产物的归档、选择和复用 |
 | 历史数据依赖 | [制作结构](PRODUCTION-STRUCTURE.md)、[原文导入](SCRIPT-IMPORT.md)、[文本分析](TEXT-ANALYSIS.md)、[草案审核](PROPOSAL-REVIEW.md)、[旧提示词](TEXT-DELIVERY.md) | 仅后台/历史合同；对应前端已删除，不作为当前功能开发入口 |
 | Take历史与来源 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md) | 旧前端已删除；媒体/任务/导出引用依赖继续受保护 |
-| 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |
+| 原件打包与历史后期交付 | [原件包及素材包](MEDIA-PACKAGES.md) | [B9 单任务批量处理](modules/GENERATION-OUTPUT-BATCH-B9.md)、[原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[历史标准交接](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；复用媒体权限及流式 ZIP |
 | 历史轻量预演 | [ANIMATICS](ANIMATICS.md) | 前端已删除；API/旧归档数据及媒体处理依赖保留 |
 | 创作画布 | [直接导入、浮动生成与结果复用](CREATIVE-CANVAS.md) | [直接导入合同](modules/CANVAS-DIRECT-IMPORT.md)、[体验改版合同](modules/BOARD-CREATION-UX.md)、[L2-C 合同](modules/BOARD-EXECUTION-L2C.md)、[B8 同批次产物对照](modules/GENERATION-OUTPUT-COMPARISON-B8.md) |
 | 资源库与公共素材 | [画布资源库使用](CREATIVE-CANVAS.md) | [项目分类与宽度](modules/PROJECT-LIBRARY-ORGANIZATION.md)、[工作区公共媒体库](modules/WORKSPACE-MEDIA-LIBRARY.md)、[公共角色/场景/道具](modules/PUBLIC-ENTITY-LIBRARY.md)；主动归档与独立项目导入，指定项目/用户的可撤销共享后续实施 |

@@ -3,7 +3,8 @@ import { PromptLibraryService } from '../prompt-library/prompt-library.service';
 import { and, desc, eq, inArray, isNull, lt, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import type { BoardExecution } from '../../../../packages/contracts/src/board';
 import { randomUUID } from 'node:crypto';
-import { CurrentUser, fail } from '../common/http';
+import { CurrentUser, fail, parse } from '../common/http';
+import { outputIds as outputIdsSchema } from './generation-output-batch';
 import { DatabaseService } from '../db/database.service';
 import {
   auditEvents,
@@ -657,6 +658,8 @@ export class GenerationService {
       workflowRevision: catalogState(this.database, row.workflowId)?.revision ?? 1,
       result: result
         ? {
+            fileName: result.fileName,
+            byteLength: result.byteLength,
             mediaType: result.mediaType,
             metadata: result.metadata,
             contentUrl: result.contentUrl,
@@ -692,6 +695,8 @@ export class GenerationService {
                     : false,
                   result: file
                     ? {
+                        fileName: file.fileName,
+                        byteLength: file.byteLength,
                         mediaType: file.mediaType,
                         metadata: file.metadata,
                         contentUrl: file.contentUrl,
@@ -1124,35 +1129,68 @@ export class GenerationService {
     };
   }
   saveCandidate(user: CurrentUser, id: string, outputId?: string) {
+    return this.saveCandidates(user, id, [outputId ?? null]);
+  }
+  candidateFiles(user: CurrentUser, id: string, outputIds: (string | null)[]) {
+    outputIds = parse(outputIdsSchema, outputIds);
+    const job = this.job(id);
+    this.authz.project(user, job.projectId);
+    if (job.shotId || job.purpose !== 'production' || job.state !== 'completed' || !job.mediaVersionId)
+      fail(409, 'CANDIDATE_NOT_READY', '请选择已完成的自由创作结果');
+    const files = outputIds.map((outputId) => {
+      const output = outputId
+        ? this.database.db
+            .select()
+            .from(generationOutputs)
+            .where(and(eq(generationOutputs.id, outputId), eq(generationOutputs.jobId, job.id)))
+            .get()
+        : undefined;
+      if (outputId && !output?.mediaVersionId)
+        fail(404, 'GENERATION_OUTPUT_UNAVAILABLE', '生成产物不存在或无权访问');
+      const version = this.media.version(user, output?.mediaVersionId ?? job.mediaVersionId!);
+      const original = this.database.db
+        .select()
+        .from(mediaVersions)
+        .where(eq(mediaVersions.id, version.id))
+        .get()!;
+      if (version.projectId !== job.projectId)
+        fail(404, 'GENERATION_OUTPUT_UNAVAILABLE', '生成产物不存在或无权访问');
+      assertSampleAccess(this.database, user, original);
+      return {
+        outputId,
+        label: output?.label ?? '主结果',
+        role: output
+          ? output.primaryIndex != null
+            ? ('primary' as const)
+            : output.role
+          : ('primary' as const),
+        index: output?.position ?? 0,
+        version,
+      };
+    });
+    return { job, files };
+  }
+  saveCandidates(user: CurrentUser, id: string, outputIds: (string | null)[]) {
     return this.database.db.transaction(
       () => {
         const job = this.job(id);
         this.authz.project(user, job.projectId, 'edit');
-        if (job.shotId || job.purpose !== 'production' || job.state !== 'completed' || !job.mediaVersionId)
-          fail(409, 'CANDIDATE_NOT_READY', '请选择已完成的自由创作结果');
-        const output = outputId
-          ? this.database.db
-              .select()
-              .from(generationOutputs)
-              .where(and(eq(generationOutputs.id, outputId), eq(generationOutputs.jobId, job.id)))
-              .get()
-          : undefined;
-        if (outputId && !output?.mediaVersionId)
-          fail(404, 'GENERATION_OUTPUT_UNAVAILABLE', '生成产物不存在或无权访问');
-        const version = this.media.version(user, output?.mediaVersionId ?? job.mediaVersionId);
-        const saved = this.database.db
-          .update(mediaAssets)
-          .set({ inLibrary: true })
-          .where(
-            and(
-              eq(mediaAssets.id, version.assetId),
-              eq(mediaAssets.projectId, job.projectId),
-              eq(mediaAssets.inLibrary, false),
-            ),
-          )
-          .returning()
-          .get();
-        if (saved) this.audit(user, job.workspaceId, 'generation.candidate.save', job.id);
+        const { files } = this.candidateFiles(user, id, outputIds);
+        for (const { version } of files) {
+          const saved = this.database.db
+            .update(mediaAssets)
+            .set({ inLibrary: true })
+            .where(
+              and(
+                eq(mediaAssets.id, version.assetId),
+                eq(mediaAssets.projectId, job.projectId),
+                eq(mediaAssets.inLibrary, false),
+              ),
+            )
+            .returning()
+            .get();
+          if (saved) this.audit(user, job.workspaceId, 'generation.candidate.save', job.id);
+        }
         return this.view(job, user);
       },
       { behavior: 'immediate' },

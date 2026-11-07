@@ -54,6 +54,7 @@ import { AssetApprovalService } from './assets/asset-approval.service';
 import { ComfyProvider } from './generation/comfy-provider';
 import { ModelScopeProvider } from './generation/modelscope-provider';
 import { GenerationService } from './generation/generation.service';
+import { GenerationOutputPackageService } from './generation/generation-output-package.service';
 import { GenerationController } from './generation/generation.controller';
 import { GenerationWorker } from './generation/generation-worker';
 import { TakeReviewController } from './assets/take-review.controller';
@@ -140,6 +141,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     ComfyProvider,
     ModelScopeProvider,
     GenerationService,
+    GenerationOutputPackageService,
     GenerationWorker,
     TakeReviewService,
     MediaPackageService,

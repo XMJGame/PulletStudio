@@ -6,6 +6,7 @@ import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import './board-candidates.css';
 import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
 import { referenceMediaLabels } from '../workflows/workflow-types';
+import { GenerationOutputBatchDialog } from '../components/GenerationOutputBatchDialog';
 
 export function BoardCandidates({
   jobs,
@@ -16,6 +17,7 @@ export function BoardCandidates({
   onArchive,
   onReuse,
   onMore,
+  onLibrarySaved,
 }: {
   jobs: CursorPage<GenerationJob>;
   layout: BoardLayout;
@@ -25,11 +27,13 @@ export function BoardCandidates({
   onArchive: (job: GenerationJob) => void;
   onReuse: (job: GenerationJob) => void;
   onMore: () => void;
+  onLibrarySaved: (job: GenerationJob) => void;
 }) {
   const [selected, setSelected] = useState<string>();
   const [outputs, setOutputs] = useState<Record<string, string>>({});
   const [comparing, setComparing] = useState(false);
   const [comparison, setComparison] = useState('');
+  const [batch, setBatch] = useState<GenerationJob>();
   const current = selected ? jobs.items.find((job) => job.id === selected) : jobs.items[0];
   const outputId = current ? outputs[current.id] : undefined;
   const primary =
@@ -59,6 +63,11 @@ export function BoardCandidates({
       <div className="v2-candidate-heading">
         <h4>任务与候选</h4>
         <div className="v2-live-inline">
+          {current && !current.shotId && current.state === 'completed' && !!current.outputs?.length && (
+            <StudioButton variant="ghost" disabled={busy} onClick={() => setBatch(current)}>
+              批量处理产物
+            </StudioButton>
+          )}
           {primary.id !== jobs.items[0].id && (
             <StudioButton variant="ghost" onClick={showLatest}>
               查看最新任务
@@ -143,6 +152,15 @@ export function BoardCandidates({
             </StudioButton>
           )}
         </details>
+      )}
+      {batch && (
+        <GenerationOutputBatchDialog
+          key={batch.id}
+          job={batch}
+          editable={editable}
+          onSaved={onLibrarySaved}
+          onClose={() => setBatch(undefined)}
+        />
       )}
     </div>
   );

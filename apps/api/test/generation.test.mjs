@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createMediaFixtures } from '../../../tests/fixtures/media-fixtures.mjs';
+import { readPackageZip } from '../../../tests/fixtures/read-zip.mjs';
+import { createHash } from 'node:crypto';
 import {
   startComfyMock,
   fixtureWorkflow,
@@ -64,7 +66,11 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
       });
       const incoming = res.headers.getSetCookie();
       if (incoming.length) cookies = incoming.map((value) => value.split(';')[0]).join('; ');
-      if (res.ok && method === 'GET' && path.includes('/content'))
+      if (
+        res.ok &&
+        method === 'GET' &&
+        (path.includes('/content') || res.headers.get('content-type')?.startsWith('application/zip'))
+      )
         return { status: res.status, data: Buffer.from(await res.arrayBuffer()) };
       const data = await res.json();
       if (data.csrfToken) csrf = data.csrfToken;
@@ -2049,6 +2055,218 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         assert.equal((await read(retry.data.id)).state, 'completed');
         assert.equal(remote.mock.downloads.length, downloadCount);
         assert.deepEqual(db().pragma('foreign_key_check'), []);
+      },
+    );
+
+    await t.test(
+      'selected outputs archive atomically and stream only the requested original files',
+      async () => {
+        const path = '/projects/' + project.id;
+        const workflow = await owner(
+          'POST',
+          path + '/generation-workflows',
+          fixtureExtendedOutputs(connectionId),
+        );
+        const submit = (endpoint = 'generation-jobs') =>
+          owner(
+            'POST',
+            path + '/' + endpoint,
+            { workflowId: workflow.data.id, positivePrompt: 'Package original files', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        const queued = await submit();
+        const archive = (id, outputIds, actor = owner) =>
+          actor('POST', '/generation-jobs/' + id + '/save-outputs-to-library', { outputIds });
+        const preview = (id, ids, actor = owner) =>
+          actor(
+            'GET',
+            '/generation-jobs/' +
+              id +
+              '/output-package/preview?outputIds=' +
+              encodeURIComponent(ids.map((x) => x ?? 'main').join(',')),
+          );
+        assert.equal((await preview(queued.data.id, [null])).status, 409);
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id),
+          first = done.outputs[0],
+          audio = done.outputs[2];
+        for (const ids of [
+          [],
+          [null, null],
+          [first.id, first.id],
+          Array.from({ length: 41 }, () => randomUUID()),
+          [randomUUID()],
+        ])
+          assert.notEqual((await archive(done.id, ids)).status, 201);
+        assert.equal((await archive(done.id, [first.id], viewer)).status, 403);
+        const other = await submit();
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await archive(done.id, [null, (await read(other.data.id)).outputs[0].id])).status, 404);
+        assert.equal((await read(done.id)).inLibrary, false);
+        const failAsset = db()
+          .prepare('SELECT asset_id FROM media_versions WHERE id=?')
+          .get(first.mediaVersionId).asset_id;
+        db().exec(
+          `CREATE TRIGGER fixture_batch_archive BEFORE UPDATE OF in_library ON media_assets WHEN NEW.id='${failAsset}' BEGIN SELECT RAISE(ABORT,'fixture archive interruption'); END;`,
+        );
+        try {
+          assert.equal((await archive(done.id, [null, first.id])).status, 409);
+        } finally {
+          db().exec('DROP TRIGGER fixture_batch_archive');
+        }
+        let state = await read(done.id);
+        assert.equal(state.inLibrary, false);
+        assert.ok(state.outputs.every((o) => !o.inLibrary));
+        const events = db()
+          .prepare(
+            "SELECT count(*) n FROM audit_events WHERE action='generation.candidate.save' AND target_id=?",
+          )
+          .get(done.id).n;
+        const saved = await archive(done.id, [null, audio.id]);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        assert.equal(saved.data.inLibrary, true);
+        assert.deepEqual(
+          saved.data.outputs.map((o) => o.inLibrary),
+          [false, false, true],
+        );
+        assert.equal((await archive(done.id, [null, audio.id])).status, 201);
+        assert.equal(
+          db()
+            .prepare(
+              "SELECT count(*) n FROM audit_events WHERE action='generation.candidate.save' AND target_id=?",
+            )
+            .get(done.id).n,
+          events + 2,
+        );
+        const prepared = await preview(done.id, [first.id, audio.id], viewer);
+        assert.equal(prepared.status, 200, JSON.stringify(prepared.data));
+        assert.equal(prepared.data.fileCount, 2);
+        const packed = await viewer('GET', prepared.data.downloadPath.replace('/api/v1', ''));
+        assert.equal(packed.status, 200, JSON.stringify(packed.data));
+        const zip = readPackageZip(packed.data),
+          manifest = JSON.parse(zip.get('manifest.json').toString());
+        assert.equal(manifest.schemaVersion, 'studio.generation-output-package.v1');
+        assert.equal(manifest.jobId, done.id);
+        assert.equal(manifest.workflowId, workflow.data.id);
+        assert.equal(zip.size, 3);
+        assert.deepEqual(
+          manifest.files.map((f) => f.outputId),
+          [first.id, audio.id],
+        );
+        for (const [index, name] of ['image.jpg', 'sound.mp3'].entries()) {
+          const file = manifest.files[index];
+          assert.deepEqual(zip.get(file.path), fixtures[name].bytes);
+          assert.equal(file.sha256, createHash('sha256').update(zip.get(file.path)).digest('hex'));
+          assert.ok(file.path.startsWith(index ? '02_Audio/' : '03_Images/'));
+        }
+        for (const secret of ['encryptedSecret', 'definitionJson', 'objectKey', 'positivePrompt', 'baseUrl'])
+          assert.ok(!zip.get('manifest.json').includes(secret));
+        const mainPreview = await preview(done.id, [null]);
+        const mainZip = readPackageZip(
+          (await owner('GET', mainPreview.data.downloadPath.replace('/api/v1', ''))).data,
+        );
+        const mainManifest = JSON.parse(mainZip.get('manifest.json').toString());
+        assert.deepEqual(mainZip.get(mainManifest.files[0].path), fixtures['clip.mp4'].bytes);
+        assert.equal(mainManifest.files[0].outputId, null);
+        assert.equal((await preview(done.id, [randomUUID()])).status, 404);
+        assert.equal((await preview(done.id, [(await read(other.data.id)).outputs[0].id])).status, 404);
+        assert.equal((await preview(done.id, [first.id, first.id])).status, 400);
+        assert.equal(
+          (
+            await preview(
+              done.id,
+              Array.from({ length: 41 }, () => randomUUID()),
+            )
+          ).status,
+          400,
+        );
+        const voice = await owner(
+          'POST',
+          path + '/entities',
+          {
+            kind: 'voice',
+            body: {
+              name: 'Protected generated sound',
+              media: [{ role: 'voice_sample', mediaVersionId: audio.mediaVersionId }],
+            },
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(voice.status, 201, JSON.stringify(voice.data));
+        assert.equal((await preview(done.id, [audio.id], viewer)).status, 403);
+        assert.equal((await preview(done.id, [first.id], viewer)).status, 200);
+        const trial = await submit('workflow-trials');
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await preview(trial.data.id, [null])).status, 409);
+        assert.equal((await archive(trial.data.id, [null])).status, 409);
+        assert.equal((await read(done.id)).outputs[0].inLibrary, false);
+        assert.deepEqual(db().pragma('foreign_key_check'), []);
+      },
+    );
+
+    await t.test(
+      'output packages reject corrupt originals and revoke or cancel streams without touching media',
+      async () => {
+        const { GenerationOutputPackageService } =
+          await import('../dist/generation/generation-output-package.service.js');
+        const { MediaService } = await import('../dist/assets/media.service.js');
+        const { LocalStorage } = await import('../dist/storage/local-storage.js');
+        const workflow = await owner(
+          'POST',
+          '/projects/' + project.id + '/generation-workflows',
+          fixturePrimaryBatch(connectionId),
+        );
+        const queued = await owner(
+          'POST',
+          '/projects/' + project.id + '/generation-jobs',
+          { workflowId: workflow.data.id, positivePrompt: 'Stable package originals', confirmed: true },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id),
+          service = app.get(GenerationOutputPackageService);
+        const endpoint = '/generation-jobs/' + done.id + '/output-package?outputIds=main';
+        const row = db().prepare('SELECT * FROM media_versions WHERE id=?').get(done.mediaVersionId);
+        const originalPath = await app.get(LocalStorage).path(row.object_key),
+          bytes = await readFile(originalPath);
+        try {
+          await writeFile(originalPath, Buffer.alloc(bytes.length));
+          assert.equal((await owner('GET', endpoint)).status, 409);
+        } finally {
+          await writeFile(originalPath, bytes);
+        }
+        const reader = { id: viewerId, instanceAdmin: false };
+        const stream = await service.file(reader, done.id, [null, done.outputs[0].id]);
+        db()
+          .prepare('DELETE FROM project_members WHERE project_id=? AND user_id=?')
+          .run(project.id, viewerId);
+        try {
+          await assert.rejects(async () => {
+            for await (const _ of stream.stream) {
+            }
+          });
+          assert.equal((await viewer('GET', endpoint)).status, 404);
+        } finally {
+          await owner('POST', '/projects/' + project.id + '/members', { userId: viewerId, role: 'VIEWER' });
+        }
+        const abort = new AbortController();
+        const cancelled = await service.file(reader, done.id, [null], abort.signal);
+        abort.abort();
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(cancelled.stream.destroyed, true);
+        const media = app.get(MediaService),
+          old = media.version;
+        media.version = function (user, id) {
+          const v = old.call(this, user, id);
+          return { ...v, byteLength: 3 * 1024 * 1024 * 1024 };
+        };
+        try {
+          assert.throws(() => service.preview(reader, done.id, [null]), /单次原件包最多/);
+        } finally {
+          media.version = old;
+        }
+        assert.equal((await read(done.id)).inLibrary, false);
+        assert.deepEqual((await owner('GET', done.result.contentUrl.replace('/api/v1', ''))).data, bytes);
       },
     );
 

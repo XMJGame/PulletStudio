@@ -15,6 +15,7 @@ import {
   fixturePrimaryBatch,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
+import { readPackageZip } from '../fixtures/read-zip.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, remote: Awaited<ReturnType<typeof startComfyMock>>;
 async function api(method: string, path: string, data?: unknown, actor = owner) {
@@ -742,6 +743,78 @@ test('primary batch settings revise immutably and expose independent image candi
     expect(batchRemote.mock.submissions).toHaveLength(2);
   } finally {
     await batchRemote.close();
+  }
+});
+
+test('free generation bulk dialog preserves the main file and retries package preflight without changing selections', async ({
+  page,
+}, testInfo) => {
+  const jpg = await readFile(resolve('test-results/workflow-fixtures/image.jpg')),
+    png = await readFile(resolve('test-results/workflow-fixtures/image.png'));
+  const remote = await startComfyMock({ 'image.jpg': jpg, 'extra.png': png });
+  try {
+    const value = await project('Free batch originals');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Batch package fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixturePrimaryBatch(connection.id),
+    );
+    await open(page, value);
+    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await generation.getByLabel('生成工作流').selectOption(workflow.id);
+    await generation.getByLabel('正向提示词').fill('Batch original images');
+    await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+    await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+    const done = (await api('GET', '/projects/' + value.id + '/generation-jobs')).items[0];
+    await generation.getByLabel('选择生成产物').selectOption(done.outputs[0].id);
+    await generation.getByRole('button', { name: '批量处理产物', exact: true }).click();
+    const batch = page.getByRole('dialog', { name: '批量处理生成产物', exact: true });
+    await expect(batch).toContainText('image.jpg');
+    await expect(batch).toContainText('extra.png');
+    await batch.getByRole('checkbox', { name: '全选产物', exact: true }).check();
+    const route = '**/generation-jobs/' + done.id + '/output-package/preview?*';
+    await page.route(route, (r) =>
+      r.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'TEST_UNAVAILABLE', message: '原件包暂时不可用' }),
+      }),
+    );
+    await batch.getByRole('button', { name: '打包下载原件', exact: true }).click();
+    await expect(batch.getByRole('alert')).toContainText('选择已保留');
+    await expect(batch.getByRole('checkbox', { checked: true })).toHaveCount(3);
+    await page.unroute(route);
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      batch.getByRole('button', { name: '打包下载原件', exact: true }).click(),
+    ]);
+    await download.saveAs(testInfo.outputPath('free-originals.zip'));
+    const zip = readPackageZip(await readFile(testInfo.outputPath('free-originals.zip'))),
+      manifest = JSON.parse(zip.get('manifest.json')!.toString());
+    expect(zip.size).toBe(3);
+    expect(manifest.files.map((f: any) => f.outputId)).toEqual([null, done.outputs[0].id]);
+    expect(zip.get(manifest.files[0].path)).toEqual(jpg);
+    expect(zip.get(manifest.files[1].path)).toEqual(png);
+    await batch.getByRole('button', { name: '入库已选产物', exact: true }).click();
+    await expect(batch.getByRole('status')).toContainText('所选 2 份产物存入素材库');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await batch.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b9-free-batch-mobile.png', animations: 'disabled' });
+    await batch.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(generation.getByLabel('选择生成产物')).toHaveValue(done.outputs[0].id);
+    const archived = await api('GET', '/generation-jobs/' + done.id);
+    expect(archived.inLibrary).toBe(true);
+    expect(archived.outputs[0].inLibrary).toBe(true);
+    expect(remote.mock.submissions).toHaveLength(1);
+  } finally {
+    await remote.close();
   }
 });
 

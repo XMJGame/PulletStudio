@@ -1,7 +1,24 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+import { Response } from 'express';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { parse, StudioRequest } from '../common/http';
+import { fail, parse, StudioRequest } from '../common/http';
+import { safeMediaError } from '../assets/media.service';
+import { saveOutputsInput, packageSelection } from './generation-output-batch';
+import { GenerationOutputPackageService } from './generation-output-package.service';
 import {
   connectionInput,
   connectionUpdate,
@@ -18,7 +35,10 @@ const uuid = z.uuid();
 @ApiCookieAuth()
 @Controller('api/v1')
 export class GenerationController {
-  constructor(private readonly generation: GenerationService) {}
+  constructor(
+    private readonly generation: GenerationService,
+    private readonly outputPackages: GenerationOutputPackageService,
+  ) {}
   @Get('workspaces/:id/modelscope-generation')
   modelScopeStatus(@Req() req: StudioRequest, @Param('id') id: string) {
     return this.generation.modelScopeStatus(req.user, parse(uuid, id));
@@ -87,6 +107,41 @@ export class GenerationController {
   saveCandidate(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
     const input = parse(z.object({ outputId: uuid.optional() }).strict(), body ?? {});
     return this.generation.saveCandidate(req.user, parse(uuid, id), input.outputId);
+  }
+  @Post('generation-jobs/:id/save-outputs-to-library')
+  saveOutputs(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.generation.saveCandidates(req.user, parse(uuid, id), parse(saveOutputsInput, body).outputIds);
+  }
+  @Get('generation-jobs/:id/output-package/preview')
+  outputPreview(@Req() req: StudioRequest, @Param('id') id: string, @Query('outputIds') ids: unknown) {
+    return this.outputPackages.preview(req.user, parse(uuid, id), parse(packageSelection, ids));
+  }
+  @Get('generation-jobs/:id/output-package')
+  async outputFile(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('outputIds') ids: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const selected = parse(packageSelection, ids),
+      jobId = parse(uuid, id);
+    const abort = new AbortController(),
+      stop = () => abort.abort();
+    response.once('close', stop);
+    response.once('finish', () => response.off('close', stop));
+    try {
+      const file = await this.outputPackages.file(req.user, jobId, selected, abort.signal);
+      response.setHeader('Cache-Control', 'no-store');
+      return new StreamableFile(file.stream, {
+        type: 'application/zip',
+        disposition: `attachment; filename="${file.fileName}"`,
+        length: file.length,
+      });
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      const failure = safeMediaError(error);
+      fail(409, failure.code, failure.message);
+    }
   }
   @Get(['projects/:id/generation-images', 'projects/:id/generation-reference-media'])
   images(

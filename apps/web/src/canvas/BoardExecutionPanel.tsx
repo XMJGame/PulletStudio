@@ -637,6 +637,16 @@ export function BoardExecutionPanel({
               editable={editable}
               busy={busy}
               onResult={onResult}
+              onLibrarySaved={(saved) => {
+                setJobs(
+                  (value) =>
+                    value && {
+                      ...value,
+                      items: value.items.map((item) => (item.id === saved.id ? saved : item)),
+                    },
+                );
+                onSavedToLibrary();
+              }}
               onReuse={(job) => {
                 if (!editable || !job.prompt) return;
                 onPromptChange({ ...job.prompt, promptLibraryRevisionId: job.promptLibrary?.revisionId });

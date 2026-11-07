@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
+import { readPackageZip } from '../fixtures/read-zip.mjs';
 import {
   startComfyMock,
   fixtureI2V,
@@ -2938,6 +2939,151 @@ test('same task comparison handles mixed media preview failure and releases play
       await actor.dispose();
     }
     expect(remote.mock.submissions).toHaveLength(1);
+  } finally {
+    await remote.close();
+  }
+});
+
+test('bulk output actions preserve selections after lost responses and download selected originals for readers', async ({
+  page,
+  browser,
+}, testInfo) => {
+  const remote = await startComfyMock({
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'sound.mp3': fixtures['sound.mp3'].bytes,
+  });
+  try {
+    const value = await project('Bulk production outputs');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Bulk fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureExtendedOutputs(connection.id),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Selected originals');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Files for bulk delivery');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const job = (await history()).items[0];
+    await panel.getByLabel('选择生成产物').selectOption(job.outputs[2].id);
+    const entry = panel.getByRole('button', { name: '批量处理产物', exact: true });
+    await entry.click();
+    const batch = page.getByRole('dialog', { name: '批量处理生成产物', exact: true });
+    await expect(batch.getByRole('checkbox')).toHaveCount(5);
+    await expect(batch.getByRole('checkbox', { checked: true })).toHaveCount(0);
+    await expect(batch.getByRole('button', { name: '入库已选产物', exact: true })).toBeDisabled();
+    await expect(batch.getByRole('button', { name: '打包下载原件', exact: true })).toBeDisabled();
+    await expect(batch).toContainText('clip.mp4');
+    await batch.getByRole('checkbox', { name: '选择产物 Storyboard · 1', exact: true }).focus();
+    await page.keyboard.press('Space');
+    await batch.getByRole('checkbox', { name: '选择产物 Music · 1', exact: true }).check();
+    const head = await call('GET', '/boards/' + boardId),
+      gen = head.layout.nodes.find((n: any) => n.type === 'generation');
+    const latest = await call('POST', '/boards/' + boardId + '/nodes/' + gen.id + '/generation-jobs', {
+      expectedRevision: head.revision,
+      confirmed: true,
+    });
+    await expect
+      .poll(async () => (await call('GET', '/generation-jobs/' + latest.id)).state)
+      .toBe('completed');
+    await expect(panel.getByText('历史任务 · 2', { exact: true })).toHaveCount(1);
+    await expect(batch.getByRole('checkbox', { checked: true })).toHaveCount(2);
+    let release!: () => void, reached!: () => void;
+    const blocked = new Promise<void>((r) => {
+        release = r;
+      }),
+      received = new Promise<void>((r) => {
+        reached = r;
+      });
+    const archiveUrl = '**/generation-jobs/' + job.id + '/save-outputs-to-library';
+    await page.route(archiveUrl, async (route) => {
+      await route.fetch();
+      reached();
+      await blocked;
+      await route.abort();
+    });
+    await batch.getByRole('button', { name: '入库已选产物', exact: true }).click();
+    await received;
+    await page.keyboard.press('Escape');
+    await expect(batch).toBeVisible();
+    await expect(batch.getByRole('button', { name: '关闭对话框', exact: true })).toBeDisabled();
+    release();
+    await expect(batch.getByRole('alert')).toContainText('选择已保留');
+    await expect(batch.getByRole('checkbox', { checked: true })).toHaveCount(2);
+    await page.unroute(archiveUrl);
+    await batch.getByRole('button', { name: '入库已选产物', exact: true }).click();
+    await expect(batch.getByRole('status')).toContainText('所选 2 份产物存入素材库');
+    const archived = await call('GET', '/generation-jobs/' + job.id);
+    expect(archived.inLibrary).toBe(false);
+    expect(archived.outputs.map((o: any) => o.inLibrary)).toEqual([true, false, true]);
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      batch.getByRole('button', { name: '打包下载原件', exact: true }).click(),
+    ]);
+    await download.saveAs(testInfo.outputPath('selected-originals.zip'));
+    const zip = readPackageZip(await readFile(testInfo.outputPath('selected-originals.zip')));
+    const manifest = JSON.parse(zip.get('manifest.json')!.toString());
+    expect(manifest.jobId).toBe(job.id);
+    expect(manifest.files.map((f: any) => f.outputId)).toEqual([job.outputs[0].id, job.outputs[2].id]);
+    expect(zip.size).toBe(3);
+    expect(zip.get(manifest.files[0].path)).toEqual(fixtures['image.jpg'].bytes);
+    expect(zip.get(manifest.files[1].path)).toEqual(fixtures['sound.mp3'].bytes);
+    await expect(batch.getByRole('status')).toContainText('已发起原件包下载');
+    await page.screenshot({ path: 'test-results/b9-batch-desktop.png', animations: 'disabled' });
+    await batch.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(entry).toBeFocused();
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await entry.click();
+    await batch.getByRole('checkbox', { name: '全选产物', exact: true }).check();
+    await expect(batch.getByRole('checkbox', { checked: true })).toHaveCount(5);
+    expect(await batch.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await batch.getByRole('button', { name: '打包下载原件', exact: true }).scrollIntoViewIfNeeded();
+    await expect(batch.getByRole('button', { name: '打包下载原件', exact: true })).toBeInViewport();
+    await page.screenshot({ path: 'test-results/b9-batch-mobile.png', animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    const invite = await call('POST', '/workspaces/' + setup.workspace.id + '/invitations', {
+      email: 'batch-reader-b9@board.test',
+    });
+    const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' }),
+      context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    try {
+      const accepted = await actor.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Original reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      });
+      expect(accepted.ok()).toBe(true);
+      const joined = await accepted.json();
+      await call('POST', '/projects/' + value.id + '/members', { userId: joined.user.id, role: 'VIEWER' });
+      const reader = await context.newPage();
+      await open(reader, value, actor, joined.user.id);
+      await reader.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+      await reader.getByRole('button', { name: '批量处理产物', exact: true }).click();
+      const dialog = reader.getByRole('dialog', { name: '批量处理生成产物', exact: true });
+      await expect(dialog.getByRole('button', { name: '入库已选产物', exact: true })).toHaveCount(0);
+      await dialog.getByRole('checkbox', { name: '全选产物', exact: true }).check();
+      const [all] = await Promise.all([
+        reader.waitForEvent('download'),
+        dialog.getByRole('button', { name: '打包下载原件', exact: true }).click(),
+      ]);
+      await all.saveAs(testInfo.outputPath('reader-originals.zip'));
+      expect(readPackageZip(await readFile(testInfo.outputPath('reader-originals.zip'))).size).toBe(5);
+    } finally {
+      await context.close();
+      await actor.dispose();
+    }
+    expect(remote.mock.submissions).toHaveLength(2);
   } finally {
     await remote.close();
   }
