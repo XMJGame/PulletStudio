@@ -676,6 +676,7 @@ test('primary batch settings revise immutably and expose independent image candi
     await open(page, value);
     const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
     await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+    await expect(center.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeEnabled();
     const batch = center.getByRole('checkbox', { name: '接收批量主结果（最多 8 份）', exact: true });
     await expect(batch).not.toBeChecked();
     await batch.focus();

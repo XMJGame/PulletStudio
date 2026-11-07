@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BoardLayout } from '../../../../packages/contracts/src/board';
 import type { CursorPage } from '../api';
 import { generationStates, generationErrors, type GenerationJob } from '../components/GenerationDialog';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import './board-candidates.css';
 import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
+import { referenceMediaLabels } from '../workflows/workflow-types';
 
 export function BoardCandidates({
   jobs,
@@ -29,33 +30,51 @@ export function BoardCandidates({
   const [outputs, setOutputs] = useState<Record<string, string>>({});
   const [comparing, setComparing] = useState(false);
   const [comparison, setComparison] = useState('');
-  const current = jobs.items.find((job) => job.id === selected) ?? jobs.items[0];
-  const primary = current ? selectedGenerationOutput(current, outputs[current.id]) : undefined;
-  const alternatives = jobs.items.filter((job) => job.result && job.id !== primary?.id);
-  const compared =
-    comparing && primary?.result
-      ? (alternatives.find((job) => job.id === comparison) ?? alternatives[0])
+  const current = selected ? jobs.items.find((job) => job.id === selected) : jobs.items[0];
+  const outputId = current ? outputs[current.id] : undefined;
+  const primary =
+    current && (!outputId || current.outputs?.some((output) => output.id === outputId))
+      ? selectedGenerationOutput(current, outputId)
       : undefined;
-  const secondary = compared ? selectedGenerationOutput(compared, outputs[compared.id]) : undefined;
-  if (!primary) return null;
+  const candidates = jobs.items
+    .flatMap((job) => [job, ...(job.outputs ?? []).map((output) => selectedGenerationOutput(job, output.id))])
+    .filter((job) => job.result && job.mediaVersionId);
+  const alternatives = candidates.filter((job) => job.mediaVersionId !== primary?.mediaVersionId);
+  const comparisonCandidate = candidates.find((job) => resultId(job) === comparison);
+  const secondary =
+    comparing && primary?.result ? alternatives.find((job) => resultId(job) === comparison) : undefined;
+  if (!primary)
+    return (
+      <div className="v2-candidate-review">
+        <p role="status">原候选已不可用。已有画布引用保持不变。</p>
+        {jobs.items.length > 0 && (
+          <StudioButton variant="ghost" onClick={showLatest}>
+            查看最新任务
+          </StudioButton>
+        )}
+      </div>
+    );
   return (
     <div className="v2-candidate-review">
       <div className="v2-candidate-heading">
         <h4>任务与候选</h4>
         <div className="v2-live-inline">
           {primary.id !== jobs.items[0].id && (
-            <StudioButton variant="ghost" onClick={() => setSelected(undefined)}>
+            <StudioButton variant="ghost" onClick={showLatest}>
               查看最新任务
             </StudioButton>
           )}
-          {!!primary.result && alternatives.length > 0 && (
+          {(comparing || (!!primary.result && alternatives.length > 0)) && (
             <StudioButton
               variant="ghost"
               aria-pressed={comparing}
               onClick={() => {
                 if (!comparing) {
                   setSelected(primary.id);
-                  setComparison(alternatives[0]?.id ?? '');
+                  if (!alternatives.some((job) => resultId(job) === comparison))
+                    setComparison(
+                      resultId(alternatives.find((job) => job.id === primary.id) ?? alternatives[0]),
+                    );
                 }
                 setComparing((value) => !value);
               }}
@@ -65,22 +84,28 @@ export function BoardCandidates({
           )}
         </div>
       </div>
-      {secondary && (
+      {comparing && primary.result && (
         <label className="v2-candidate-compare-label">
           对照候选
           <select
             aria-label="对照候选"
-            value={secondary.id}
+            value={secondary ? resultId(secondary) : ''}
             onChange={(event) => setComparison(event.target.value)}
           >
+            {!secondary && <option value="">请选择另一份产物</option>}
             {alternatives.map((job) => (
-              <option key={job.id} value={job.id}>
-                {new Date(job.createdAt).toLocaleTimeString()} · {job.workflowName} · 画布 v
+              <option key={resultId(job)} value={resultId(job)}>
+                {job.id === primary.id ? '同一任务 · ' : ''}
+                {new Date(job.createdAt).toLocaleTimeString()} · {job.workflowName} · {resultLabel(job)} ·{' '}
+                {job.result && referenceMediaLabels[job.result.mediaType]} · 画布 v
                 {job.boardExecution?.revision}
               </option>
             ))}
           </select>
         </label>
+      )}
+      {comparing && primary.result && !secondary && (
+        <p role="status">原对照产物已不可用或与当前候选相同，请重新选择对照候选。</p>
       )}
       <div className="v2-candidate-previews" data-comparing={Boolean(secondary)}>
         {card(primary, false)}
@@ -122,12 +147,24 @@ export function BoardCandidates({
     </div>
   );
 
+  function showLatest() {
+    setSelected(undefined);
+    setComparing(false);
+    if (jobs.items[0]) setOutputs((old) => ({ ...old, [jobs.items[0].id]: '' }));
+  }
+
   function card(job: GenerationJob, secondary: boolean) {
+    const otherVersionId = secondary
+      ? primary?.mediaVersionId
+      : comparing
+        ? comparisonCandidate?.mediaVersionId
+        : undefined;
     return (
       <article
         className="v2-live-candidate"
-        key={job.id}
+        key={secondary ? 'comparison' : 'primary'}
         data-job-id={job.id}
+        data-result-id={resultId(job)}
         aria-label={secondary ? '对照结果' : '当前候选'}
       >
         <header>
@@ -140,9 +177,19 @@ export function BoardCandidates({
         </header>
         <GenerationOutputPicker
           job={job}
+          disabledOutputIds={candidates
+            .filter((candidate) => candidate.mediaVersionId === otherVersionId)
+            .map(resultId)}
           onChange={(id) => {
-            if (!secondary) setSelected(job.id);
-            setOutputs((old) => ({ ...old, [job.id]: id }));
+            const target = candidates.find(
+              (candidate) => candidate.id === job.id && (candidate.selectedOutputId ?? '') === id,
+            );
+            if (!target || target.mediaVersionId === otherVersionId) return;
+            if (secondary) setComparison(resultId(target));
+            else {
+              setSelected(job.id);
+              setOutputs((old) => ({ ...old, [job.id]: id }));
+            }
           }}
         />
         {job.errorCode && (
@@ -155,6 +202,7 @@ export function BoardCandidates({
         )}
         <div className="v2-candidate-caption">
           <strong>{job.workflowName}</strong>
+          {Boolean(job.outputs?.length) && <small>{resultLabel(job)}</small>}
           {job.result && (
             <small>
               {[
@@ -240,8 +288,32 @@ export function BoardCandidates({
   }
 }
 
+function resultId(job: GenerationJob) {
+  return job.selectedOutputId ?? job.id;
+}
+function resultLabel(job: GenerationJob) {
+  const output = job.outputs?.find((output) => output.id === job.selectedOutputId);
+  return output
+    ? `${output.label} · ${output.index + 1}${output.role === 'primary' ? '' : output.role === 'preview' ? ' · 预览' : ' · 中间结果'}`
+    : `主结果${job.outputs?.some((output) => output.role === 'primary') ? ' · 1' : ''}`;
+}
+
 function CandidatePreview({ job, secondary }: { job: GenerationJob; secondary: boolean }) {
   const [failed, setFailed] = useState(false);
+  const media = useRef<HTMLMediaElement | null>(null);
+  useEffect(() => {
+    const element = media.current;
+    if (!element || failed || !job.result) return;
+    if (element.getAttribute('src') !== job.result.contentUrl) {
+      element.setAttribute('src', job.result.contentUrl);
+      element.load();
+    }
+    return () => {
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+    };
+  }, [failed, job.result?.contentUrl]);
   if (!job.result) return null;
   if (failed)
     return (
@@ -258,6 +330,9 @@ function CandidatePreview({ job, secondary }: { job: GenerationJob; secondary: b
     />
   ) : job.result.mediaType === 'audio' ? (
     <audio
+      ref={(element) => {
+        media.current = element;
+      }}
       src={job.result.contentUrl}
       aria-label={secondary ? '对照生成音频' : '节点生成音频'}
       controls
@@ -266,6 +341,9 @@ function CandidatePreview({ job, secondary }: { job: GenerationJob; secondary: b
     />
   ) : (
     <video
+      ref={(element) => {
+        media.current = element;
+      }}
       src={job.result.contentUrl}
       poster={job.result.posterUrl ?? undefined}
       aria-label={secondary ? '对照生成视频' : '节点生成视频'}

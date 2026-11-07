@@ -16,9 +16,11 @@ export function selectedGenerationOutput(job: GenerationJob, id?: string): Gener
 export function GenerationOutputPicker({
   job,
   onChange,
+  disabledOutputIds = [],
 }: {
   job: GenerationJob;
   onChange: (id: string) => void;
+  disabledOutputIds?: string[];
 }) {
   if (!job.outputs?.length) return null;
   return (
@@ -29,12 +31,12 @@ export function GenerationOutputPicker({
         value={job.selectedOutputId ?? ''}
         onChange={(e) => onChange(e.target.value)}
       >
-        <option value="">
+        <option value="" disabled={disabledOutputIds.includes(job.id)}>
           主结果
           {job.selectedOutputId ? '' : job.result ? ` · ${referenceMediaLabels[job.result.mediaType]}` : ''}
         </option>
         {job.outputs.map((output) => (
-          <option key={output.id} value={output.id}>
+          <option key={output.id} value={output.id} disabled={disabledOutputIds.includes(output.id)}>
             {output.label} · {output.index + 1}
             {output.role === 'primary' ? '' : ` · ${output.role === 'preview' ? '预览' : '中间结果'}`}
             {output.result ? ` · ${referenceMediaLabels[output.result.mediaType]}` : ''}

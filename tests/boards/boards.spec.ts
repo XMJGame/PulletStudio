@@ -2658,6 +2658,291 @@ test('primary batch candidates pin independent canvas results and reuse the sele
   }
 });
 
+test('same batch comparison keeps independent file choices and archives only the selected outputs', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'third.png': fixtures['image.png'].bytes,
+  });
+  remote.mock.outputFiles = { 3: ['image.jpg', 'extra.png', 'third.png'] };
+  try {
+    const value = await project('Independent batch review');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Compare image batch',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixturePrimaryBatch(connection.id),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Choose between batch images');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Three image candidates');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const done = (await history()).items[0];
+    const primary = panel.getByRole('article', { name: '当前候选', exact: true });
+    const secondary = panel.getByRole('article', { name: '对照结果', exact: true });
+    await panel.getByRole('button', { name: '对照结果', exact: true }).click();
+    await expect(primary).toHaveAttribute('data-result-id', done.id);
+    await expect(secondary).toHaveAttribute('data-result-id', done.outputs[0].id);
+    await expect(secondary).toHaveAttribute('data-job-id', done.id);
+    await expect(
+      primary.getByLabel('选择生成产物').locator('option[value="' + done.outputs[0].id + '"]'),
+    ).toHaveJSProperty('disabled', true);
+    await expect(secondary.getByLabel('选择生成产物').locator('option[value=""]')).toHaveJSProperty(
+      'disabled',
+      true,
+    );
+    await secondary.getByLabel('选择生成产物').selectOption(done.outputs[1].id);
+    await expect(primary).toHaveAttribute('data-result-id', done.id);
+    await expect(panel.getByLabel('对照候选', { exact: true })).toHaveValue(done.outputs[1].id);
+    await primary.getByLabel('选择生成产物').selectOption(done.outputs[0].id);
+    await expect(secondary).toHaveAttribute('data-result-id', done.outputs[1].id);
+    await secondary.getByLabel('选择生成产物').focus();
+    await page.keyboard.press('Home');
+    await expect(secondary).toHaveAttribute('data-result-id', done.id);
+    await expect(primary).toHaveAttribute('data-result-id', done.outputs[0].id);
+    expect(
+      await (
+        await owner.get((await primary.getByRole('link', { name: '下载原件' }).getAttribute('href'))!)
+      ).body(),
+    ).toEqual(fixtures['image.png'].bytes);
+    expect(
+      await (
+        await owner.get((await secondary.getByRole('link', { name: '下载原件' }).getAttribute('href'))!)
+      ).body(),
+    ).toEqual(fixtures['image.jpg'].bytes);
+    await primary.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(primary.getByText('已存入素材库', { exact: true })).toBeVisible();
+    const archived = await call('GET', '/generation-jobs/' + done.id);
+    expect(archived.inLibrary).toBe(false);
+    expect(archived.outputs.map((o: any) => o.inLibrary)).toEqual([true, false]);
+    await primary.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await secondary.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await save(page);
+    const board = await call('GET', '/boards/' + boardId);
+    expect(board.layout.nodes.filter((n: any) => n.type === 'result').map((n: any) => n.id)).toEqual([
+      done.outputs[0].id,
+      done.id,
+    ]);
+    expect(board.resolved[done.outputs[0].id].media.id).toBe(done.outputs[0].mediaVersionId);
+    expect(board.resolved[done.id].media.id).toBe(done.mediaVersionId);
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    const latest = await call('POST', '/boards/' + boardId + '/nodes/' + gen.id + '/generation-jobs', {
+      expectedRevision: board.revision,
+      confirmed: true,
+    });
+    await expect
+      .poll(async () => (await call('GET', '/generation-jobs/' + latest.id)).state)
+      .toBe('completed');
+    await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+    await expect(primary).toHaveAttribute('data-result-id', done.outputs[0].id);
+    await expect(secondary).toHaveAttribute('data-result-id', done.id);
+    await primary.getByLabel('选择生成产物').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/b8-batch-comparison-desktop.png', animations: 'disabled' });
+    const left = (await primary.boundingBox())!,
+      right = (await secondary.boundingBox())!;
+    expect(right.x).toBeGreaterThan(left.x);
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await secondary.getByRole('link', { name: '下载原件' }).scrollIntoViewIfNeeded();
+    await expect(secondary.getByRole('link', { name: '下载原件' })).toBeInViewport();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const top = (await primary.boundingBox())!,
+      bottom = (await secondary.boundingBox())!;
+    expect(Math.abs(top.x - bottom.x)).toBeLessThan(2);
+    expect(bottom.y).toBeGreaterThan(top.y);
+    await page.screenshot({ path: 'test-results/b8-batch-comparison-mobile.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await panel.getByLabel('对照候选', { exact: true }).selectOption(latest.id);
+    await panel.getByText(/历史任务 ·/).click();
+    await panel.getByRole('button', { name: '查看候选 ' + latest.id, exact: true }).click();
+    await expect(secondary).toHaveCount(0);
+    await expect(panel.getByRole('status')).toContainText('与当前候选相同');
+    await expect(panel.getByLabel('对照候选', { exact: true })).toHaveValue('');
+    await panel.getByLabel('对照候选', { exact: true }).selectOption(done.outputs[1].id);
+    await expect(secondary).toHaveAttribute('data-result-id', done.outputs[1].id);
+    await panel.getByRole('button', { name: '结束对照', exact: true }).click();
+    await expect(panel.locator('.v2-candidate-previews img')).toHaveCount(1);
+    const missing = (await call('GET', '/generation-jobs/' + latest.id)).outputs[0].id;
+    await primary.getByLabel('选择生成产物').selectOption(missing);
+    const listPath = '/boards/' + boardId + '/nodes/' + gen.id + '/generation-jobs';
+    await page.route('**' + listPath + '*', async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      for (const item of payload.items)
+        item.outputs = item.outputs.filter((output: any) => output.id !== missing);
+      await route.fulfill({ response, json: payload });
+    });
+    await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+    await expect(panel.getByRole('status')).toContainText('原候选已不可用');
+    await expect(primary).toHaveCount(0);
+    await panel.getByRole('button', { name: '查看最新任务', exact: true }).click();
+    await expect(primary).toHaveAttribute('data-result-id', latest.id);
+    await page.unroute('**' + listPath + '*');
+    expect(remote.mock.submissions).toHaveLength(2);
+  } finally {
+    await remote.close();
+  }
+});
+
+test('same task comparison handles mixed media preview failure and releases players for readonly review', async ({
+  page,
+  browser,
+}) => {
+  const remote = await startComfyMock({
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+    'clip2.mp4': fixtures['clip.mp4'].bytes,
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'sound.mp3': fixtures['sound.mp3'].bytes,
+  });
+  remote.mock.outputFiles = { 3: ['clip.mp4', 'clip2.mp4'] };
+  try {
+    const value = await project('Mixed candidate review');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Mixed comparison fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureExtendedOutputs(connection.id);
+    definition.output.batch = { id: randomUUID() };
+    const workflow = await call('POST', '/projects/' + value.id + '/generation-workflows', definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'Video and music review');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Compare motion and music');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const job = (await history()).items[0];
+    const primary = panel.getByRole('article', { name: '当前候选', exact: true });
+    const secondary = panel.getByRole('article', { name: '对照结果', exact: true });
+    const chooser = panel.getByLabel('对照候选', { exact: true });
+    await panel.getByRole('button', { name: '对照结果', exact: true }).click();
+    await expect(panel.locator('video')).toHaveCount(2);
+    await expect
+      .poll(() => secondary.locator('video').evaluate((el: HTMLVideoElement) => el.videoWidth))
+      .toBe(96);
+    const detachedVideo = await secondary.locator('video').elementHandle();
+    await detachedVideo!.evaluate((el: HTMLVideoElement) => el.play());
+    await expect
+      .poll(() => detachedVideo!.evaluate((el: HTMLVideoElement) => el.currentTime))
+      .toBeGreaterThan(0);
+    const image = job.outputs.find((o: any) => o.role === 'preview');
+    await page.route('**' + image.result.contentUrl, (route) => route.abort());
+    await chooser.selectOption(image.id);
+    await expect(secondary.getByRole('status')).toContainText('预览无法读取');
+    expect(
+      await detachedVideo!.evaluate((el: HTMLVideoElement) => [
+        el.isConnected,
+        el.paused,
+        el.getAttribute('src'),
+      ]),
+    ).toEqual([false, true, null]);
+    await expect(primary.locator('video')).toBeVisible();
+    expect(
+      await (
+        await owner.get((await secondary.getByRole('link', { name: '下载原件' }).getAttribute('href'))!)
+      ).body(),
+    ).toEqual(fixtures['image.jpg'].bytes);
+    const otherImage = job.outputs.find((o: any) => o.role === 'preview' && o.id !== image.id);
+    await chooser.selectOption(otherImage.id);
+    await expect
+      .poll(() => secondary.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth))
+      .toBeGreaterThan(0);
+    await page.unroute('**' + image.result.contentUrl);
+    await chooser.selectOption(image.id);
+    await expect
+      .poll(() => secondary.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth))
+      .toBeGreaterThan(0);
+    const audio = job.outputs.find((o: any) => o.result.mediaType === 'audio');
+    await chooser.selectOption(audio.id);
+    const detachedAudio = await secondary.locator('audio').elementHandle();
+    await detachedAudio!.evaluate((el: HTMLAudioElement) => el.play());
+    await expect
+      .poll(() => detachedAudio!.evaluate((el: HTMLAudioElement) => el.currentTime))
+      .toBeGreaterThan(0);
+    await panel.getByRole('button', { name: '结束对照', exact: true }).click();
+    expect(
+      await detachedAudio!.evaluate((el: HTMLAudioElement) => [
+        el.isConnected,
+        el.paused,
+        el.getAttribute('src'),
+      ]),
+    ).toEqual([false, true, null]);
+    await expect(panel.locator('video')).toHaveCount(1);
+    const board = await call('GET', '/boards/' + boardId);
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    await panel.getByRole('button', { name: '对照结果', exact: true }).click();
+    await expect(secondary).toHaveAttribute('data-result-id', audio.id);
+    const path = '/boards/' + boardId + '/nodes/' + gen.id + '/generation-jobs';
+    await page.route('**' + path + '*', async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      for (const row of payload.items) row.outputs = row.outputs.filter((o: any) => o.id !== audio.id);
+      await route.fulfill({ response, json: payload });
+    });
+    await panel.getByRole('button', { name: '刷新节点任务', exact: true }).click();
+    await expect(secondary).toHaveCount(0);
+    await expect(panel.getByRole('status')).toContainText('原对照产物已不可用');
+    await chooser.selectOption(job.outputs[0].id);
+    await expect(secondary.locator('video')).toBeVisible();
+    await page.unroute('**' + path + '*');
+    const invite = await call('POST', '/workspaces/' + setup.workspace.id + '/invitations', {
+      email: 'reader-b8@board.test',
+    });
+    const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    try {
+      const accepted = await actor.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Batch reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      });
+      expect(accepted.ok()).toBe(true);
+      const joined = await accepted.json();
+      await call('POST', '/projects/' + value.id + '/members', { userId: joined.user.id, role: 'VIEWER' });
+      const reader = await context.newPage();
+      await open(reader, value, actor, joined.user.id);
+      await reader.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+      const review = reader.getByRole('region', { name: '生成节点设置' });
+      await review.getByRole('button', { name: '对照结果', exact: true }).click();
+      await expect(review.locator('video')).toHaveCount(2);
+      for (const name of ['存入素材库', '加入画布结果', '复用此次提示词'])
+        await expect(review.getByRole('button', { name, exact: true })).toHaveCount(0);
+      await review.getByLabel('对照候选').selectOption(audio.id);
+      await expect(review.locator('audio')).toBeVisible();
+      expect(
+        await (
+          await actor.get(
+            (await review
+              .getByRole('article', { name: '对照结果', exact: true })
+              .getByRole('link', { name: '下载原件' })
+              .getAttribute('href'))!,
+          )
+        ).body(),
+      ).toEqual(fixtures['sound.mp3'].bytes);
+    } finally {
+      await context.close();
+      await actor.dispose();
+    }
+    expect(remote.mock.submissions).toHaveLength(1);
+  } finally {
+    await remote.close();
+  }
+});
+
 test('generation type filters preserve pinned revisions and clear incompatible canvas media', async ({
   page,
 }) => {
