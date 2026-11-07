@@ -16,6 +16,8 @@ ModelScope 文生图使用增量迁移 0043，同样需备份并统一升级 API
 
 ## 安装与启动
 
+无需开发环境的本机体验方式见 [Windows 体验包](LOCAL-PREVIEW.md)：编译后的 Web、API 与 Generation Worker 使用包内独立数据库和媒体目录，自带运行时；通过 `start.cmd` / `stop.cmd` 操作，不迁移现用工程库。构建后 `npm run package:preview -- 新输出目录` 可生成白名单 ZIP；它不是正式 LAN/TLS 部署。
+
 首次或依赖锁文件变化时，在仓库根执行；正常开发不反复安装依赖。
 
 ```powershell

@@ -8,6 +8,8 @@
 
 ## 保持的工程边界
 
+2026-11-07 B11 新增 `tools/local-preview.mjs`（本机静态 Web/同源流代理及既有进程生命周期）、`local-child.cjs`（Windows 优雅停止转发）、`package-preview.mjs`（白名单打包）。不增加桌面宿主或新业务服务。运行专项在 `tests/runtime/`；`playwright.preview.config.ts` 只连接已启动的 QA 解包副本，复用正式画布套件。交付输出在仓库外 `../releases/`，QA 仍在忽略的 `data/e2e/`；不移动现用数据库或媒体。
+
 ```text
 PulletStudio/
 ├─ apps/api/

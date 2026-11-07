@@ -27,6 +27,8 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 ## 本地开发
 
+只想体验当前版本可使用 [Windows 本机体验包说明](docs/operations/LOCAL-PREVIEW.md)：自带运行环境，双击 `start.cmd` / `stop.cmd`。新体验空间与旧工程数据隔离。开发者构建后通过 `npm run package:preview -- 输出目录` 打包，不提交运行数据和二进制包。
+
 Node.js≥22、npm；媒体能力及媒体测试需要FFmpeg/FFprobe。当前不依赖Docker、PostgreSQL或Redis。
 
 首次安装在仓库根执行：

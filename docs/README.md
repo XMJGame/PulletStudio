@@ -11,6 +11,7 @@
 | 产品最终范围、长期需求 | [正式执行合同](PRODUCT-EXECUTION-CONTRACT.md) | Web 创作空间、正式 UI 收敛、资产/画布/工作流/生成/复用；旧 V2、MASTER-PLAN 与团队蓝图冲突处由该合同覆盖 |
 | 为什么这样设计 | ADR-001至012，先看[删除旧UI与多画布ADR-012](ADR-012-remove-retired-creation-ui.md)、[轻量创作ADR-011](ADR-011-asset-led-creation.md) | 旧强制生产前置由V2覆盖，旧UI保留决定由ADR-012覆盖 |
 | 本地怎样运行、测试、备份 | [开发运行手册](operations/DEVELOPMENT.md) | 当前有效命令；完整媒体恢复转[LOCAL-MEDIA](LOCAL-MEDIA.md) |
+| 体验包在哪、如何启动和停止 | [Windows 本机体验包](operations/LOCAL-PREVIEW.md) | 双击启动/停止、首次账号、包内数据及日志；[B11 合同](modules/LOCAL-PREVIEW-B11.md) |
 | 代码/数据/文档各在哪里 | [工程目录与整理规则](architecture/REPOSITORY-MAP.md) | 当前模块映射、保留和渐进拆分规则 |
 | 历次到底测了什么 | [阶段验收历史](history/IMPLEMENTATION-2026-11-04-05.md) | 保存原实施合同、迁移前后备份、实机证据；历史“下一包”不驱动开发 |
 
