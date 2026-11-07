@@ -26,7 +26,7 @@
 | 媒体和语义资产 | [Local媒体/恢复](LOCAL-MEDIA.md)、[语义资产](SEMANTIC-ASSETS.md) | [媒体合同](modules/LOCAL-MEDIA-IMPLEMENTATION.md)、[资产合同](modules/SEMANTIC-ASSETS-IMPLEMENTATION.md)、[资产审批合同](modules/ASSET-APPROVAL-IMPLEMENTATION.md) |
 | ComfyUI生成 | [配置与运行](COMFYUI-GENERATION.md) | [生成](modules/COMFY-GENERATION-IMPLEMENTATION.md)、[首帧I2V](modules/COMFY-I2V-IMPLEMENTATION.md)、[参数](modules/WORKFLOW-PARAMETERS-IMPLEMENTATION.md)合同 |
 | 工作流中心 | [技术图、修订、创作参数、试跑与发布](WORKFLOW-CENTER.md)、[四类能力对照](architecture/HERO-INFINITE-CANVAS-REVIEW.md) | [A1 合同](modules/WORKFLOW-CENTER-G2-A1.md)、[A2 合同](modules/WORKFLOW-CENTER-G2-A2.md)、[A3 合同](modules/WORKFLOW-CENTER-G2-A3.md)、[A3 验收](history/WORKFLOW-CENTER-G2-A3-2026-11-06.md) |
-| 多模态工作流 | [工作流中心](WORKFLOW-CENTER.md)、[B1 原始评审](review/workflow-media-contract/README.md) | [B3 输入合同](modules/BOARD-IMAGE-INPUTS-B3.md)；[B4 可选参考与音频输出](modules/WORKFLOW-OPTIONAL-MEDIA-AUDIO-B4.md)；[B6 扩展产物](modules/GENERATION-OUTPUTS-B6.md)；支持必填/可选媒体、单主输出及已声明扩展产物的归档、选择和复用 |
+| 多模态工作流 | [工作流中心](WORKFLOW-CENTER.md)、[B1 原始评审](review/workflow-media-contract/README.md) | [B3 输入合同](modules/BOARD-IMAGE-INPUTS-B3.md)；[B4 可选参考与音频输出](modules/WORKFLOW-OPTIONAL-MEDIA-AUDIO-B4.md)；[B6 扩展产物](modules/GENERATION-OUTPUTS-B6.md)；[B7 批量主结果](modules/GENERATION-PRIMARY-BATCH-B7.md)；支持必填/可选媒体、单份/批量主结果及已声明扩展产物的归档、选择和复用 |
 | 历史数据依赖 | [制作结构](PRODUCTION-STRUCTURE.md)、[原文导入](SCRIPT-IMPORT.md)、[文本分析](TEXT-ANALYSIS.md)、[草案审核](PROPOSAL-REVIEW.md)、[旧提示词](TEXT-DELIVERY.md) | 仅后台/历史合同；对应前端已删除，不作为当前功能开发入口 |
 | Take历史与来源 | [Take审核合同](modules/TAKE-REVIEW-IMPLEMENTATION.md) | 旧前端已删除；媒体/任务/导出引用依赖继续受保护 |
 | 标准后期交付 | [素材包](MEDIA-PACKAGES.md) | [原素材包合同](modules/MEDIA-PACKAGE-IMPLEMENTATION.md)、[标准交接合同](modules/DELIVERY-HANDOFF-IMPLEMENTATION.md)；API exports/ |

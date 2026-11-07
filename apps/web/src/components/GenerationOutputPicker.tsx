@@ -35,7 +35,8 @@ export function GenerationOutputPicker({
         </option>
         {job.outputs.map((output) => (
           <option key={output.id} value={output.id}>
-            {output.label} · {output.index + 1} · {output.role === 'preview' ? '预览' : '中间结果'}
+            {output.label} · {output.index + 1}
+            {output.role === 'primary' ? '' : ` · ${output.role === 'preview' ? '预览' : '中间结果'}`}
             {output.result ? ` · ${referenceMediaLabels[output.result.mediaType]}` : ''}
           </option>
         ))}

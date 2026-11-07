@@ -41,7 +41,7 @@ export function WorkflowMediaEditor({
     <details className="workflow-media-editor" open={Boolean(schema.inputs.length || schema.outputs.length)}>
       <summary>扩展媒体声明</summary>
       <p className="field-hint">
-        图片、视频和音频均可作为参考素材。可选槽位留空时断开专用加载器的可省略连接；不自动删除必填的解码或转换链。主输出保留单份；扩展输出每槽最多
+        图片、视频和音频均可作为参考素材。可选槽位留空时断开专用加载器的可省略连接；不自动删除必填的解码或转换链。主输出可在上方开启批量接收；扩展输出每槽最多
         8 份、合计最多 32 份，支持独立预览与入库。
       </p>
       <div className="workflow-media-toolbar">

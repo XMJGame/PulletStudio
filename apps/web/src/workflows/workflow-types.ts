@@ -78,7 +78,7 @@ export type WorkflowDefinition = {
   positive: { node: string; input: string };
   negative?: { node: string; input: string };
   image?: { node: string; input: string };
-  output: { node: string; field: string };
+  output: { node: string; field: string; batch?: { id: string } };
   parameters?: import('../components/GenerationParameters').WorkflowParameter[];
   fields?: ExposedField[];
   mediaSchema?: WorkflowMediaSchema;

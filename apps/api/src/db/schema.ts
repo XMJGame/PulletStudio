@@ -1885,6 +1885,7 @@ export const generationOutputs = sqliteTable(
     workspaceId: text('workspace_id').notNull(),
     slotId: text('slot_id').notNull(),
     position: integer('position').notNull(),
+    primaryIndex: integer('primary_index'),
     label: text('label').notNull(),
     role: text('role', { enum: ['preview', 'intermediate'] }).notNull(),
     mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),

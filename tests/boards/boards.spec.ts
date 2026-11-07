@@ -12,6 +12,7 @@ import {
   fixtureRequiredMedia,
   fixtureOptionalMedia,
   fixtureExtendedOutputs,
+  fixturePrimaryBatch,
 } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
@@ -2565,6 +2566,93 @@ test('one job exposes independent storyboard sound and main results as fixed can
     expect(
       (await history()).items.find((j: any) => j.id === job.id).outputs.map((o: any) => o.mediaVersionId),
     ).toEqual(job.outputs.map((o: any) => o.mediaVersionId));
+  } finally {
+    await remote.close();
+  }
+});
+
+test('primary batch candidates pin independent canvas results and reuse the selected image', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+  });
+  try {
+    const value = await project('Batch on canvas');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Batch canvas fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixturePrimaryBatch(connection.id),
+    );
+    const next = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Main image choices');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Two independent main images');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const done = (await history()).items[0];
+    const second = done.outputs[0];
+    expect(second.role).toBe('primary');
+    const picker = panel.getByLabel('选择生成产物', { exact: true });
+    await expect(picker.locator('option')).toHaveCount(2);
+    await expect(picker.locator('option').last()).toContainText('主结果 · 2');
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await picker.selectOption(second.id);
+    const image = panel.getByRole('img', { name: '节点生成结果', exact: true });
+    await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    expect((await history()).items[0].inLibrary).toBe(false);
+    expect(
+      await (
+        await owner.get(
+          (await panel.getByRole('link', { name: '下载原件', exact: true }).getAttribute('href'))!,
+        )
+      ).body(),
+    ).toEqual(fixtures['image.png'].bytes);
+    await save(page);
+    const board = await call('GET', '/boards/' + boardId);
+    expect(board.layout.nodes.filter((n: any) => n.type === 'result').map((n: any) => n.id)).toEqual([
+      done.id,
+      second.id,
+    ]);
+    expect(board.resolved[second.id].media.id).toBe(second.mediaVersionId);
+    await picker.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/b7-batch-canvas-desktop.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await picker.scrollIntoViewIfNeeded();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b7-batch-canvas-mobile.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await picker.selectOption(second.id);
+    await panel.getByRole('button', { name: '生成视频', exact: true }).click();
+    await panel.getByLabel('节点工作流').selectOption(next.id);
+    await panel.getByLabel('节点首帧').selectOption(second.id);
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect
+      .poll(async () => (await history()).items.filter((j: any) => j.state === 'completed').length)
+      .toBe(2);
+    expect(remote.mock.uploads.at(-1).bytes).toEqual(fixtures['image.png'].bytes);
+    expect(remote.mock.submissions).toHaveLength(2);
   } finally {
     await remote.close();
   }

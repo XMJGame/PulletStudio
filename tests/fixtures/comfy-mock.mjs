@@ -146,7 +146,8 @@ export async function startComfyMock(files) {
       const outputs = {};
       for (const [id, node] of nodes) {
         const names =
-          node.class_type === 'ImagesOutput'
+          mock.outputFiles?.[id] ??
+          (node.class_type === 'ImagesOutput'
             ? ['image.jpg', 'extra.png']
             : [
                 node.class_type === 'ImageOutput'
@@ -154,11 +155,15 @@ export async function startComfyMock(files) {
                   : node.class_type === 'AudioOutput'
                     ? 'sound.mp3'
                     : 'clip.mp4',
-              ];
+              ]);
         const field =
           node.class_type === 'AudioOutput'
             ? 'audio'
-            : names[0].endsWith('png') || names[0].endsWith('jpg') || node.class_type === 'SaveVideo'
+            : names[0]?.endsWith('png') ||
+                names[0]?.endsWith('jpg') ||
+                node.class_type === 'ImagesOutput' ||
+                node.class_type === 'ImageOutput' ||
+                node.class_type === 'SaveVideo'
               ? 'images'
               : 'videos';
         outputs[id] = {
@@ -461,5 +466,13 @@ export function fixtureExtendedOutputs(connectionId) {
       },
     ],
   };
+  return workflow;
+}
+
+export function fixturePrimaryBatch(connectionId, video = false) {
+  const workflow = fixtureWorkflow(connectionId, video);
+  workflow.name = video ? 'Video batch' : 'Image batch';
+  if (!video) workflow.graph['3'].class_type = 'ImagesOutput';
+  workflow.output.batch = { id: randomUUID() };
   return workflow;
 }

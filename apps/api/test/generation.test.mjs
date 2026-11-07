@@ -19,6 +19,7 @@ import {
   fixtureRequiredMedia,
   fixtureOptionalMedia,
   fixtureExtendedOutputs,
+  fixturePrimaryBatch,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
@@ -96,6 +97,11 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
       'sound.mp3': fixtures['sound.mp3'].bytes,
       'image.jpg': fixtures['image.jpg'].bytes,
       'extra.png': fixtures['image.png'].bytes,
+      'clip2.mp4': fixtures['clip.mp4'].bytes,
+      'sound2.mp3': fixtures['sound.mp3'].bytes,
+      ...Object.fromEntries(
+        Array.from({ length: 40 }, (_, i) => ['batch' + i + '.png', fixtures['image.png'].bytes]),
+      ),
     });
     await start();
     const setup = (
@@ -1772,6 +1778,280 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         assert.equal(done.outputs.length, 2);
       },
     );
+    await t.test(
+      'primary batches retain old result identities and archive each main candidate independently',
+      async () => {
+        const path = '/projects/' + project.id;
+        const definition = fixturePrimaryBatch(connectionId);
+        const conflicting = structuredClone(definition);
+        conflicting.fields = [
+          {
+            id: definition.output.batch.id,
+            node: '1',
+            input: 'text',
+            label: 'Duplicate id',
+            type: 'text',
+            maxLength: 200,
+          },
+        ];
+        assert.equal((await owner('POST', path + '/generation-workflows', conflicting)).status, 400);
+        const saved = await owner('POST', path + '/generation-workflows', definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        assert.equal((await queue(saved.data.id)).data.code, 'WORKFLOW_MEDIA_UNSUPPORTED');
+        const submit = (endpoint = 'generation-jobs') =>
+          owner(
+            'POST',
+            path + '/' + endpoint,
+            { workflowId: saved.data.id, positivePrompt: 'Batch main images', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        const queued = await submit();
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET lease_id='old:b6' WHERE id=?").run(queued.data.id),
+          /primary batch requires updated generation worker/,
+        );
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.equal(done.result.mediaType, 'image');
+        assert.equal(done.outputs.length, 1);
+        const second = done.outputs[0];
+        assert.equal(second.role, 'primary');
+        assert.equal(second.index, 1);
+        assert.equal(second.slotId, definition.output.batch.id);
+        assert.notEqual(second.mediaVersionId, done.mediaVersionId);
+        assert.deepEqual(
+          (await owner('GET', second.result.contentUrl.replace('/api/v1', ''))).data,
+          fixtures['image.png'].bytes,
+        );
+        const archived = await control(done.id, 'save-to-library', { outputId: second.id });
+        assert.equal(archived.status, 201, JSON.stringify(archived.data));
+        assert.equal(archived.data.inLibrary, false);
+        assert.equal(archived.data.outputs[0].inLibrary, true);
+        assert.equal(
+          (await viewer('POST', '/generation-jobs/' + done.id + '/save-to-library', { outputId: second.id }))
+            .status,
+          403,
+        );
+        const raw = db().prepare('SELECT * FROM generation_outputs WHERE id=?').get(second.id);
+        assert.equal(raw.primary_index, 1);
+        assert.throws(
+          () => db().prepare('UPDATE generation_outputs SET primary_index=NULL WHERE id=?').run(second.id),
+          /identity is immutable/,
+        );
+        const board = (
+          await owner(
+            'POST',
+            path + '/boards',
+            { title: 'Batch candidates' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).data;
+        const pinned = await owner(
+          'POST',
+          '/boards/' + board.id + '/revisions',
+          {
+            title: board.title,
+            expectedRevision: board.revision,
+            layout: {
+              ...board.layout,
+              nodes: [
+                {
+                  id: done.id,
+                  type: 'result',
+                  position: { x: 0, y: 0 },
+                  width: 250,
+                  height: 280,
+                  data: { jobId: done.id },
+                },
+                {
+                  id: second.id,
+                  type: 'result',
+                  position: { x: 300, y: 0 },
+                  width: 250,
+                  height: 280,
+                  data: { jobId: done.id, outputId: second.id },
+                },
+              ],
+            },
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(pinned.status, 201, JSON.stringify(pinned.data));
+        assert.equal(pinned.data.resolved[done.id].media.id, done.mediaVersionId);
+        assert.equal(pinned.data.resolved[second.id].media.id, second.mediaVersionId);
+        const trial = await submit('workflow-trials');
+        for (let i = 0; i < 3; i++) await tick();
+        const evidence = await read(trial.data.id);
+        assert.equal(evidence.state, 'test_completed', JSON.stringify(evidence));
+        assert.equal(evidence.outputs[0].role, 'primary');
+        assert.equal(
+          (await control(evidence.id, 'save-to-library', { outputId: evidence.outputs[0].id })).status,
+          409,
+        );
+        assert.equal(
+          db().prepare('SELECT origin FROM media_versions WHERE id=?').get(evidence.outputs[0].mediaVersionId)
+            .origin,
+          'workflow_test',
+        );
+        assert.ok(
+          !(await owner('GET', path + '/generation-reference-media?type=image')).data.items.some(
+            (o) => o.id === evidence.outputs[0].mediaVersionId,
+          ),
+        );
+      },
+    );
+
+    await t.test(
+      'batch contracts support a single file the upper limit and combined video audio artifacts',
+      async () => {
+        const path = '/projects/' + project.id;
+        for (const kind of ['single', 'eight', 'forty', 'video', 'audio']) {
+          const definition =
+            kind === 'video' ? fixtureExtendedOutputs(connectionId) : fixturePrimaryBatch(connectionId);
+          definition.output.batch ??= { id: randomUUID() };
+          if (kind === 'audio') {
+            definition.capability = 'audio.music';
+            definition.graph['3'].class_type = 'AudioOutput';
+            definition.output.field = 'audio';
+          }
+          const names =
+            kind === 'single'
+              ? ['image.jpg']
+              : kind === 'eight' || kind === 'forty'
+                ? Array.from({ length: 8 }, (_, i) => 'batch' + i + '.png')
+                : kind === 'video'
+                  ? ['clip.mp4', 'clip2.mp4']
+                  : ['sound.mp3', 'sound2.mp3'];
+          const extraFiles = {};
+          if (kind === 'forty') {
+            definition.mediaSchema = { version: 'studio.workflow-media.v1', inputs: [], outputs: [] };
+            for (let slot = 0; slot < 4; slot++) {
+              const node = String(slot + 8);
+              definition.graph[node] = { class_type: 'ImagesOutput', inputs: { conditioning: ['1', 0] } };
+              definition.mediaSchema.outputs.push({
+                id: randomUUID(),
+                label: 'Study ' + slot,
+                role: 'preview',
+                mediaType: 'image',
+                node,
+                field: 'images',
+                multiple: true,
+              });
+              extraFiles[node] = Array.from({ length: 8 }, (_, i) => 'batch' + ((slot + 1) * 8 + i) + '.png');
+            }
+          }
+          const saved = await owner('POST', path + '/generation-workflows', definition);
+          assert.equal(saved.status, 201, JSON.stringify(saved.data));
+          remote.mock.outputFiles = { 3: names, ...extraFiles };
+          let queued;
+          try {
+            queued = await owner(
+              'POST',
+              path + '/generation-jobs',
+              { workflowId: saved.data.id, positivePrompt: 'Typed main batch', confirmed: true },
+              { 'Idempotency-Key': randomUUID() },
+            );
+            for (let i = 0; i < 3; i++) await tick();
+          } finally {
+            remote.mock.outputFiles = undefined;
+          }
+          const done = await read(queued.data.id);
+          assert.equal(done.state, 'completed', JSON.stringify(done));
+          assert.equal(done.outputs.filter((o) => o.role === 'primary').length, names.length - 1);
+          assert.equal(
+            done.outputs.length,
+            names.length - 1 + (kind === 'video' ? 3 : kind === 'forty' ? 32 : 0),
+          );
+          const type = kind === 'video' ? 'video' : kind === 'audio' ? 'audio' : 'image';
+          assert.equal(done.result.mediaType, type);
+          assert.ok(
+            done.outputs.filter((o) => o.role === 'primary').every((o) => o.result.mediaType === type),
+          );
+        }
+      },
+    );
+
+    await t.test(
+      'invalid primary batches fail explicitly while partial downloads resume a fixed manifest',
+      async () => {
+        const path = '/projects/' + project.id;
+        const definition = fixturePrimaryBatch(connectionId);
+        const saved = await owner('POST', path + '/generation-workflows', definition);
+        const submit = () =>
+          owner(
+            'POST',
+            path + '/generation-jobs',
+            { workflowId: saved.data.id, positivePrompt: 'Recover primary batch', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        const single = structuredClone(definition);
+        delete single.output.batch;
+        const legacy = await owner('POST', path + '/generation-workflows', single);
+        for (const names of [
+          [],
+          Array(9).fill('image.jpg'),
+          ['image.jpg', 'image.jpg'],
+          ['image.jpg', '../extra.png'],
+          ['image.jpg', 'sound.mp3'],
+        ]) {
+          remote.mock.outputFiles = { 3: names };
+          let q;
+          try {
+            q = await submit();
+            for (let i = 0; i < 3; i++) await tick();
+          } finally {
+            remote.mock.outputFiles = undefined;
+          }
+          const done = await read(q.data.id);
+          assert.equal(done.state, 'needs_reconciliation', JSON.stringify(done));
+          assert.equal(done.mediaVersionId, null);
+          assert.deepEqual(done.outputs, []);
+        }
+        const old = await owner(
+          'POST',
+          path + '/generation-jobs',
+          { workflowId: legacy.data.id, positivePrompt: 'Legacy single remains strict', confirmed: true },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        for (let i = 0; i < 2; i++) await tick();
+        assert.equal((await read(old.data.id)).errorCode, 'WORKFLOW_OUTPUT_COUNT');
+        const q = await submit();
+        const start = remote.mock.downloads.length;
+        remote.mock.missingFile = 'extra.png';
+        try {
+          for (let i = 0; i < 3; i++) await tick();
+        } finally {
+          remote.mock.missingFile = undefined;
+        }
+        assert.equal((await read(q.data.id)).state, 'needs_reconciliation');
+        remote.mock.history.get((await read(q.data.id)).remoteId).outputs['3'].images = [];
+        await control(q.data.id, 'reconcile');
+        await tick();
+        const done = await read(q.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.deepEqual(remote.mock.downloads.slice(start), ['image.jpg', 'extra.png', 'extra.png']);
+        assert.equal(done.outputs[0].role, 'primary');
+        const retry = await submit();
+        db().exec(
+          "CREATE TRIGGER fixture_batch_registration BEFORE INSERT ON media_versions WHEN NEW.file_name='extra.png' BEGIN SELECT RAISE(ABORT,'fixture batch registration'); END;",
+        );
+        try {
+          for (let i = 0; i < 3; i++) await tick();
+        } finally {
+          db().exec('DROP TRIGGER fixture_batch_registration');
+        }
+        assert.equal((await read(retry.data.id)).state, 'needs_reconciliation');
+        const downloadCount = remote.mock.downloads.length;
+        await control(retry.data.id, 'reconcile');
+        await tick();
+        assert.equal((await read(retry.data.id)).state, 'completed');
+        assert.equal(remote.mock.downloads.length, downloadCount);
+        assert.deepEqual(db().pragma('foreign_key_check'), []);
+      },
+    );
+
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {
       const entity = (
         await owner(

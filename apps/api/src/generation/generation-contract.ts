@@ -94,7 +94,9 @@ export const workflowInput = z
     mediaSchema: workflowMediaSchema.optional(),
     fieldSchemaVersion: z.literal('studio.workflow-fields.v1').optional(),
     reviewRequired: z.literal(true).optional(),
-    output: z.object({ node: nodeId, field: slot }).strict(),
+    output: z
+      .object({ node: nodeId, field: slot, batch: z.object({ id: z.uuid() }).strict().optional() })
+      .strict(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -111,6 +113,15 @@ export const workflowInput = z
     if (value.positive.node === value.negative?.node && value.positive.input === value.negative.input)
       issue('正向和负向提示词必须绑定不同输入');
     if (!Object.hasOwn(value.graph, value.output.node)) issue('输出节点不存在');
+    if (
+      value.output.batch &&
+      [
+        ...(value.fields ?? []),
+        ...(value.mediaSchema?.inputs ?? []),
+        ...(value.mediaSchema?.outputs ?? []),
+      ].some((item) => item.id === value.output.batch!.id)
+    )
+      issue('批量主输出标识必须独立');
     if (value.capability === 'video.image_to_video') {
       const image = value.image;
       const inputs = image && value.graph[image.node]?.inputs;

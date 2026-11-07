@@ -64,6 +64,7 @@ export function GenerationSettings({
   const [bindings, setBindings] = useState(initial);
   const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
   const [mediaSchema, setMediaSchema] = useState<WorkflowMediaSchema | undefined>(definition?.mediaSchema);
+  const [primaryBatch, setPrimaryBatch] = useState(definition?.output.batch);
   const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
   useEffect(() => onDraftChange?.(dirtyForms.connection || dirtyForms.workflow), [dirtyForms, onDraftChange]);
@@ -188,7 +189,11 @@ export function GenerationSettings({
               ...(data.get('capability') === 'video.image_to_video'
                 ? { image: { node: data.get('imageNode'), input: data.get('imageInput') } }
                 : {}),
-              output: { node: data.get('outputNode'), field: data.get('outputField') },
+              output: {
+                node: data.get('outputNode'),
+                field: data.get('outputField'),
+                ...(primaryBatch ? { batch: primaryBatch } : {}),
+              },
               parameters: readParameterBindings(data),
               fields,
               ...(mediaSchema ? { mediaSchema } : {}),
@@ -220,6 +225,7 @@ export function GenerationSettings({
             setCapability('image.text_to_image');
             setGraphText('');
             setFields([]);
+            setPrimaryBatch(undefined);
             setMediaSchema(undefined);
             attempt.current = { body: '', key: '' };
             setBindingFormVersion((value) => value + 1);
@@ -445,6 +451,19 @@ export function GenerationSettings({
                 />
               </label>
             </div>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={Boolean(primaryBatch)}
+                onChange={(event) =>
+                  setPrimaryBatch(event.target.checked ? { id: crypto.randomUUID() } : undefined)
+                }
+              />
+              接收批量主结果（最多 8 份）
+            </label>
+            <p className="field-hint">
+              数量由工作流参数决定。开启后逐份归档同一输出字段的文件，不会重复调用模型。
+            </p>
           </section>
           <section className="v2-workflow-step" aria-label="创作参数与保存">
             <h4>创作参数与保存</h4>

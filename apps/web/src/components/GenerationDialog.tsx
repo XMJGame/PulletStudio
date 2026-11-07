@@ -83,7 +83,7 @@ export type GenerationOutput = {
   slotId: string;
   index: number;
   label: string;
-  role: 'preview' | 'intermediate';
+  role: 'primary' | 'preview' | 'intermediate';
   mediaVersionId: string | null;
   inLibrary: boolean;
   result: GenerationJob['result'];
@@ -130,7 +130,8 @@ export const generationErrors: Record<string, string> = {
   COMFY_HISTORY_PENDING: '查询窗口内未找到已完成的远端记录。',
   COMFY_EXECUTION_FAILED: '远端执行失败。请在 ComfyUI 中查看详情。',
   COMFY_DOWNLOAD_INVALID: '远端文件无法安全下载，请核对大小及返回头。',
-  WORKFLOW_OUTPUT_COUNT: '主输出须为一份文件；扩展单项须为一份，多项每槽最多八份、合计最多三十二份。',
+  WORKFLOW_OUTPUT_COUNT:
+    '主输出默认一份，开启批量后最多八份；扩展单项须为一份，多项每槽最多八份、合计最多三十二份。',
   WORKFLOW_OUTPUT_INVALID: '远端文件描述重复或不符合归档要求，请使用保存节点的正式输出文件。',
   GENERATION_INPUT_CHANGED: '项目或连接已变化。请按当前输入创建任务。',
   GENERATION_APPROVAL_CHANGED: '资产审批已变化。请重新核对输入。',

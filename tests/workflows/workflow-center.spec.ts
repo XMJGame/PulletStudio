@@ -12,6 +12,7 @@ import {
   fixtureI2V,
   fixtureExtendedOutputs,
   fixtureOptionalMedia,
+  fixturePrimaryBatch,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
@@ -658,6 +659,91 @@ test('workflow trials and free generation switch typed artifacts without archivi
   }
 });
 
+test('primary batch settings revise immutably and expose independent image candidates', async ({ page }) => {
+  const jpg = await readFile(resolve('test-results/workflow-fixtures/image.jpg'));
+  const png = await readFile(resolve('test-results/workflow-fixtures/image.png'));
+  const batchRemote = await startComfyMock({ 'image.jpg': jpg, 'extra.png': png });
+  try {
+    const value = await project('Batch workflow settings');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Batch fixture',
+      baseUrl: batchRemote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixturePrimaryBatch(connection.id);
+    delete definition.output.batch;
+    const first = await api('POST', '/projects/' + value.id + '/generation-workflows', definition);
+    await open(page, value);
+    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+    const batch = center.getByRole('checkbox', { name: '接收批量主结果（最多 8 份）', exact: true });
+    await expect(batch).not.toBeChecked();
+    await batch.focus();
+    await page.keyboard.press('Space');
+    await expect(batch).toBeChecked();
+    await center.getByLabel('工作流修订说明').fill('Accept saved main batch');
+    await center.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+    await expect(center.getByRole('status')).toContainText('修订 v2');
+    const current = await api('GET', '/workflow-catalogs/' + first.familyId + '/definition');
+    expect(current.definition.output.batch.id).toMatch(/^[\da-f-]{36}$/);
+    expect(
+      (await api('GET', '/generation-workflows/' + first.id + '/definition')).definition.output.batch,
+    ).toBeUndefined();
+    await expect(batch).toBeChecked();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await batch.scrollIntoViewIfNeeded();
+    expect(await center.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b7-batch-settings-mobile.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
+    const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+    await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
+    const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+    await trial.getByLabel('正向提示词').fill('Two main images');
+    await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
+    await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+    const evidence = (await api('GET', '/generation-workflows/' + current.id + '/test-jobs'))[0];
+    await trial.getByLabel('选择生成产物').selectOption(evidence.outputs[0].id);
+    await expect(trial.getByRole('button', { name: '存入素材库', exact: true })).toHaveCount(0);
+    await expect(trial.getByLabel('选择生成产物').locator('option').last()).toContainText('主结果 · 2');
+    await trial.getByRole('button', { name: '关闭', exact: true }).click();
+    await release.getByRole('button', { name: '关闭', exact: true }).click();
+    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await generation.getByLabel('生成工作流').selectOption(current.id);
+    await generation.getByLabel('正向提示词').fill('Choose just the second main image');
+    await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+    await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+    const done = (await api('GET', '/projects/' + value.id + '/generation-jobs')).items[0];
+    expect(done.outputs).toHaveLength(1);
+    await generation.getByLabel('选择生成产物').selectOption(done.outputs[0].id);
+    expect(
+      await (
+        await owner.get(
+          (await generation.getByRole('link', { name: '下载生成原件', exact: true }).getAttribute('href'))!,
+        )
+      ).body(),
+    ).toEqual(png);
+    await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+    const archived = await api('GET', '/generation-jobs/' + done.id);
+    expect(archived.inLibrary).toBe(false);
+    expect(archived.outputs[0].inLibrary).toBe(true);
+    await generation.getByLabel('选择生成产物').selectOption('');
+    expect(
+      await (
+        await owner.get(
+          (await generation.getByRole('link', { name: '下载生成原件', exact: true }).getAttribute('href'))!,
+        )
+      ).body(),
+    ).toEqual(jpg);
+    expect(batchRemote.mock.submissions).toHaveLength(2);
+  } finally {
+    await batchRemote.close();
+  }
+});
+
 test('free generation filters output types and keeps API jobs outside ComfyUI routing', async ({ page }) => {
   const mp3 = await readFile(resolve('test-results/workflow-fixtures/sound.mp3'));
   const audioRemote = await startComfyMock({ 'sound.mp3': mp3 });
@@ -842,6 +928,7 @@ test('maps optional video audio controls and previews audio trial evidence', asy
       ['audio', false, 'disconnect'],
     ]);
     await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeEnabled();
     await expect(dialog.getByLabel('媒体输入2缺失处理', { exact: true })).toHaveValue('disconnect');
     await page.setViewportSize({ width: 390, height: 844 });
     await dialog.getByLabel('媒体输入2缺失处理', { exact: true }).scrollIntoViewIfNeeded();

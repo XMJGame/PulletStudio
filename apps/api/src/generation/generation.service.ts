@@ -70,6 +70,7 @@ export type GenerationSnapshot = {
   optionalReferenceMedia?: true;
   audioOutput?: true;
   extendedOutputs?: true;
+  primaryBatch?: true;
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
@@ -663,7 +664,10 @@ export class GenerationService {
           }
         : null,
       outputs: ['completed', 'test_completed'].includes(row.state)
-        ? (definition.mediaSchema?.outputs ?? []).flatMap((slot) =>
+        ? [
+            ...(definition.output.batch ? [definition.output.batch] : []),
+            ...(definition.mediaSchema?.outputs ?? []),
+          ].flatMap((slot) =>
             this.database.db
               .select()
               .from(generationOutputs)
@@ -677,7 +681,7 @@ export class GenerationService {
                   slotId: output.slotId,
                   index: output.position,
                   label: output.label,
-                  role: output.role,
+                  role: output.primaryIndex != null ? 'primary' : output.role,
                   mediaVersionId: output.mediaVersionId,
                   inLibrary: file
                     ? (this.database.db
@@ -882,6 +886,8 @@ export class GenerationService {
         if (catalog?.archived) fail(409, 'WORKFLOW_ARCHIVED', '此工作流目录已归档，请选择其他配置');
         const definition = JSON.parse(workflow.definitionJson) as WorkflowInput;
         const projectReferences = !shot;
+        if (shot && definition.output.batch)
+          fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', '批量主结果请使用项目创作或画布入口。');
         assertMediaExecutable(definition.mediaSchema, projectReferences);
         const slots = definition.mediaSchema?.inputs ?? [];
         if (shot && definition.capability === 'audio.music')
@@ -1015,7 +1021,10 @@ export class GenerationService {
                 ? { optionalReferenceMedia: true }
                 : {}),
               ...(definition.capability === 'audio.music' ? { audioOutput: true } : {}),
-              ...(definition.mediaSchema?.outputs.length ? { extendedOutputs: true } : {}),
+              ...(definition.mediaSchema?.outputs.length || definition.output.batch
+                ? { extendedOutputs: true }
+                : {}),
+              ...(definition.output.batch ? { primaryBatch: true } : {}),
               parameterValues,
               fieldValues,
               ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),

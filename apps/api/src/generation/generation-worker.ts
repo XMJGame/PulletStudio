@@ -101,6 +101,7 @@ export class GenerationWorker {
           .set({
             leaseId:
               leaseId +
+              (snapshot.primaryBatch ? ':b7' : '') +
               (snapshot.extendedOutputs ? ':b6' : '') +
               (snapshot.optionalReferenceMedia || snapshot.audioOutput ? ':b4' : ''),
             leaseUntil: now + leaseMs,
@@ -388,7 +389,12 @@ export class GenerationWorker {
           slots.some((slot) => slot.onMissing === 'disconnect') !== Boolean(snapshot.optionalReferenceImages))
       )
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
-      if (Boolean(definition.mediaSchema?.outputs.length) !== Boolean(snapshot.extendedOutputs))
+      if (
+        Boolean(definition.mediaSchema?.outputs.length || definition.output.batch) !==
+        Boolean(snapshot.extendedOutputs)
+      )
+        throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
+      if (Boolean(definition.output.batch) !== Boolean(snapshot.primaryBatch))
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
       if ((definition.capability === 'audio.music') !== Boolean(snapshot.audioOutput))
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
@@ -481,8 +487,13 @@ export class GenerationWorker {
           state: 'fetching',
           remoteId: candidate,
           resultJson: JSON.stringify(
-            'outputs' in result && result.outputs?.length
-              ? { version: 'studio.generation-outputs.v1', primary: result.result, outputs: result.outputs }
+            ('outputs' in result && result.outputs?.length) ||
+              (JSON.parse(job.snapshotJson) as GenerationSnapshot).primaryBatch
+              ? {
+                  version: 'studio.generation-outputs.v1',
+                  primary: result.result,
+                  outputs: 'outputs' in result ? (result.outputs ?? []) : [],
+                }
               : result.result,
           ),
           nextAt: Date.now(),
@@ -532,6 +543,7 @@ export class GenerationWorker {
                   workspaceId: job.workspaceId,
                   slotId: item.slotId,
                   position: item.index,
+                  primaryIndex: item.primaryIndex ?? null,
                   label: item.label,
                   role: item.role,
                   mediaType: item.mediaType,

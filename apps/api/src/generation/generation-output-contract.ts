@@ -7,6 +7,7 @@ export const outputDescriptor = z
     index: z.number().int().min(0).max(7),
     label: z.string().min(1).max(120),
     role: z.enum(['preview', 'intermediate']),
+    primaryIndex: z.number().int().min(1).max(7).optional(),
     mediaType: z.enum(['image', 'video', 'audio']),
     result: resultDescriptor,
   })
@@ -15,7 +16,7 @@ export const outputManifest = z
   .object({
     version: z.literal('studio.generation-outputs.v1'),
     primary: resultDescriptor,
-    outputs: z.array(outputDescriptor).min(1).max(32),
+    outputs: z.array(outputDescriptor).max(39),
   })
   .strict();
 export type OutputDescriptor = z.infer<typeof outputDescriptor>;

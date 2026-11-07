@@ -322,21 +322,44 @@ export class ComfyProvider {
         if (status.completed !== true || status.status_str !== 'success')
           throw new GenerationError('COMFY_HISTORY_INVALID');
         const outputs = object(object(row.outputs)[workflow.output.node])[workflow.output.field];
-        if (!Array.isArray(outputs) || outputs.length !== 1)
+        if (!Array.isArray(outputs) || !outputs.length || outputs.length > (workflow.output.batch ? 8 : 1))
           throw new GenerationError('WORKFLOW_OUTPUT_COUNT');
         const result = resultDescriptor.safeParse(outputs[0]);
         if (!result.success) throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
         const extra: OutputDescriptor[] = [];
         const seen = new Set([JSON.stringify(result.data)]);
+        for (const [index, file] of outputs.entries()) {
+          if (!index) continue;
+          const parsed = resultDescriptor.safeParse(file);
+          if (!parsed.success || seen.has(JSON.stringify(parsed.data)))
+            throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
+          seen.add(JSON.stringify(parsed.data));
+          extra.push({
+            slotId: workflow.output.batch!.id,
+            index,
+            primaryIndex: index,
+            label: '主结果',
+            role: 'intermediate',
+            mediaType:
+              workflow.capability === 'image.text_to_image'
+                ? 'image'
+                : workflow.capability === 'audio.music'
+                  ? 'audio'
+                  : 'video',
+            result: parsed.data,
+          });
+        }
+        let extensionCount = 0;
         for (const slot of workflow.mediaSchema?.outputs ?? []) {
           const files = object(object(row.outputs)[slot.node])[slot.field];
           if (
             !Array.isArray(files) ||
             !files.length ||
             files.length > (slot.multiple ? 8 : 1) ||
-            extra.length + files.length > 32
+            extensionCount + files.length > 32
           )
             throw new GenerationError('WORKFLOW_OUTPUT_COUNT');
+          extensionCount += files.length;
           for (const [index, file] of files.entries()) {
             const parsed = resultDescriptor.safeParse(file);
             if (!parsed.success || seen.has(JSON.stringify(parsed.data)))
