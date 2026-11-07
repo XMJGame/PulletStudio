@@ -42,6 +42,11 @@ import { WorkspaceLibraryController } from './assets/workspace-library.controlle
 import { WorkspaceLibraryBrowserController } from './assets/workspace-library-browser.controller';
 import { WorkspaceUploadController } from './assets/workspace-upload.controller';
 import { WorkspaceUploadService } from './assets/workspace-upload.service';
+import { WorkspaceEntitiesService } from './assets/workspace-entities.service';
+import {
+  WorkspaceEntitiesController,
+  ProjectEntitiesLibraryController,
+} from './assets/workspace-entities.controller';
 import { MediaController } from './assets/media.controller';
 import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
@@ -90,6 +95,8 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     WorkspaceLibraryController,
     WorkspaceLibraryBrowserController,
     WorkspaceUploadController,
+    WorkspaceEntitiesController,
+    ProjectEntitiesLibraryController,
     EntitiesController,
     GenerationController,
     TakeReviewController,
@@ -127,6 +134,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     ResourceAccessService,
     WorkspaceLibraryService,
     WorkspaceUploadService,
+    WorkspaceEntitiesService,
     EntitiesService,
     AssetApprovalService,
     ComfyProvider,

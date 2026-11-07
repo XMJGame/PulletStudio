@@ -85,10 +85,10 @@ export function BoardSources({
           filters={publicFilters}
           onFiltersChange={setPublicFilters}
           onBusyChange={setPublicBusy}
-          onImported={() => {
+          onImported={(kind) => {
             setPublicLibrary(false);
             setFolderId('');
-            setKind('media');
+            setKind(kind === 'entity' ? 'entities' : 'media');
             setMediaType('');
             setQuery('');
             setNotice('已添加到项目资源库');
@@ -275,37 +275,41 @@ export function BoardSources({
                     </select>
                   </label>
                 )}
-                {editable && row.ref.kind === 'media' && (
-                  <button
-                    className="creative-public-action"
-                    disabled={collecting || !row.ready}
-                    aria-label={`收录 ${row.value.title} 到公共库`}
-                    onClick={async () => {
-                      if (collecting) return;
-                      setCollecting(true);
-                      setMoveError('');
-                      setNotice('');
-                      try {
-                        if (!collectAttempts.current.has(row.ref.id))
-                          collectAttempts.current.set(row.ref.id, crypto.randomUUID());
-                        await api(
-                          `/projects/${projectId}/public-library/resources`,
-                          'POST',
-                          { mediaVersionId: row.ref.id },
-                          { 'Idempotency-Key': collectAttempts.current.get(row.ref.id)! },
-                        );
-                        setNotice('已收录到工作区公共库');
-                        collectAttempts.current.delete(row.ref.id);
-                      } catch (reason) {
-                        setMoveError(reason instanceof Error ? reason.message : '收录失败');
-                      } finally {
-                        setCollecting(false);
-                      }
-                    }}
-                  >
-                    收录到公共库
-                  </button>
-                )}
+                {editable &&
+                  (row.ref.kind === 'media' || (row.ref.kind === 'entity' && row.value.kind !== 'voice')) && (
+                    <button
+                      className="creative-public-action"
+                      disabled={collecting || !row.ready}
+                      aria-label={`收录 ${row.value.title} 到公共库`}
+                      onClick={async () => {
+                        if (collecting) return;
+                        setCollecting(true);
+                        setMoveError('');
+                        setNotice('');
+                        try {
+                          const attempt = JSON.stringify(row.ref);
+                          if (!collectAttempts.current.has(attempt))
+                            collectAttempts.current.set(attempt, crypto.randomUUID());
+                          await api(
+                            `/projects/${projectId}/public-library/${row.ref.kind === 'entity' ? 'entities' : 'resources'}`,
+                            'POST',
+                            row.ref.kind === 'entity'
+                              ? { revisionId: row.ref.revisionId }
+                              : { mediaVersionId: row.ref.id },
+                            { 'Idempotency-Key': collectAttempts.current.get(attempt)! },
+                          );
+                          setNotice('已收录到工作区公共库');
+                          collectAttempts.current.delete(attempt);
+                        } catch (reason) {
+                          setMoveError(reason instanceof Error ? reason.message : '收录失败');
+                        } finally {
+                          setCollecting(false);
+                        }
+                      }}
+                    >
+                      收录到公共库
+                    </button>
+                  )}
               </div>
             ))}
           </div>

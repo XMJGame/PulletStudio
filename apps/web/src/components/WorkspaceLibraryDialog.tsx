@@ -16,7 +16,7 @@ export default function WorkspaceLibraryDialog({
   return (
     <Dialog
       title="工作区公共库"
-      description={`${workspaceName} · 图片、视频与音频`}
+      description={`${workspaceName} · 媒体与创作资产`}
       className="v2-public-library-dialog"
       busy={busy}
       onClose={onClose}

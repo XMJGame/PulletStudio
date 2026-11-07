@@ -117,6 +117,209 @@ async function createBoard(page: Page, title: string) {
   await expect(page.getByLabel('当前画布名称', { exact: true })).toHaveValue(title);
   return (await page.url()).split('#canvas/')[1];
 }
+test('public character scene and prop assets preserve fixed settings and reuse independently', async ({
+  page,
+}) => {
+  const source = await project('Visual asset source'),
+    first = await uploadMedia(source.id, 'image.png'),
+    second = await uploadMedia(source.id, 'image.png'),
+    sound = await uploadMedia(source.id, 'sound.wav');
+  const character = await call('POST', `/projects/${source.id}/entities`, {
+    kind: 'character',
+    body: {
+      name: 'Coastal traveller',
+      description: 'A reusable visual identity.',
+      attributes: { appearance: 'Short hair', costume: 'Weatherproof coat' },
+      media: [
+        { role: 'front', mediaVersionId: first.id },
+        { role: 'side', mediaVersionId: first.id },
+        { role: 'detail', mediaVersionId: second.id },
+      ],
+    },
+  });
+  await call('POST', `/projects/${source.id}/entities`, {
+    kind: 'environment',
+    body: {
+      name: 'Quiet workshop',
+      attributes: { layout: 'Two doors', lighting: 'Soft daylight' },
+      media: [{ role: 'overview', mediaVersionId: first.id }],
+    },
+  });
+  await call('POST', `/projects/${source.id}/entities`, {
+    kind: 'prop',
+    body: {
+      name: 'Brass compass',
+      attributes: { material: 'Brass' },
+      media: [{ role: 'front', mediaVersionId: second.id }],
+    },
+  });
+  await call('POST', `/projects/${source.id}/entities`, {
+    kind: 'voice',
+    body: {
+      name: 'Private voice',
+      attributes: { consentStatus: 'owned' },
+      media: [{ role: 'voice_sample', mediaVersionId: sound.id }],
+    },
+  });
+  await open(page, source);
+  const sourceBoardId = await createBoard(page, 'Fixed source');
+  const library = page.getByRole('complementary', { name: '正式项目资源' });
+  await library.getByRole('button', { name: '资产', exact: true }).click();
+  await library.getByRole('button', { name: '添加 Coastal traveller', exact: true }).click();
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  await expect(page.locator('.creative-save-state')).toContainText('已保存');
+  for (const name of ['Coastal traveller', 'Quiet workshop', 'Brass compass']) {
+    const result = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().endsWith('/public-library/entities'),
+    );
+    await library.getByRole('button', { name: `收录 ${name} 到公共库`, exact: true }).click();
+    expect((await result).status()).toBe(201);
+  }
+  await expect(library.getByRole('button', { name: '收录 Private voice 到公共库', exact: true })).toHaveCount(
+    0,
+  );
+  await call('POST', `/entities/${character.id}/revisions`, {
+    expectedVersion: 1,
+    body: { name: 'New source design', attributes: { appearance: 'Long hair' }, media: [] },
+  });
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await library.getByRole('button', { name: '角色与场景', exact: true }).click();
+  await expect(
+    library.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }),
+  ).toBeVisible();
+  await expect(
+    library.getByRole('button', { name: '查看公共资产 New source design', exact: true }),
+  ).toHaveCount(0);
+  await library.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }).click();
+  const detail = library.getByRole('region', { name: '公共资产详情', exact: true });
+  await expect(detail.getByText('Weatherproof coat', { exact: true })).toBeVisible();
+  await expect(detail.locator('figure')).toHaveCount(3);
+  await expect(detail.getByRole('button', { name: '已在本项目', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(
+    library.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }),
+  ).toBeFocused();
+  const target = await project('Independent visual assets');
+  await open(page, target);
+  const boardId = await createBoard(page, 'Reused identity');
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await library.getByRole('button', { name: '角色与场景', exact: true }).click();
+  const entities = library.getByRole('region', { name: '公共结构化资产', exact: true });
+  await entities
+    .getByRole('group', { name: '公共资产类型筛选' })
+    .getByRole('button', { name: '角色', exact: true })
+    .click();
+  let lost = true;
+  await page.route('**/public-library/entities/*/import', async (route) => {
+    if (lost) {
+      await route.fetch();
+      lost = false;
+      await route.abort();
+    } else await route.continue();
+  });
+  const add = entities.getByRole('button', { name: '添加公共资产 Coastal traveller 到本项目', exact: true });
+  await add.click();
+  await expect(entities.getByRole('alert')).toBeVisible();
+  await add.click();
+  await expect(library.getByRole('button', { name: '资产', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(library.getByRole('button', { name: '添加 Coastal traveller', exact: true })).toBeVisible();
+  const imported = (await call('GET', `/projects/${target.id}/entities?kind=character`)).items;
+  expect(imported).toHaveLength(1);
+  expect(imported[0].revision.status).toBe('draft');
+  expect(imported[0].revision.media).toHaveLength(3);
+  expect(new Set(imported[0].revision.media.map((ref: any) => ref.mediaVersionId)).size).toBe(2);
+  await library.getByRole('button', { name: '添加 Coastal traveller', exact: true }).click();
+  await page.getByRole('button', { name: '保存画布', exact: true }).click();
+  await expect(page.locator('.creative-save-state')).toContainText('已保存');
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await expect(add).toBeDisabled();
+  await entities.getByRole('button', { name: '新建文件夹', exact: true }).click();
+  await entities.getByRole('textbox', { name: '文件夹名称', exact: true }).fill('常用角色');
+  await entities.getByRole('button', { name: '保存文件夹', exact: true }).click();
+  const folder = entities.getByRole('combobox', { name: '资源文件夹', exact: true });
+  await expect(folder.locator('option:checked')).toHaveText('常用角色');
+  const folderId = await folder.inputValue();
+  await folder.selectOption('');
+  await entities
+    .getByRole('combobox', { name: '移动公共资产 Coastal traveller 到文件夹', exact: true })
+    .selectOption(folderId);
+  await folder.selectOption(folderId);
+  await expect(
+    entities.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: 'test-results/public-entities-desktop.png' });
+  await entities.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }).click();
+  await expect(detail).toBeFocused();
+  await expect
+    .poll(() =>
+      detail
+        .locator('img')
+        .evaluateAll((images) =>
+          images.every(
+            (image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0,
+          ),
+        ),
+    )
+    .toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '资源库', exact: true }).click();
+  // Compact mode remounts the library; the selected scope is chosen explicitly.
+  await library.getByRole('button', { name: '公共库', exact: true }).click();
+  await library.getByRole('button', { name: '角色与场景', exact: true }).click();
+  await library.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }).click();
+  await expect(detail.getByText('Short hair', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/public-entities-mobile.png' });
+  await detail.getByRole('button', { name: '返回公共资产', exact: true }).click();
+  await entities.getByRole('button', { name: '移除公共资产 Coastal traveller', exact: true }).click();
+  await entities.getByRole('button', { name: '确认移除公共资产', exact: true }).click();
+  await expect(
+    entities.getByRole('button', { name: '查看公共资产 Coastal traveller', exact: true }),
+  ).toHaveCount(0);
+  const persisted = await call('GET', `/boards/${boardId}`);
+  expect(persisted.layout.nodes[0].data.ref.revisionId).toBe(imported[0].revision.id);
+  const original = await call('GET', `/boards/${sourceBoardId}`);
+  expect(original.layout.nodes[0].data.ref.revisionId).toBe(character.revision.id);
+  const image = await owner.get(
+    `/api/v1/media-versions/${imported[0].revision.media[0].mediaVersionId}/content`,
+  );
+  expect(await image.body()).toEqual(fixtures['image.png'].bytes);
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await page.getByRole('button', { name: '公共库', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: '工作区公共库', exact: true });
+  await manager.getByRole('button', { name: '角色与场景', exact: true }).click();
+  await expect(
+    manager.getByRole('button', { name: '查看公共资产 Quiet workshop', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: 'test-results/public-entities-workspace.png' });
+  let failDetail = true;
+  await page.route('**/public-library/entities/*', async (route) => {
+    if (route.request().method() === 'GET' && failDetail) {
+      failDetail = false;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'TEMPORARY', message: '资产详情暂时不可用' }),
+      });
+    } else await route.continue();
+  });
+  await manager.getByRole('button', { name: '查看公共资产 Quiet workshop', exact: true }).click();
+  const managerDetail = manager.getByRole('region', { name: '公共资产详情', exact: true });
+  await expect(managerDetail.getByRole('alert')).toContainText('资产详情暂时不可用');
+  await managerDetail.getByRole('button', { name: '重试资产详情', exact: true }).click();
+  await expect(managerDetail.getByText('Two doors', { exact: true })).toBeVisible();
+  await expect(managerDetail.getByRole('button', { name: '添加资产到本项目', exact: true })).toHaveCount(0);
+  await managerDetail.focus();
+  await page.keyboard.press('Escape');
+  await expect(
+    manager.getByRole('button', { name: '查看公共资产 Quiet workshop', exact: true }),
+  ).toBeFocused();
+});
+
 test('direct public uploads persist real media, recover lost responses and resume after reload', async ({
   page,
 }) => {

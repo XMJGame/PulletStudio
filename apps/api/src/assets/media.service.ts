@@ -15,6 +15,8 @@ import {
   workspaceMediaImports,
   workspaceNativeImports,
   workspaceMediaUploads,
+  workspaceEntityImports,
+  workspaceEntityImportMedia,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -91,6 +93,19 @@ export class MediaService {
             .where(eq(mediaUploads.mediaVersionId, row.id))
             .get()
         : null;
+    const entitySource =
+      row.origin === 'workspace_library' && !librarySource && !nativeSource
+        ? this.database.db
+            .select({ importId: workspaceEntityImports.id, resourceId: workspaceEntityImports.resourceId })
+            .from(workspaceEntityImportMedia)
+            .innerJoin(
+              workspaceEntityImports,
+              eq(workspaceEntityImports.id, workspaceEntityImportMedia.importId),
+            )
+            .innerJoin(mediaUploads, eq(mediaUploads.id, workspaceEntityImportMedia.uploadId))
+            .where(eq(mediaUploads.mediaVersionId, row.id))
+            .get()
+        : null;
     return {
       id: row.id,
       assetId: row.assetId,
@@ -103,7 +118,9 @@ export class MediaService {
       sha256: row.sha256,
       metadata: JSON.parse(row.metadataJson) as MediaDetails['metadata'],
       origin: row.origin,
-      ...((librarySource ?? nativeSource) ? { librarySource: librarySource ?? nativeSource } : {}),
+      ...((librarySource ?? nativeSource ?? entitySource)
+        ? { librarySource: librarySource ?? nativeSource ?? entitySource }
+        : {}),
       createdAt: row.createdAt,
       contentUrl: `/api/v1/media-versions/${row.id}/content`,
       downloadUrl: `/api/v1/media-versions/${row.id}/content?download=1`,

@@ -11,6 +11,7 @@ import {
   auditEvents,
   shotAssetBindings,
   shots,
+  workspaceEntityImports,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { attributesByKind, EntityBody, entityKinds } from './entity-contract';
@@ -43,11 +44,21 @@ export class EntitiesService {
       )
       .get();
     if (!row) fail(404, 'NOT_FOUND', '资产修订不存在');
+    const librarySource = this.database.db
+      .select({
+        importId: workspaceEntityImports.id,
+        resourceId: workspaceEntityImports.resourceId,
+        importedRevisionId: workspaceEntityImports.revisionId,
+      })
+      .from(workspaceEntityImports)
+      .where(eq(workspaceEntityImports.entityId, entity.id))
+      .get();
     return {
       id: entity.id,
       kind: entity.kind,
       projectId: entity.projectId,
       currentVersion: entity.version,
+      ...(librarySource ? { librarySource } : {}),
       revision: {
         ...entityRevisionSnapshot(this.database, row.id, entity.projectId),
         createdAt: row.createdAt,

@@ -13,6 +13,7 @@ import {
   workspaceMediaFiles,
   workspaceNativeResources as nativeResources,
   workspaceNativeImports,
+  workspaceEntityResources,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { MediaService } from './media.service';
@@ -87,6 +88,11 @@ export class WorkspaceLibraryService {
             .update(nativeResources)
             .set({ folderId: null, version: sql`${nativeResources.version}+1` })
             .where(eq(nativeResources.folderId, row.id))
+            .run();
+          this.database.db
+            .update(workspaceEntityResources)
+            .set({ folderId: null, version: sql`${workspaceEntityResources.version}+1` })
+            .where(eq(workspaceEntityResources.folderId, row.id))
             .run();
           this.database.db.delete(folders).where(eq(folders.id, row.id)).run();
           this.audit(user, workspaceId, 'public.folder.remove', row.id);

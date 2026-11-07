@@ -3,7 +3,14 @@ import { api, type CursorPage } from '../api';
 import { LibraryFolderControls, type LibraryFolder } from './LibraryFolderControls';
 import { StudioIcon } from '../shared/ui/StudioUI';
 import { PublicLibraryUpload } from './PublicLibraryUpload';
-export type PublicLibraryFilters = { folderId: string; query: string; mediaType: string };
+import { PublicEntityLibrary, type PublicEntityFilters } from './PublicEntityLibrary';
+export type PublicLibraryFilters = {
+  folderId: string;
+  query: string;
+  mediaType: string;
+  category?: 'media' | 'entities';
+  entityFilters?: PublicEntityFilters;
+};
 type PublicMedia = {
   id: string;
   version: number;
@@ -27,7 +34,7 @@ export function PublicLibraryPanel({
   onBusyChange,
 }: ({ projectId: string; workspaceId?: never } | { workspaceId: string; projectId?: never }) & {
   editable: boolean;
-  onImported: () => void;
+  onImported: (kind?: 'media' | 'entity') => void;
   filters: PublicLibraryFilters;
   onFiltersChange: (value: PublicLibraryFilters) => void;
   onBusyChange?: (busy: boolean) => void;
@@ -36,9 +43,14 @@ export function PublicLibraryPanel({
     [folderId, setFolderId] = useState(filters.folderId);
   const [query, setQuery] = useState(filters.query),
     [mediaType, setMediaType] = useState(filters.mediaType);
+  const [category, setCategory] = useState(filters.category ?? 'media');
+  const [entityFilters, setEntityFilters] = useState<PublicEntityFilters>(
+    filters.entityFilters ?? { folderId: '', query: '', kind: '' },
+  );
+  const [entityBusy, setEntityBusy] = useState(false);
   useEffect(() => {
-    onFiltersChange({ folderId, query, mediaType });
-  }, [folderId, query, mediaType, onFiltersChange]);
+    onFiltersChange({ folderId, query, mediaType, category, entityFilters });
+  }, [folderId, query, mediaType, category, entityFilters, onFiltersChange]);
   const [value, setValue] = useState<PublicPage>({ items: [], nextCursor: null, canManageFolders: false });
   const [retry, setRetry] = useState(0),
     [loading, setLoading] = useState(true),
@@ -48,9 +60,9 @@ export function PublicLibraryPanel({
   const [folderBusy, setFolderBusy] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   useEffect(() => {
-    onBusyChange?.(busy || folderBusy || uploadBusy);
+    onBusyChange?.(busy || folderBusy || uploadBusy || entityBusy);
     return () => onBusyChange?.(false);
-  }, [busy, folderBusy, uploadBusy, onBusyChange]);
+  }, [busy, folderBusy, uploadBusy, entityBusy, onBusyChange]);
   const [preview, setPreview] = useState<PublicMedia>(),
     [remove, setRemove] = useState<string>();
   const [previewError, setPreviewError] = useState(false);
@@ -202,161 +214,190 @@ export function PublicLibraryPanel({
     );
   return (
     <section aria-label="工作区公共媒体库" className="creative-public-library" aria-busy={busy}>
-      <p className="field-hint">
-        {projectId
-          ? '工作区成员共享。添加到项目后，可用于画布与生成。'
-          : '整理团队共用的参考素材。进入项目后，可从资源库添加并用于创作。'}
-      </p>
-      {(workspaceId ?? value.workspaceId) && (
-        <PublicLibraryUpload
-          workspaceId={(workspaceId ?? value.workspaceId)!}
-          folderId={folderId}
-          onBusyChange={setUploadBusy}
-          onComplete={() => setRetry((count) => count + 1)}
-        />
-      )}
-      <div className="creative-public-controls">
-        <LibraryFolderControls
-          projectId={projectId ?? ''}
-          apiPath={`${base}/library-folders`}
-          editable={value.canManageFolders}
-          folders={folders}
-          onFolders={setFolders}
-          value={folderId}
-          onChange={setFolderId}
-          onBusyChange={setFolderBusy}
-        />
-        <div className="creative-media-filters" role="group" aria-label="公共库媒体类型筛选">
-          {[
-            ['', '全部'],
-            ['image', '图片'],
-            ['video', '视频'],
-            ['audio', '音频'],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              aria-pressed={id === mediaType}
-              onClick={() => {
-                setMediaType(id);
-                setRemove(undefined);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <input
-          aria-label="搜索公共素材"
-          placeholder="搜索公共素材名称"
-          maxLength={80}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+      <div className="creative-public-categories" role="group" aria-label="公共库内容">
+        <button
+          aria-pressed={category === 'media'}
+          disabled={busy || folderBusy || uploadBusy || entityBusy}
+          onClick={() => setCategory('media')}
+        >
+          媒体素材
+        </button>
+        <button
+          aria-pressed={category === 'entities'}
+          disabled={busy || folderBusy || uploadBusy || entityBusy}
+          onClick={() => setCategory('entities')}
+        >
+          角色与场景
+        </button>
       </div>
-      {error && (
-        <p role="alert">
-          {error}
-          <button onClick={() => setRetry((count) => count + 1)}>重新读取公共库</button>
-        </p>
+      {category === 'entities' && (
+        <PublicEntityLibrary
+          base={base}
+          projectId={projectId}
+          editable={editable}
+          filters={entityFilters}
+          onFiltersChange={setEntityFilters}
+          onBusyChange={setEntityBusy}
+          onImported={() => onImported('entity')}
+        />
       )}
-      {operationError && (
-        <p role="alert">
-          {operationError}
-          <button disabled={busy} onClick={() => setRetry((count) => count + 1)}>
-            刷新公共素材
-          </button>
-        </p>
-      )}
-      {loading && <p role="status">正在读取公共素材…</p>}
-      {busy && <p role="status">正在处理公共素材，请稍候…</p>}
-      {!loading && !error && !value.items.length && (
+      <div hidden={category !== 'media'}>
         <p className="field-hint">
-          {query || folderId || mediaType
-            ? '没有匹配的公共素材。'
-            : projectId
-              ? '公共库还没有素材。可以从本项目收录可复用的媒体。'
-              : '公共库还没有素材。可先在项目中收录可复用的图片、视频或音频。'}
+          {projectId
+            ? '工作区成员共享。添加到项目后，可用于画布与生成。'
+            : '整理团队共用的参考素材。进入项目后，可从资源库添加并用于创作。'}
         </p>
-      )}
-      <div className="creative-source-list">
-        {value.items.map((row) => (
-          <div className="creative-source-item creative-public-item" key={row.id}>
-            <button
-              className="creative-source-card"
-              disabled={folderBusy || uploadBusy}
-              id={`${previewId}-${row.id}`}
-              aria-label={`预览公共素材 ${row.title}`}
-              onClick={() => {
-                setPreviewError(false);
-                setOperationError('');
-                setPreview(row);
-              }}
-            >
-              <div className="creative-source-thumbnail">
-                {(row.mediaType === 'image' || row.posterUrl) && (
-                  <img alt="" loading="lazy" src={row.posterUrl ?? row.contentUrl} />
-                )}
-                {row.mediaType === 'audio' && <StudioIcon name="note" size={28} />}
-                <span>{{ image: '图片', video: '视频', audio: '音频' }[row.mediaType]}</span>
-              </div>
-              <strong>{row.title}</strong>
-            </button>
-            {projectId && editable && (
+        {(workspaceId ?? value.workspaceId) && (
+          <PublicLibraryUpload
+            workspaceId={(workspaceId ?? value.workspaceId)!}
+            folderId={folderId}
+            onBusyChange={setUploadBusy}
+            onComplete={() => setRetry((count) => count + 1)}
+          />
+        )}
+        <div className="creative-public-controls">
+          <LibraryFolderControls
+            projectId={projectId ?? ''}
+            apiPath={`${base}/library-folders`}
+            editable={value.canManageFolders}
+            folders={folders}
+            onFolders={setFolders}
+            value={folderId}
+            onChange={setFolderId}
+            onBusyChange={setFolderBusy}
+          />
+          <div className="creative-media-filters" role="group" aria-label="公共库媒体类型筛选">
+            {[
+              ['', '全部'],
+              ['image', '图片'],
+              ['video', '视频'],
+              ['audio', '音频'],
+            ].map(([id, label]) => (
               <button
-                className="creative-public-action"
-                disabled={busy || row.inProject}
-                aria-label={`添加公共素材 ${row.title} 到本项目`}
-                onClick={() => void change(row, 'import')}
+                key={id}
+                aria-pressed={id === mediaType}
+                onClick={() => {
+                  setMediaType(id);
+                  setRemove(undefined);
+                }}
               >
-                {row.inProject ? '已在本项目' : '添加到项目'}
+                {label}
               </button>
-            )}
-            {row.canManage && (
-              <>
-                {folders.length > 0 && (
-                  <select
-                    aria-label={`移动公共素材 ${row.title} 到文件夹`}
-                    disabled={busy}
-                    value={row.folderId ?? ''}
-                    onChange={(event) => void change(row, 'move', event.target.value)}
-                  >
-                    <option value="">未分类</option>
-                    {folders.map((folder) => (
-                      <option value={folder.id} key={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
+            ))}
+          </div>
+          <input
+            aria-label="搜索公共素材"
+            placeholder="搜索公共素材名称"
+            maxLength={80}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        {error && (
+          <p role="alert">
+            {error}
+            <button onClick={() => setRetry((count) => count + 1)}>重新读取公共库</button>
+          </p>
+        )}
+        {operationError && (
+          <p role="alert">
+            {operationError}
+            <button disabled={busy} onClick={() => setRetry((count) => count + 1)}>
+              刷新公共素材
+            </button>
+          </p>
+        )}
+        {loading && <p role="status">正在读取公共素材…</p>}
+        {busy && <p role="status">正在处理公共素材，请稍候…</p>}
+        {!loading && !error && !value.items.length && (
+          <p className="field-hint">
+            {query || folderId || mediaType
+              ? '没有匹配的公共素材。'
+              : projectId
+                ? '公共库还没有素材。可以从本项目收录可复用的媒体。'
+                : '公共库还没有素材。可先在项目中收录可复用的图片、视频或音频。'}
+          </p>
+        )}
+        <div className="creative-source-list">
+          {value.items.map((row) => (
+            <div className="creative-source-item creative-public-item" key={row.id}>
+              <button
+                className="creative-source-card"
+                disabled={folderBusy || uploadBusy}
+                id={`${previewId}-${row.id}`}
+                aria-label={`预览公共素材 ${row.title}`}
+                onClick={() => {
+                  setPreviewError(false);
+                  setOperationError('');
+                  setPreview(row);
+                }}
+              >
+                <div className="creative-source-thumbnail">
+                  {(row.mediaType === 'image' || row.posterUrl) && (
+                    <img alt="" loading="lazy" src={row.posterUrl ?? row.contentUrl} />
+                  )}
+                  {row.mediaType === 'audio' && <StudioIcon name="note" size={28} />}
+                  <span>{{ image: '图片', video: '视频', audio: '音频' }[row.mediaType]}</span>
+                </div>
+                <strong>{row.title}</strong>
+              </button>
+              {projectId && editable && (
                 <button
                   className="creative-public-action"
-                  disabled={busy}
-                  aria-label={`移除公共素材 ${row.title}`}
-                  onClick={() => setRemove(row.id)}
+                  disabled={busy || row.inProject}
+                  aria-label={`添加公共素材 ${row.title} 到本项目`}
+                  onClick={() => void change(row, 'import')}
                 >
-                  移出公共库
+                  {row.inProject ? '已在本项目' : '添加到项目'}
                 </button>
-                {remove === row.id && (
-                  <div className="creative-public-remove">
-                    <p className="field-hint">已添加到项目的版本继续保留。</p>
-                    <button disabled={busy} onClick={() => void change(row, 'remove')}>
-                      确认移除公共素材
-                    </button>
-                    <button disabled={busy} onClick={() => setRemove(undefined)}>
-                      取消移除
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ))}
+              )}
+              {row.canManage && (
+                <>
+                  {folders.length > 0 && (
+                    <select
+                      aria-label={`移动公共素材 ${row.title} 到文件夹`}
+                      disabled={busy}
+                      value={row.folderId ?? ''}
+                      onChange={(event) => void change(row, 'move', event.target.value)}
+                    >
+                      <option value="">未分类</option>
+                      {folders.map((folder) => (
+                        <option value={folder.id} key={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className="creative-public-action"
+                    disabled={busy}
+                    aria-label={`移除公共素材 ${row.title}`}
+                    onClick={() => setRemove(row.id)}
+                  >
+                    移出公共库
+                  </button>
+                  {remove === row.id && (
+                    <div className="creative-public-remove">
+                      <p className="field-hint">已添加到项目的版本继续保留。</p>
+                      <button disabled={busy} onClick={() => void change(row, 'remove')}>
+                        确认移除公共素材
+                      </button>
+                      <button disabled={busy} onClick={() => setRemove(undefined)}>
+                        取消移除
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        {value.nextCursor && (
+          <button disabled={loading} onClick={() => void more()}>
+            更多公共素材
+          </button>
+        )}
       </div>
-      {value.nextCursor && (
-        <button disabled={loading} onClick={() => void more()}>
-          更多公共素材
-        </button>
-      )}
     </section>
   );
 }
