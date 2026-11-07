@@ -9,6 +9,7 @@ import {
   fixtureMediaSchema,
   fixtureReferenceImages,
   fixtureRequiredMedia,
+  fixtureI2V,
   fixtureOptionalMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
@@ -130,7 +131,11 @@ test('configures free-quota API text presets without returning credentials', asy
   await panel.getByLabel('生成引擎').selectOption('api');
   await expect(panel).toContainText('ModelScope · Qwen Image 2512');
   await expect(panel.getByLabel('生成提示词')).toHaveValue('Keep my prompt when switching engines');
-  await expect(panel.getByLabel('节点工作流')).toHaveCount(0);
+  await expect(panel.getByLabel('节点工作流')).not.toHaveValue('');
+  await expect(panel.getByRole('button', { name: '生成图片', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await panel.getByLabel('生成引擎').selectOption('comfyui');
   await expect(panel.getByLabel('节点工作流')).toBeVisible();
   expect((await api('GET', `/projects/${value.id}/generation-jobs`)).items).toHaveLength(0);
@@ -563,6 +568,144 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await page.screenshot({ path: 'test-results/workflow-center-dark.png', animations: 'disabled' });
 });
 
+test('free generation filters output types and keeps API jobs outside ComfyUI routing', async ({ page }) => {
+  const mp3 = await readFile(resolve('test-results/workflow-fixtures/sound.mp3'));
+  const audioRemote = await startComfyMock({ 'sound.mp3': mp3 });
+  let pooledConnection: string | undefined;
+  try {
+    const value = await project('Free type selection');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Type picker instance',
+      baseUrl: audioRemote.baseUrl,
+      trustedPrivate: true,
+    });
+    const image = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureCreativeFields(connection.id),
+    );
+    const motion = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureI2V(connection.id),
+    );
+    const audio = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureOptionalMedia(connection.id, true),
+    );
+    await api('PATCH', '/generation-connections/' + connection.id + '/pool', {
+      expectedPoolVersion: 1,
+      poolEnabled: true,
+      maxRunning: 1,
+      maxPending: 2,
+    });
+    pooledConnection = connection.id;
+    for (const wf of [image, audio])
+      await api('POST', '/generation-workflows/' + wf.id + '/instance-checks/' + connection.id, {});
+    await api('POST', '/workspaces/' + setup.workspace.id + '/modelscope-generation', {
+      token: 'isolated-b5-workflow-api-key',
+    });
+    await open(page, value);
+    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
+    const picker = dialog.getByRole('group', { name: '生成输出类型' });
+    const select = dialog.getByLabel('生成工作流', { exact: true });
+    await expect(select.locator('option')).toHaveCount(4);
+    await select.selectOption(image.id);
+    await dialog.getByLabel('创作参数：补充描述').fill('Discard this model-specific override');
+    await dialog.getByLabel('正向提示词').fill('Preserve my musical direction');
+    await dialog.getByText('负向提示词与来源（可选）', { exact: true }).click();
+    await dialog.getByLabel('负向提示词', { exact: true }).fill('Noise');
+    await dialog.getByLabel('提示词来源', { exact: true }).fill('Composer notes');
+    await picker.getByRole('button', { name: '生成视频', exact: true }).click();
+    await expect(select).toHaveValue('');
+    await expect(select.locator('option')).toHaveCount(2);
+    await select.selectOption(motion.id);
+    await expect(dialog.getByLabel('首帧图片')).toHaveValue('');
+    await picker.getByRole('button', { name: '生成音频', exact: true }).click();
+    await select.selectOption(audio.id);
+    await expect(dialog.getByLabel('首帧图片')).toHaveCount(0);
+    await expect(dialog.getByLabel('创作参数：补充描述')).toHaveCount(0);
+    await expect(dialog.getByLabel('正向提示词')).toHaveValue('Preserve my musical direction');
+    await expect(dialog.getByText('1 个匹配实例当前可预留')).toBeVisible();
+    let routing = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/routing-options')) routing++;
+    });
+    await dialog.getByLabel('生成引擎').selectOption('api');
+    await expect(dialog.getByLabel('生成引擎')).toHaveValue('api');
+    const model = await select.inputValue();
+    expect(model).toBeTruthy();
+    await expect(dialog.getByRole('region', { name: '实例调度' })).toHaveCount(0);
+    await expect(dialog.getByLabel('负向提示词')).toHaveValue('Noise');
+    const submit = dialog.getByRole('button', { name: '加入生成队列', exact: true });
+    await expect(submit).toBeDisabled();
+    await expect(dialog.getByText(/负向词已保留/)).toBeVisible();
+    await dialog.getByLabel('负向提示词').fill('');
+    let payload: any;
+    await page.route('**/projects/' + value.id + '/generation-jobs', (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      payload = route.request().postDataJSON();
+      return route.fulfill({
+        status: 503,
+        json: { code: 'FIXTURE_API_PAUSED', message: '测试暂停外部提交，草稿保留' },
+      });
+    });
+    await submit.click();
+    await expect(dialog.getByRole('alert')).toContainText('草稿保留');
+    expect(payload.workflowId).toBe(model);
+    expect(payload.routing).toBeUndefined();
+    expect(payload.fieldValues).toEqual({});
+    expect(payload.imageVersionId).toBeUndefined();
+    expect(payload.referenceMediaVersions).toBeUndefined();
+    expect(payload.source).toBe('Composer notes');
+    expect(routing).toBe(0);
+    await expect(dialog.getByLabel('正向提示词')).toHaveValue('Preserve my musical direction');
+    await picker.getByRole('button', { name: '生成音频', exact: true }).click();
+    await expect(select).toHaveValue('');
+    await expect(dialog.getByText(/当前 API 仅接入/)).toBeVisible();
+    await expect(submit).toBeDisabled();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await picker.scrollIntoViewIfNeeded();
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b5-free-types-mobile.png', animations: 'disabled' });
+    await page.unroute('**/projects/' + value.id + '/generation-jobs');
+    await dialog.getByLabel('生成引擎').selectOption('comfyui');
+    await expect(picker.getByRole('button', { name: '生成音频', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await select.selectOption(audio.id);
+    await dialog.getByLabel('负向提示词').fill('Noise');
+    await submit.click();
+    await expect(dialog.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+    const jobs = (await api('GET', '/projects/' + value.id + '/generation-jobs')).items;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].result.mediaType).toBe('audio');
+    expect(jobs[0].prompt).toMatchObject({
+      positivePrompt: 'Preserve my musical direction',
+      negativePrompt: 'Noise',
+      source: 'Composer notes',
+    });
+    expect(audioRemote.mock.submissions).toHaveLength(1);
+    expect(audioRemote.mock.uploads).toHaveLength(0);
+  } finally {
+    try {
+      if (pooledConnection)
+        await api('PATCH', '/generation-connections/' + pooledConnection + '/pool', {
+          expectedPoolVersion: 2,
+          poolEnabled: false,
+          maxRunning: 1,
+          maxPending: 2,
+        });
+    } finally {
+      await audioRemote.close();
+    }
+  }
+});
+
 test('maps optional video audio controls and previews audio trial evidence', async ({ page }) => {
   const mp3 = await readFile(resolve('test-results/workflow-fixtures/sound.mp3'));
   const audioRemote = await startComfyMock({ 'sound.mp3': mp3 });
@@ -619,6 +762,7 @@ test('maps optional video audio controls and previews audio trial evidence', asy
     const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
     await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
     const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+    await expect(trial.getByRole('group', { name: '生成输出类型' })).toHaveCount(0);
     await trial.getByLabel('正向提示词', { exact: true }).fill('Soft instrumental music');
     await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
     await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });

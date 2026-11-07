@@ -2382,6 +2382,8 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
       await readonly.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
       const view = readonly.getByRole('region', { name: '生成节点设置', exact: true });
       await expect(view.getByLabel('节点工作流')).toBeDisabled();
+      for (const button of await view.getByRole('group', { name: '生成输出类型' }).getByRole('button').all())
+        await expect(button).toBeDisabled();
       await expect(view.getByRole('button', { name: '执行生成节点', exact: true })).toHaveCount(0);
       await expect(view.getByRole('button', { name: '加入画布结果', exact: true })).toHaveCount(0);
       await call('DELETE', `/projects/${value.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
@@ -2446,6 +2448,143 @@ test('canvas binds typed image video and audio inputs in one generation', async 
     ).toEqual(['image', 'video', 'audio']);
     await page.screenshot({ path: 'test-results/board-reference-media.png', animations: 'disabled' });
     await expect(panel.getByRole('button', { name: '存入素材库', exact: true })).toBeVisible();
+  } finally {
+    await remote.close();
+  }
+});
+
+test('generation type filters preserve pinned revisions and clear incompatible canvas media', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  try {
+    const value = await project('Generation types');
+    const names = ['image.png', 'clip.mp4', 'sound.wav'];
+    const media = [];
+    for (const name of names) media.push(await uploadMedia(value.id, name));
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Type picker fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const image = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureWorkflow(connection.id),
+    );
+    const motion = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureI2V(connection.id),
+    );
+    const audioDefinition = fixtureOptionalMedia(connection.id, true);
+    const audio = await call('POST', '/projects/' + value.id + '/generation-workflows', audioDefinition);
+    await open(page, value);
+    const id = await createBoard(page, 'Type filters');
+    for (const name of names) await page.getByRole('button', { name: '添加 ' + name, exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    const picker = panel.getByRole('group', { name: '生成输出类型' });
+    const select = panel.getByLabel('节点工作流', { exact: true });
+    await expect(picker.getByRole('button', { name: '全部生成类型', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(select.locator('option')).toHaveCount(4);
+    await select.selectOption(motion.id);
+    await panel.getByLabel('生成提示词').fill('Keep this exact prompt through type changes');
+    await save(page);
+    let board = await call('GET', '/boards/' + id);
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    const sourceNodes = media.map((m: any) => board.layout.nodes.find((n: any) => n.data.ref?.id === m.id));
+    await panel.getByLabel('节点首帧输入').selectOption(sourceNodes[0].id);
+    await save(page);
+    await call('POST', '/workflow-catalogs/' + motion.familyId + '/revisions', {
+      expectedVersion: 1,
+      summary: 'New still workflow',
+      definition: { ...fixtureWorkflow(connection.id), name: 'Latest still version' },
+    });
+    await page.reload();
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await expect(select).toHaveValue(motion.id);
+    await expect(picker.getByRole('button', { name: '生成视频', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(select.locator('option:checked')).toContainText('固定 v1');
+    await expect(panel.getByLabel('节点首帧输入')).toHaveValue(sourceNodes[0].id);
+    await picker.getByRole('button', { name: '生成音频', exact: true }).click();
+    await expect(select).toHaveValue('');
+    await expect(select.locator('option')).toHaveCount(2);
+    await expect(panel.getByLabel('节点首帧输入')).toHaveCount(0);
+    await expect(panel.getByLabel('生成提示词')).toHaveValue('Keep this exact prompt through type changes');
+    await select.selectOption(audio.id);
+    await panel
+      .getByLabel('节点参考视频 1：Motion reference', { exact: true })
+      .selectOption(sourceNodes[1].id);
+    await panel
+      .getByLabel('节点参考音频 2：Sound reference', { exact: true })
+      .selectOption(sourceNodes[2].id);
+    await save(page);
+    board = await call('GET', '/boards/' + id);
+    expect(board.layout.edges.filter((e: any) => e.targetPort?.startsWith('reference:'))).toHaveLength(2);
+    const imageButton = picker.getByRole('button', { name: '生成图片', exact: true });
+    await imageButton.focus();
+    await page.keyboard.press('Space');
+    await expect(select).toHaveValue('');
+    await select.selectOption(image.id);
+    await save(page);
+    board = await call('GET', '/boards/' + id);
+    expect(board.layout.edges.filter((e: any) => e.target === gen.id).map((e: any) => e.targetPort)).toEqual([
+      'prompt',
+    ]);
+    expect(board.layout.nodes.filter((n: any) => n.type === 'reference')).toHaveLength(3);
+    await page.route('**/projects/' + value.id + '/modelscope-generation', (route) =>
+      route.fulfill({
+        status: 503,
+        json: { code: 'FIXTURE_CONFIG_UNAVAILABLE', message: 'API 配置暂时不可用' },
+      }),
+    );
+    await panel.getByLabel('生成引擎').selectOption('api');
+    await expect(panel.getByRole('alert')).toContainText('API 配置暂时不可用');
+    await expect(select).toHaveValue(image.id);
+    await expect(panel.getByLabel('生成引擎')).toHaveValue('comfyui');
+    await page.unroute('**/projects/' + value.id + '/modelscope-generation');
+    await call('POST', '/workspaces/' + setup.workspace.id + '/modelscope-generation', {
+      token: 'isolated-b5-board-api-key',
+    });
+    let routingRequests = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/routing-options')) routingRequests++;
+    });
+    await panel.getByLabel('生成引擎').selectOption('api');
+    await expect(panel.getByLabel('生成引擎')).toHaveValue('api');
+    const apiWorkflow = await select.inputValue();
+    expect(apiWorkflow).toBeTruthy();
+    await picker.getByRole('button', { name: '生成视频', exact: true }).click();
+    await expect(select).toHaveValue('');
+    await expect(panel.getByText(/当前 API 仅接入/)).toBeVisible();
+    await expect(panel.getByRole('button', { name: /^(保存并生成|执行生成节点)$/ })).toBeDisabled();
+    await picker.getByRole('button', { name: '生成图片', exact: true }).click();
+    await select.selectOption(apiWorkflow);
+    await save(page);
+    await page.reload();
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await expect(panel.getByLabel('生成引擎')).toHaveValue('api');
+    await expect(select).toHaveValue(apiWorkflow);
+    await expect(panel.getByLabel('生成提示词')).toHaveValue('Keep this exact prompt through type changes');
+    expect(routingRequests).toBe(0);
+    await panel.getByLabel('生成引擎').selectOption('comfyui');
+    await select.selectOption(image.id);
+    await page.screenshot({ path: 'test-results/b5-canvas-types-desktop.png', animations: 'disabled' });
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await picker.scrollIntoViewIfNeeded();
+    await expect(picker).toBeInViewport();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b5-canvas-types-mobile-dark.png', animations: 'disabled' });
+    expect((await call('GET', '/projects/' + value.id + '/generation-jobs')).items).toHaveLength(0);
+    expect(remote.mock.submissions).toHaveLength(0);
   } finally {
     await remote.close();
   }

@@ -1,6 +1,6 @@
 # Pullet Studio 文档导航
 
-更新：2026-11-07。最高产品基线为[最终产品与工程执行合同](PRODUCT-EXECUTION-CONTRACT.md)，冲突处覆盖旧规划。现有产品 V2、资产方案和有效 ADR 保留兼容背景。先读[实时状态](IMPLEMENTATION-STATUS.md)中的 P0 正式 UI 收敛，再进入业务工作包；[DX OS 参考取舍](architecture/DXOS-REFERENCE-REVIEW.md)不引入第三方产物或替换技术栈。
+更新：2026-11-07。最高产品基线为[最终产品与工程执行合同](PRODUCT-EXECUTION-CONTRACT.md)，冲突处覆盖旧规划。现有产品 V2、资产方案和有效 ADR 保留兼容背景。先读[实时状态](IMPLEMENTATION-STATUS.md)中的当前阶段，再进入业务工作包；[DX OS 参考取舍](architecture/DXOS-REFERENCE-REVIEW.md)不引入第三方产物或替换技术栈。
 
 ## 先读哪几份
 
@@ -20,7 +20,7 @@
 
 | 领域 | 使用/API与限制 | 开工合同及代码入口 |
 |---|---|---|
-| 当前自由创作 | [无镜头生成与候选入库](LIGHT-CREATION.md) | [L1 合同](modules/LIGHT-CREATION-L1.md)、[验收](history/LIGHT-CREATION-L1-2026-11-06.md)；共用Generation/Storage/RBAC |
+| 当前自由创作 | [无镜头生成与候选入库](LIGHT-CREATION.md) | [L1 合同](modules/LIGHT-CREATION-L1.md)、[B5 引擎与类型](modules/GENERATION-TYPE-SELECTOR-B5.md)、[验收](history/LIGHT-CREATION-L1-2026-11-06.md)；共用Generation/Storage/RBAC |
 | 项目资产/多画布的当前差异与下一包 | [依赖路线](architecture/ASSET-CANVAS-IMPLEMENTATION.md) | 提示词库与单节点执行已接通，接下来做统一授权和多模态 |
 | 项目提示词库 | [保存、修订与复用](PROMPT-LIBRARY.md) | [L2-B合同](modules/PROMPT-LIBRARY-L2B.md)、[验收](history/PROMPT-LIBRARY-L2B-2026-11-06.md)；普通文本，共用Generation/Board |
 | 媒体和语义资产 | [Local媒体/恢复](LOCAL-MEDIA.md)、[语义资产](SEMANTIC-ASSETS.md) | [媒体合同](modules/LOCAL-MEDIA-IMPLEMENTATION.md)、[资产合同](modules/SEMANTIC-ASSETS-IMPLEMENTATION.md)、[资产审批合同](modules/ASSET-APPROVAL-IMPLEMENTATION.md) |

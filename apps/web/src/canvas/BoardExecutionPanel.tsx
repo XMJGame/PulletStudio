@@ -16,11 +16,17 @@ import {
   capabilityLabels,
   referenceMediaLabels,
   type Workflow,
+  workflowEngine,
+  workflowOutputType,
+  matchesGenerationType,
+  type GenerationEngine,
+  type GenerationOutputFilter,
 } from '../workflows/workflow-types';
 import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import { PromptLibraryPicker } from '../prompts/PromptLibraryPicker';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import '../features/canvas/studio-live-composer.css';
+import { GenerationTypePicker } from '../workflows/GenerationTypePicker';
 
 export function BoardExecutionPanel({
   board,
@@ -54,7 +60,7 @@ export function BoardExecutionPanel({
   onPromptLibrary: (draft?: PromptDraft) => void;
   onApplyPrompt: (revision: LibraryRevision) => void;
   onSavedToLibrary: () => void;
-  update: (node: BoardNode) => void;
+  update: (node: BoardNode, clearFirstFrame?: boolean) => void;
   bind: (port: BoardInputPort, source: string) => void;
   onResult: (job: GenerationJob) => void;
   onOpenTasks: () => void;
@@ -67,6 +73,18 @@ export function BoardExecutionPanel({
     [error, setError] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
   const [pinned, setPinned] = useState<Workflow>();
+  const [choice, setChoice] = useState<{
+    workflowId?: string;
+    engine: GenerationEngine;
+    output: GenerationOutputFilter;
+  }>();
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto'),
     [instance, setInstance] = useState(''),
     [instances, setInstances] = useState<{ id: string; name: string; available: boolean }[]>([]);
@@ -77,9 +95,60 @@ export function BoardExecutionPanel({
     settings = node.data.generation ?? {},
     listed = config?.workflows.find((w) => w.id === settings.workflowId),
     workflow = listed ?? (pinned?.id === settings.workflowId ? pinned : undefined),
+    selection = choice?.workflowId === settings.workflowId ? choice : undefined,
+    engine = selection?.engine ?? workflowEngine(workflow),
+    output = selection?.output ?? workflowOutputType(workflow) ?? 'all',
     apiImage = workflow?.provider === 'modelscope',
-    poolConfigured = !!config?.poolConfigured && !apiImage,
+    poolConfigured = !!config?.poolConfigured && engine !== 'api',
     path = `/boards/${board.id}/nodes/${node.id}/generation-jobs`;
+  const workflows = [
+    ...(config?.workflows ?? []),
+    ...(pinned && !config?.workflows.some((w) => w.id === pinned.id) ? [pinned] : []),
+  ];
+  const visibleWorkflows = workflows.filter((w) => !w.archived && matchesGenerationType(w, engine, output));
+  function selectWorkflow(id: string) {
+    const next = workflows.find((w) => w.id === id);
+    setChoice({
+      workflowId: id || undefined,
+      engine: next ? workflowEngine(next) : engine,
+      output: workflowOutputType(next) ?? output,
+    });
+    update(
+      { ...node, data: { ...node.data, generation: id ? { workflowId: id } : {} } },
+      next?.capability !== 'video.image_to_video',
+    );
+  }
+  function selectOutput(next: GenerationOutputFilter) {
+    const clear = workflow
+      ? !matchesGenerationType(workflow, engine, next)
+      : Boolean(firstFrame && next !== 'all' && next !== 'video');
+    setChoice({ workflowId: clear ? undefined : settings.workflowId, engine, output: next });
+    if (clear) update({ ...node, data: { ...node.data, generation: {} } }, true);
+  }
+  async function selectEngine(next: GenerationEngine) {
+    if (next === 'comfyui') {
+      setChoice({ engine: next, output });
+      update({ ...node, data: { ...node.data, generation: {} } }, true);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { id } = await api<{ id: string }>(`/projects/${board.projectId}/modelscope-generation`, 'POST');
+      const value = await api<GenerationConfig>(
+        `/projects/${board.projectId}/generation-config?workflowId=${id}`,
+      );
+      if (!alive.current) return;
+      if (!value.pinnedWorkflow) throw new Error('API 模型配置暂不可用，请重试。');
+      setPinned(value.pinnedWorkflow);
+      setChoice({ workflowId: id, engine: next, output: 'image' });
+      update({ ...node, data: { ...node.data, generation: { workflowId: id } } }, true);
+    } catch (reason) {
+      if (alive.current) report(reason);
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
   function report(reason: unknown) {
     setError(reason instanceof Error ? reason.message : '无法读取生成任务');
     if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
@@ -260,68 +329,37 @@ export function BoardExecutionPanel({
           </p>
         )}
         <fieldset className="plain-fieldset" disabled={!editable || busy || !config?.canEdit}>
+          <GenerationTypePicker
+            engine={engine}
+            output={output}
+            onEngine={(next) => void selectEngine(next)}
+            onOutput={selectOutput}
+            empty={Boolean(config && !visibleWorkflows.length && !workflow)}
+          />
           <label>
-            生成引擎
+            {engine === 'api' ? 'API 模型' : '节点工作流'}
             <select
-              value={apiImage ? 'api' : 'comfyui'}
-              onChange={async (event) => {
-                if (event.target.value === 'comfyui') {
-                  update({ ...node, data: { generation: {} } });
-                  return;
-                }
-                setBusy(true);
-                setError('');
-                try {
-                  const { id } = await api<{ id: string }>(
-                    `/projects/${board.projectId}/modelscope-generation`,
-                    'POST',
-                  );
-                  const value = await api<GenerationConfig>(
-                    `/projects/${board.projectId}/generation-config?workflowId=${id}`,
-                  );
-                  setPinned(value.pinnedWorkflow);
-                  update({ ...node, data: { generation: { workflowId: id } } });
-                } catch (reason) {
-                  report(reason);
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              aria-label="节点工作流"
+              value={settings.workflowId ?? ''}
+              onChange={(e) => selectWorkflow(e.target.value)}
             >
-              <option value="comfyui">ComfyUI</option>
-              <option value="api">API · ModelScope</option>
+              <option value="">{engine === 'api' ? '选择 API 模型' : '选择已保存工作流'}</option>
+              {settings.workflowId && !visibleWorkflows.some((w) => w.id === settings.workflowId) && (
+                <option value={settings.workflowId}>
+                  {workflow && !workflow.archived
+                    ? `${workflow.name} · 固定 v${workflow.revision ?? 1}`
+                    : '固定工作流不可用'}
+                </option>
+              )}
+              {visibleWorkflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} · {config?.workflows.some((item) => item.id === w.id) ? 'v' : '固定 v'}
+                  {w.revision ?? 1} · {capabilityLabels[w.capability]}
+                  {!w.enabled ? ' · 连接停用' : ''}
+                </option>
+              ))}
             </select>
           </label>
-          {apiImage ? (
-            <p className="field-hint">图片 · {workflow.name}</p>
-          ) : (
-            <label>
-              节点工作流
-              <select
-                aria-label="节点工作流"
-                value={settings.workflowId ?? ''}
-                onChange={(e) =>
-                  update({ ...node, data: { generation: { workflowId: e.target.value || undefined } } })
-                }
-              >
-                <option value="">选择已保存工作流</option>
-                {settings.workflowId && (!listed || listed.archived) && (
-                  <option value={settings.workflowId}>
-                    {workflow && !workflow.archived
-                      ? `${workflow.name} · 固定 v${workflow.revision ?? 1}`
-                      : '固定工作流不可用'}
-                  </option>
-                )}
-                {config?.workflows
-                  .filter((w) => !w.archived)
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} · v{w.revision ?? 1} · {capabilityLabels[w.capability]}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
           {(needsFrame || firstFrame) && (
             <div className="v2-live-frame-row">
               {frame?.media?.mediaType === 'image' && (

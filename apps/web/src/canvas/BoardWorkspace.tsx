@@ -319,7 +319,7 @@ export default function BoardWorkspace({
       setBusy(false);
     }
   }
-  function update(node: BoardNode) {
+  function update(node: BoardNode, clearFirstFrame = false) {
     if (editable)
       setLayout((value) => {
         if (!value) return value;
@@ -328,11 +328,15 @@ export default function BoardWorkspace({
         return {
           ...value,
           nodes: value.nodes.map((item) => (item.id === node.id ? node : item)),
-          edges: changedWorkflow
-            ? value.edges.filter(
-                (edge) => edge.target !== node.id || !edge.targetPort?.startsWith('reference:'),
-              )
-            : value.edges,
+          edges: value.edges.filter(
+            (edge) =>
+              edge.target !== node.id ||
+              edge.kind !== 'input_binding' ||
+              !(
+                (changedWorkflow && edge.targetPort?.startsWith('reference:')) ||
+                (clearFirstFrame && edge.targetPort === 'first_frame')
+              ),
+          ),
         };
       });
   }

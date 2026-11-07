@@ -3,7 +3,15 @@ import { api, CursorPage } from '../api';
 import { Dialog } from './Dialog';
 import { ParameterValues, parameterLabels, describeParameters } from './GenerationParameters';
 import type { GenerationConfig as Config, Workflow } from '../workflows/workflow-types';
-import { referenceMediaLabels } from '../workflows/workflow-types';
+import {
+  referenceMediaLabels,
+  workflowEngine,
+  workflowOutputType,
+  matchesGenerationType,
+  type GenerationEngine,
+  type GenerationOutputFilter,
+} from '../workflows/workflow-types';
+import { GenerationTypePicker } from '../workflows/GenerationTypePicker';
 import type { WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
 import { CreativeParameters, creativeValues } from '../workflows/CreativeParameters';
 import type { MediaVersion } from '../media-types';
@@ -156,6 +164,8 @@ export function GenerationDialog({
   const expandedHistory = useRef(false);
   const [workflowId, setWorkflowId] = useState(testWorkflow?.id ?? '');
   const [pinnedWorkflow, setPinnedWorkflow] = useState<Workflow>();
+  const [engine, setEngine] = useState<GenerationEngine>('comfyui');
+  const [output, setOutput] = useState<GenerationOutputFilter>('all');
   const [parameterOverrides, setParameterOverrides] = useState<Record<string, string>>({});
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, string | boolean>>({});
   const [images, setImages] = useState<CursorPage<ReferenceOption>>();
@@ -178,7 +188,7 @@ export function GenerationDialog({
     ? `/generation-workflows/${testWorkflow.id}/test-jobs`
     : `/projects/${creation.projectId}/generation-jobs${creation.boardId ? `?boardId=${creation.boardId}` : ''}`;
   const projectPath = `/projects/${creation.projectId}`;
-  const poolRouting = Boolean(config?.poolConfigured && !testWorkflow);
+  const poolRouting = Boolean(config?.poolConfigured && !testWorkflow && engine !== 'api');
   const availableWorkflows = config?.workflows ?? [];
   const selectedWorkflow =
     testWorkflow ??
@@ -192,6 +202,7 @@ export function GenerationDialog({
       : []),
   ];
   const needsImage = selectedWorkflow?.capability === 'video.image_to_video';
+  const unsupportedNegative = selectedWorkflow?.provider === 'modelscope' && Boolean(negativePrompt.trim());
   const referenceSlots =
     selectedWorkflow?.executable === false ? [] : (selectedWorkflow?.mediaSchema?.inputs ?? []);
   const referenceTypes = [...new Set(referenceSlots.map((slot) => slot.mediaType))];
@@ -200,7 +211,51 @@ export function GenerationDialog({
   const missingReference = referenceSlots.some(
     (slot) => slot.required && !selectedReferenceVersions[slot.id],
   );
-  const selectableWorkflows = workflows.filter((item) => (poolRouting ? !item.archived : item.enabled));
+  const selectableWorkflows = workflows.filter(
+    (item) => !item.archived && (poolRouting || item.enabled) && matchesGenerationType(item, engine, output),
+  );
+  const unavailableWorkflow = Boolean(
+    selectedWorkflow && (selectedWorkflow.archived || (!selectedWorkflow.enabled && !poolRouting)),
+  );
+  function chooseWorkflow(id: string, known?: Workflow) {
+    const next = known ?? workflows.find((item) => item.id === id);
+    setWorkflowId(id);
+    if (next) {
+      setPinnedWorkflow(next);
+      setEngine(workflowEngine(next));
+      setOutput(workflowOutputType(next) ?? 'all');
+    }
+    setParameterOverrides({});
+    setFieldOverrides({});
+    setImageVersionId('');
+    setSelectedReferenceVersions({});
+    setInstanceId('');
+    resetRequest();
+    if (
+      next &&
+      (next.capability === 'video.image_to_video' ||
+        (next.executable !== false && next.mediaSchema?.inputs.some((slot) => slot.mediaType === 'image'))) &&
+      !images
+    )
+      void run(loadImages);
+  }
+  function chooseOutput(next: GenerationOutputFilter) {
+    if (selectedWorkflow && !matchesGenerationType(selectedWorkflow, engine, next)) chooseWorkflow('');
+    setOutput(next);
+  }
+  async function chooseEngine(next: GenerationEngine) {
+    if (next === 'comfyui') {
+      chooseWorkflow('');
+      setEngine(next);
+      return;
+    }
+    await run(async () => {
+      const { id } = await api<{ id: string }>(projectPath + '/modelscope-generation', 'POST');
+      const value = await api<Config>(projectPath + '/generation-config?workflowId=' + id);
+      if (!value.pinnedWorkflow) throw new Error('API 模型配置暂不可用，请重试。');
+      chooseWorkflow(id, value.pinnedWorkflow);
+    });
+  }
   const manualChoiceRequired = poolRouting && routingMode === 'manual' && !instanceId;
   const selectedParameters: ParameterValues = Object.fromEntries(
     (selectedWorkflow?.parameters ?? []).map((binding) => {
@@ -345,7 +400,15 @@ export function GenerationDialog({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (manualChoiceRequired || missingReference || selectedWorkflow?.executable === false) return;
+              if (
+                !selectedWorkflow ||
+                unavailableWorkflow ||
+                unsupportedNegative ||
+                manualChoiceRequired ||
+                missingReference ||
+                selectedWorkflow.executable === false
+              )
+                return;
               void run(async () => {
                 const value = await api<Job>(
                   `${projectPath}/${testWorkflow ? 'workflow-trials' : 'generation-jobs'}`,
@@ -400,48 +463,49 @@ export function GenerationDialog({
               <h3>
                 {testWorkflow ? `${testWorkflow.name} · v${testWorkflow.revision ?? 1}` : '新建生成任务'}
               </h3>
-              {!testWorkflow && !selectableWorkflows.length && (
-                <p className="field-hint">{'请在工作流中心配置或发布可用版本。'}</p>
-              )}
-              {!testWorkflow && (
-                <label>
-                  生成工作流
-                  <select
-                    aria-label="生成工作流"
-                    value={workflowId}
-                    required
-                    onChange={(event) => {
-                      const id = event.target.value;
-                      setWorkflowId(id);
-                      setPinnedWorkflow(workflows.find((item) => item.id === id));
-                      setParameterOverrides({});
-                      setFieldOverrides({});
-                      setImageVersionId('');
-                      setSelectedReferenceVersions({});
-                      setInstanceId('');
-                      resetRequest();
-                      if (
-                        workflows.some(
-                          (item) =>
-                            item.id === id &&
-                            (item.capability === 'video.image_to_video' ||
-                              (item.executable !== false &&
-                                item.mediaSchema?.inputs.some((slot) => slot.mediaType === 'image'))),
-                        ) &&
-                        !images
-                      )
-                        void run(loadImages);
-                    }}
-                  >
-                    <option value="">选择工作流</option>
-                    {selectableWorkflows.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
-                        {new Date(item.createdAt).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {!testWorkflow ? (
+                <>
+                  <GenerationTypePicker
+                    engine={engine}
+                    output={output}
+                    onEngine={(next) => void chooseEngine(next)}
+                    onOutput={chooseOutput}
+                    empty={Boolean(config && !selectableWorkflows.length)}
+                  />
+                  <label>
+                    {engine === 'api' ? 'API 模型' : '生成工作流'}
+                    <select
+                      aria-label="生成工作流"
+                      value={workflowId}
+                      required
+                      onChange={(event) => chooseWorkflow(event.target.value)}
+                    >
+                      <option value="">{engine === 'api' ? '选择 API 模型' : '选择工作流'}</option>
+                      {selectedWorkflow &&
+                        !selectableWorkflows.some((item) => item.id === selectedWorkflow.id) && (
+                          <option value={selectedWorkflow.id}>
+                            {selectedWorkflow.name} · 固定 v{selectedWorkflow.revision ?? 1} · 暂不可用
+                          </option>
+                        )}
+                      {selectableWorkflows.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · v{item.revision ?? 1} · {capabilityLabels[item.capability]} ·{' '}
+                          {new Date(item.createdAt).toLocaleString()}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {unavailableWorkflow && (
+                    <p role="status" className="field-hint">
+                      此工作流已归档或连接已停用，请选择可用工作流。
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="field-hint">
+                  固定工作流 · {workflowEngine(testWorkflow) === 'api' ? 'API' : 'ComfyUI'} ·{' '}
+                  {referenceMediaLabels[workflowOutputType(testWorkflow) ?? 'image']}
+                </p>
               )}
               {poolRouting && selectedWorkflow && (
                 <section aria-label="实例调度">
@@ -707,6 +771,11 @@ export function GenerationDialog({
                 </>
               }
 
+              {unsupportedNegative && (
+                <p role="status" className="field-hint">
+                  当前 API 模型仅支持正向提示词。负向词已保留，请移除后再生成。
+                </p>
+              )}
               {selectedWorkflow?.executable === false && (
                 <p role="status" className="field-hint">
                   {selectedWorkflow.executionBlocker ?? '此工作流的媒体执行尚未接通。'}
@@ -715,6 +784,8 @@ export function GenerationDialog({
               <button
                 className="primary"
                 disabled={
+                  unavailableWorkflow ||
+                  unsupportedNegative ||
                   selectedWorkflow?.executable === false ||
                   missingReference ||
                   !workflowId ||
@@ -1009,13 +1080,7 @@ export function GenerationDialog({
               !testWorkflow
             ) {
               const item = workflows.find((item) => item.id === revision.workflowId)!;
-              setWorkflowId(item.id);
-              setPinnedWorkflow(item);
-              setParameterOverrides({});
-              setFieldOverrides({});
-              setImageVersionId('');
-              setSelectedReferenceVersions({});
-              setInstanceId('');
+              chooseWorkflow(item.id);
             }
             resetRequest();
             setLibrary(undefined);

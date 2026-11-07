@@ -49,6 +49,27 @@ export const capabilityLabels: Record<string, string> = {
   'video.image_to_video': '图生视频',
 };
 export const referenceMediaLabels = { image: '图片', video: '视频', audio: '音频' };
+export type GenerationEngine = 'comfyui' | 'api';
+export type GenerationOutputFilter = 'all' | 'image' | 'video' | 'audio';
+export function workflowOutputType(workflow?: Workflow) {
+  const outputs: Readonly<Record<string, Exclude<GenerationOutputFilter, 'all'>>> = {
+    'image.text_to_image': 'image',
+    'video.text_to_video': 'video',
+    'video.image_to_video': 'video',
+    'audio.music': 'audio',
+  };
+  return workflow ? outputs[workflow.capability] : undefined;
+}
+export function workflowEngine(workflow?: Workflow): GenerationEngine {
+  return workflow?.provider === 'modelscope' ? 'api' : 'comfyui';
+}
+export function matchesGenerationType(
+  workflow: Workflow,
+  engine: GenerationEngine,
+  output: GenerationOutputFilter,
+) {
+  return workflowEngine(workflow) === engine && (output === 'all' || workflowOutputType(workflow) === output);
+}
 export type WorkflowDefinition = {
   name: string;
   connectionId: string;
