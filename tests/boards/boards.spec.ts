@@ -3089,6 +3089,172 @@ test('bulk output actions preserve selections after lost responses and download 
   }
 });
 
+test('video frame progress scrubbing previews reviewed pixels and recovers saving before canvas reuse', async ({
+  page,
+  browser,
+}) => {
+  const value = await project('Video frame choices');
+  const source = await uploadMedia(value.id, 'motion.mp4');
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Frame reuse fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Scrub and reuse');
+    const sources = page.getByRole('complementary', { name: '正式项目资源' });
+    await sources.getByRole('button', { name: '预览 motion.mp4', exact: true }).click();
+    const preview = sources.getByRole('region', { name: '资源预览' }),
+      entry = preview.getByRole('button', { name: '提取视频画面', exact: true });
+    await entry.click();
+    const dialog = page.getByRole('dialog', { name: '视频提帧', exact: true }),
+      slider = dialog.getByRole('slider', { name: '视频选帧进度', exact: true });
+    const player = dialog.getByLabel('选帧视频预览', { exact: true });
+    await expect(slider).toBeEnabled();
+    await expect(dialog.getByRole('button', { name: '保存为参考图', exact: true })).toBeDisabled();
+    let calls = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/frame?')) calls++;
+    });
+    const box = (await slider.boundingBox())!;
+    await page.mouse.move(box.x + 5, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => player.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0.8);
+    expect(calls).toBe(0);
+    await slider.focus();
+    await page.keyboard.press('Home');
+    await expect(slider).toHaveValue('0');
+    await dialog.getByRole('button', { name: '向后微调', exact: true }).click();
+    await expect(slider).toHaveValue('100');
+    await dialog.getByRole('button', { name: '提取画面', exact: true }).click();
+    const still = dialog.getByRole('img', { name: '提取画面预览', exact: true });
+    await expect.poll(() => still.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(96);
+    await expect(dialog.getByRole('button', { name: '保存为参考图', exact: true })).toBeEnabled();
+    await dialog.getByRole('button', { name: '向后微调', exact: true }).click();
+    await expect(still).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: '保存为参考图', exact: true })).toBeDisabled();
+    const frameUrl = '**/media-versions/' + source.id + '/frame?*';
+    await page.route(frameUrl, (r) =>
+      r.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'FRAME_BUSY', message: '提帧暂时不可用' }),
+      }),
+    );
+    await dialog.getByRole('button', { name: '提取画面', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('提帧暂时不可用');
+    await expect(slider).toHaveValue('200');
+    await page.unroute(frameUrl);
+    await dialog.getByRole('button', { name: '提取画面', exact: true }).click();
+    await expect(still).toBeVisible();
+    const originalStill = await still.getAttribute('src');
+    const saveUrl = '**/media-versions/' + source.id + '/frames';
+    let unblock!: () => void, reached!: () => void;
+    const held = new Promise<void>((r) => (unblock = r)),
+      received = new Promise<void>((r) => (reached = r));
+    await page.route(saveUrl, async (route) => {
+      await route.fetch();
+      reached();
+      await held;
+      await route.abort();
+    });
+    await dialog.getByRole('button', { name: '保存为参考图', exact: true }).click();
+    await received;
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await expect(slider).toBeDisabled();
+    unblock();
+    await expect(dialog.getByRole('alert')).toContainText('画面已保留');
+    await expect(still).toHaveAttribute('src', originalStill!);
+    await page.unroute(saveUrl);
+    await dialog.getByRole('button', { name: '保存为参考图', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: '已保存参考图', exact: true })).toBeDisabled();
+    const assets = (await call('GET', '/projects/' + value.id + '/media-assets')).items.filter(
+      (m: any) => m.latest.origin === 'video_frame',
+    );
+    expect(assets).toHaveLength(1);
+    const image = assets[0].latest;
+    expect(image.metadata.derivedFrom).toEqual({ mediaVersionId: source.id, atMs: 200 });
+    await page.screenshot({ path: 'test-results/b10-frame-desktop.png', animations: 'disabled' });
+    await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('已加入画布草稿');
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(entry).toBeFocused();
+    await preview.getByRole('button', { name: '返回资源列表', exact: true }).click();
+    await save(page);
+    const board = await call('GET', '/boards/' + boardId),
+      imageNode = board.layout.nodes.find((n: any) => n.data.ref?.id === image.id);
+    expect(board.resolved[imageNode.id].media.id).toBe(image.id);
+    await page.locator('.react-flow__node[data-id="' + imageNode.id + '"]').click();
+    await page.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Continue from extracted frame');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect
+      .poll(async () => (await call('GET', '/projects/' + value.id + '/generation-jobs')).items[0]?.state)
+      .toBe('completed');
+    expect(remote.mock.uploads[0].bytes).toEqual(await (await owner.get(image.contentUrl)).body());
+    const candidate = panel.getByRole('button', { name: '提取视频画面', exact: true });
+    await candidate.click();
+    await expect(dialog).toContainText('clip.mp4');
+    await expect(slider).toBeEnabled();
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await save(page);
+    const withResult = await call('GET', '/boards/' + boardId),
+      resultNode = withResult.layout.nodes.find((n: any) => n.type === 'result');
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator('.react-flow__node[data-id="' + resultNode.id + '"]').click();
+    const inspector = page.getByRole('complementary', { name: '画布检查器' });
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await inspector.getByRole('button', { name: '提取视频画面', exact: true }).click();
+    await expect(slider).toBeEnabled();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dialog.getByRole('button', { name: '向后微调', exact: true }).click();
+    await dialog.getByRole('button', { name: '提取画面', exact: true }).click();
+    await expect(still).toBeVisible();
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await dialog.getByRole('button', { name: '保存为参考图', exact: true }).scrollIntoViewIfNeeded();
+    await expect(dialog.getByRole('button', { name: '保存为参考图', exact: true })).toBeInViewport();
+    await page.screenshot({ path: 'test-results/b10-frame-mobile.png', animations: 'disabled' });
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    const invite = await call('POST', '/workspaces/' + setup.workspace.id + '/invitations', {
+        email: 'frame-reader-b10@board.test',
+      }),
+      actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' }),
+      context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    try {
+      const response = await actor.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Frame reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      });
+      expect(response.ok()).toBe(true);
+      const joined = await response.json();
+      await call('POST', '/projects/' + value.id + '/members', { userId: joined.user.id, role: 'VIEWER' });
+      const reader = await context.newPage();
+      await open(reader, value, actor, joined.user.id);
+      await reader.getByRole('button', { name: '预览 motion.mp4', exact: true }).click();
+      await expect(reader.getByRole('button', { name: '提取视频画面', exact: true })).toHaveCount(0);
+    } finally {
+      await context.close();
+      await actor.dispose();
+    }
+  } finally {
+    await remote.close();
+  }
+});
+
 test('generation type filters preserve pinned revisions and clear incompatible canvas media', async ({
   page,
 }) => {

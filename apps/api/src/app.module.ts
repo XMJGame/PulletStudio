@@ -36,6 +36,7 @@ import { StoryboardExportsController } from './exports/storyboard-exports.contro
 import { LocalStorage } from './storage/local-storage';
 import { MediaProbe } from './assets/media-probe';
 import { MediaService } from './assets/media.service';
+import { VideoFrameService } from './assets/video-frame.service';
 import { ResourceAccessService } from './assets/resource-access.service';
 import { WorkspaceLibraryService } from './assets/workspace-library.service';
 import { WorkspaceLibraryController } from './assets/workspace-library.controller';
@@ -132,6 +133,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     LocalStorage,
     MediaProbe,
     MediaService,
+    VideoFrameService,
     ResourceAccessService,
     WorkspaceLibraryService,
     WorkspaceUploadService,

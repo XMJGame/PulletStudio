@@ -818,6 +818,61 @@ test('free generation bulk dialog preserves the main file and retries package pr
   }
 });
 
+test('free video candidates extract frames without exposing production tools in trials', async ({ page }) => {
+  const bytes = await readFile(resolve('test-results/workflow-fixtures/motion.mp4')),
+    remote = await startComfyMock({ 'clip.mp4': bytes });
+  try {
+    const value = await project('Free frame candidates');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Free frames',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureWorkflow(connection.id, true),
+    );
+    await open(page, value);
+    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
+    const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+    await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
+    const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+    await trial.getByLabel('正向提示词').fill('Only evidence');
+    await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
+    await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(trial.getByRole('button', { name: '提取视频画面', exact: true })).toHaveCount(0);
+    await trial.getByRole('button', { name: '关闭', exact: true }).click();
+    await release.getByRole('button', { name: '关闭', exact: true }).click();
+    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await generation.getByLabel('生成工作流').selectOption(workflow.id);
+    await generation.getByLabel('正向提示词').fill('Frame from free video');
+    await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+    await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+    await generation.getByRole('button', { name: '提取视频画面', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '视频提帧', exact: true }),
+      slider = dialog.getByRole('slider', { name: '视频选帧进度', exact: true });
+    await expect(slider).toBeEnabled();
+    await slider.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(slider).toHaveValue('1');
+    await dialog.getByRole('button', { name: '提取画面', exact: true }).click();
+    await expect(dialog.getByRole('img', { name: '提取画面预览', exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: '保存为参考图', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: '已保存参考图', exact: true })).toBeDisabled();
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    const images = (await api('GET', '/projects/' + value.id + '/generation-reference-media?type=image'))
+      .items;
+    expect(images).toHaveLength(1);
+    expect(remote.mock.submissions).toHaveLength(2);
+  } finally {
+    await remote.close();
+  }
+});
+
 test('free generation filters output types and keeps API jobs outside ComfyUI routing', async ({ page }) => {
   const mp3 = await readFile(resolve('test-results/workflow-fixtures/sound.mp3'));
   const audioRemote = await startComfyMock({ 'sound.mp3': mp3 });

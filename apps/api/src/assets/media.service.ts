@@ -10,6 +10,7 @@ import {
   generationOutputs,
   mediaAssets,
   mediaUploads,
+  mediaFrameExtractions,
   mediaVersions,
   storageConnections,
   takes,
@@ -27,6 +28,7 @@ import { UploadInput } from './media-contract';
 import { assertSampleAccess } from './entity-references';
 import { takeReviewState } from './take-review-state';
 import { ResourceAccessService } from './resource-access.service';
+import { frameIntent, frameUpload } from './frame-extraction-state';
 type Upload = typeof mediaUploads.$inferSelect;
 type Prepared = { original: { bytes: number; sha256: string }; details: MediaDetails };
 export type ArchivedMedia = Pick<
@@ -178,8 +180,22 @@ export class MediaService {
     generationJobId?: string,
     animaticJobId?: string,
     generationOutputId?: string,
+    frameExtractionId?: string,
   ) {
     const project = this.authz.project(user, projectId, 'edit');
+    if (frameExtractionId) {
+      const frame = frameIntent(this.database, this.authz, user, frameExtractionId, projectId);
+      if (
+        generationJobId ||
+        animaticJobId ||
+        generationOutputId ||
+        input.assetId ||
+        input.expectedAssetVersion ||
+        key !== 'frame:' + frame.id ||
+        input.fileName !== `frame-${frame.atMs}ms-${frame.id}.png`
+      )
+        fail(409, 'FRAME_UPLOAD_RESERVED', '提帧必须创建独立图片');
+    }
     if (generationOutputId) {
       if (generationJobId || animaticJobId || input.assetId || input.expectedAssetVersion)
         fail(409, 'GENERATION_UPLOAD_RESERVED', '扩展产物必须创建独立文件');
@@ -200,6 +216,8 @@ export class MediaService {
       )
       .get();
     if (existing) {
+      if (frameUpload(this.database, existing.id)?.id !== frameExtractionId)
+        fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
       if (this.outputUpload(existing.id)?.output.id !== generationOutputId)
         fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
       if (
@@ -215,6 +233,7 @@ export class MediaService {
     return this.database.db.transaction(
       () => {
         this.authz.project(user, projectId, 'edit');
+        if (frameExtractionId) frameIntent(this.database, this.authz, user, frameExtractionId, projectId);
         if (generationOutputId) this.outputIntent(user, projectId, generationOutputId, key, input.fileName);
         const replay = this.database.db
           .select()
@@ -228,6 +247,8 @@ export class MediaService {
           )
           .get();
         if (replay) {
+          if (frameUpload(this.database, replay.id)?.id !== frameExtractionId)
+            fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
           if (this.outputUpload(replay.id)?.output.id !== generationOutputId)
             fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
           if (
@@ -279,6 +300,12 @@ export class MediaService {
             .update(generationOutputs)
             .set({ uploadId: id })
             .where(eq(generationOutputs.id, generationOutputId))
+            .run();
+        if (frameExtractionId)
+          this.database.db
+            .update(mediaFrameExtractions)
+            .set({ uploadId: id })
+            .where(eq(mediaFrameExtractions.id, frameExtractionId))
             .run();
         return this.uploadView(
           this.database.db.select().from(mediaUploads).where(eq(mediaUploads.id, id)).get()!,
@@ -445,6 +472,16 @@ export class MediaService {
         this.owner(row, lease);
         this.authz.project(user, row.projectId, 'edit');
         const imported = this.resourceAccess.pendingImport(user, row.id);
+        const frame = frameUpload(this.database, row.id);
+        if (frame) {
+          frameIntent(this.database, this.authz, user, frame.id, row.projectId);
+          if (
+            prepared.original.sha256 !== frame.expectedSha256 ||
+            prepared.details.mediaType !== 'image' ||
+            prepared.details.mime !== 'image/png'
+          )
+            fail(409, 'FRAME_CONTENT_CHANGED', '提帧图片与已确认的预览不一致');
+        }
         const output = this.outputUpload(row.id);
         if (output)
           this.outputIntent(user, row.projectId, output.output.id, row.idempotencyKey, row.fileName);
@@ -512,7 +549,10 @@ export class MediaService {
             mime: prepared.details.mime,
             byteLength: prepared.original.bytes,
             sha256: prepared.original.sha256,
-            metadataJson: JSON.stringify(prepared.details.metadata),
+            metadataJson: JSON.stringify({
+              ...prepared.details.metadata,
+              ...(frame ? { derivedFrom: { mediaVersionId: frame.sourceVersionId, atMs: frame.atMs } } : {}),
+            }),
             posterJson: prepared.details.poster
               ? JSON.stringify({ ...prepared.details.poster, key: `${prefix}/poster.jpg` })
               : null,
@@ -526,9 +566,11 @@ export class MediaService {
                     .get()?.purpose === 'workflow_test'
                   ? 'workflow_test'
                   : 'generation'
-                : row.animaticJobId
-                  ? 'animatic'
-                  : 'manual',
+                : frame
+                  ? 'video_frame'
+                  : row.animaticJobId
+                    ? 'animatic'
+                    : 'manual',
             createdBy: row.createdBy,
             createdAt: now,
           })
@@ -579,11 +621,14 @@ export class MediaService {
     generation?: {
       jobId?: string;
       animaticJobId?: string;
+      frameId?: string;
       mediaType: 'image' | 'video' | 'audio';
       signal: AbortSignal;
     },
   ) {
     const requested = this.uploadRow(user, id, true);
+    if (frameUpload(this.database, id)?.id !== generation?.frameId)
+      fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
     if ((requested.generationJobId ?? this.outputUpload(id)?.job.id ?? null) !== (generation?.jobId ?? null))
       fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
     if (requested.animaticJobId !== (generation?.animaticJobId ?? null))
@@ -663,7 +708,15 @@ export class MediaService {
       clearInterval(heartbeat);
     }
   }
-  async reconcile(user: CurrentUser, id: string, generationJobId?: string, animaticJobId?: string) {
+  async reconcile(
+    user: CurrentUser,
+    id: string,
+    generationJobId?: string,
+    animaticJobId?: string,
+    frameId?: string,
+  ) {
+    if (frameUpload(this.database, id)?.id !== frameId)
+      fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
     if (
       (this.uploadRow(user, id, true).generationJobId ?? this.outputUpload(id)?.job.id ?? null) !==
       (generationJobId ?? null)
@@ -714,6 +767,12 @@ export class MediaService {
               isNull(mediaUploads.animaticJobId),
               notExists(
                 this.database.db
+                  .select({ id: mediaFrameExtractions.id })
+                  .from(mediaFrameExtractions)
+                  .where(eq(mediaFrameExtractions.uploadId, mediaUploads.id)),
+              ),
+              notExists(
+                this.database.db
                   .select({ id: generationOutputs.id })
                   .from(generationOutputs)
                   .where(eq(generationOutputs.uploadId, mediaUploads.id)),
@@ -732,6 +791,18 @@ export class MediaService {
           eq(mediaUploads.createdBy, user.id),
           isNull(mediaUploads.generationJobId),
           isNull(mediaUploads.animaticJobId),
+          notExists(
+            this.database.db
+              .select({ id: mediaFrameExtractions.id })
+              .from(mediaFrameExtractions)
+              .where(eq(mediaFrameExtractions.uploadId, mediaUploads.id)),
+          ),
+          notExists(
+            this.database.db
+              .select({ id: generationOutputs.id })
+              .from(generationOutputs)
+              .where(eq(generationOutputs.uploadId, mediaUploads.id)),
+          ),
           boundary
             ? or(
                 lt(mediaUploads.createdAt, boundary.createdAt),

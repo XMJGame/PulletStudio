@@ -27,6 +27,7 @@ import { PromptLibraryPicker } from '../prompts/PromptLibraryPicker';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import '../features/canvas/studio-live-composer.css';
 import { GenerationTypePicker } from '../workflows/GenerationTypePicker';
+import type { MediaVersion } from '../media-types';
 
 export function BoardExecutionPanel({
   board,
@@ -41,6 +42,7 @@ export function BoardExecutionPanel({
   onPromptLibrary,
   onApplyPrompt,
   onSavedToLibrary,
+  onPinMedia,
   update,
   bind,
   onResult,
@@ -60,6 +62,7 @@ export function BoardExecutionPanel({
   onPromptLibrary: (draft?: PromptDraft) => void;
   onApplyPrompt: (revision: LibraryRevision) => void;
   onSavedToLibrary: () => void;
+  onPinMedia?: (media: MediaVersion) => Promise<void>;
   update: (node: BoardNode, clearFirstFrame?: boolean) => void;
   bind: (port: BoardInputPort, source: string) => void;
   onResult: (job: GenerationJob) => void;
@@ -637,6 +640,8 @@ export function BoardExecutionPanel({
               editable={editable}
               busy={busy}
               onResult={onResult}
+              onMediaSaved={onSavedToLibrary}
+              onPinMedia={onPinMedia}
               onLibrarySaved={(saved) => {
                 setJobs(
                   (value) =>

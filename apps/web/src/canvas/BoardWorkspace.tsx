@@ -1337,6 +1337,7 @@ export default function BoardWorkspace({
                         onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
                         onApplyPrompt={(revision) => applyLibraryRevision(revision, node.id)}
                         onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                        onPinMedia={pinCandidate}
                         update={update}
                         bind={(port, source) => bindInput(node.id, port, source)}
                         onResult={addResult}
@@ -1355,6 +1356,8 @@ export default function BoardWorkspace({
                       <BoardInspector
                         node={node}
                         value={node && resolved[node.id]}
+                        onMediaSaved={() => setRefresh((value) => value + 1)}
+                        onPinMedia={pinCandidate}
                         nodes={layout.nodes}
                         editable={editable}
                         update={update}

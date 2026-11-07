@@ -7,6 +7,8 @@ import './board-candidates.css';
 import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
 import { referenceMediaLabels } from '../workflows/workflow-types';
 import { GenerationOutputBatchDialog } from '../components/GenerationOutputBatchDialog';
+import { VideoFrameButton } from '../components/VideoFrameDialog';
+import type { MediaVersion } from '../media-types';
 
 export function BoardCandidates({
   jobs,
@@ -18,6 +20,8 @@ export function BoardCandidates({
   onReuse,
   onMore,
   onLibrarySaved,
+  onMediaSaved,
+  onPinMedia,
 }: {
   jobs: CursorPage<GenerationJob>;
   layout: BoardLayout;
@@ -28,6 +32,8 @@ export function BoardCandidates({
   onReuse: (job: GenerationJob) => void;
   onMore: () => void;
   onLibrarySaved: (job: GenerationJob) => void;
+  onMediaSaved: () => void;
+  onPinMedia?: (media: MediaVersion) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<string>();
   const [outputs, setOutputs] = useState<Record<string, string>>({});
@@ -250,6 +256,12 @@ export function BoardCandidates({
               加入画布结果
             </StudioButton>
           )}
+          {editable &&
+            job.state === 'completed' &&
+            job.result?.mediaType === 'video' &&
+            job.mediaVersionId && (
+              <VideoFrameButton mediaId={job.mediaVersionId} onSaved={onMediaSaved} onAdd={onPinMedia} />
+            )}
           {editable && job.state === 'completed' && !job.inLibrary && (
             <StudioButton icon="folder" disabled={busy} onClick={() => onArchive(job)}>
               存入素材库

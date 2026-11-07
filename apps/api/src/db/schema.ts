@@ -961,6 +961,32 @@ export const mediaUploads = sqliteTable(
     index('media_upload_lease').on(t.state, t.leaseUntil),
   ],
 );
+export const mediaFrameExtractions = sqliteTable(
+  'media_frame_extractions',
+  {
+    id: text('id').primaryKey(),
+    sourceVersionId: text('source_version_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    requestKey: text('request_key').notNull(),
+    atMs: integer('at_ms').notNull(),
+    expectedSha256: text('expected_sha256').notNull(),
+    uploadId: text('upload_id')
+      .unique()
+      .references(() => mediaUploads.id),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceVersionId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    uniqueIndex('media_frame_request').on(t.projectId, t.createdBy, t.requestKey),
+    check('media_frame_time', sql`${t.atMs}>=0 AND ${t.atMs}<86400000`),
+  ],
+);
 export const workspaceMediaFolders = sqliteTable(
   'workspace_media_folders',
   {

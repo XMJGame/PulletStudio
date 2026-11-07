@@ -103,6 +103,7 @@ export function BoardSources({
           editable={editable}
           add={add}
           report={report}
+          onMediaSaved={reload}
           onBack={() => {
             setPreview(undefined);
             requestAnimationFrame(() => {

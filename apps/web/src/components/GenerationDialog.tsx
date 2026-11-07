@@ -19,6 +19,7 @@ import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
 import { GenerationOutputPicker, selectedGenerationOutput } from './GenerationOutputPicker';
 import { GenerationOutputBatchDialog } from './GenerationOutputBatchDialog';
+import { VideoFrameButton } from './VideoFrameDialog';
 export type GenerationJob = {
   selectedOutputId?: string;
   outputs?: GenerationOutput[];
@@ -934,6 +935,9 @@ export function GenerationDialog({
                 )}
                 {!testWorkflow && job.state === 'completed' && (
                   <div className="review-actions">
+                    {config?.canEdit && job.result?.mediaType === 'video' && job.mediaVersionId && (
+                      <VideoFrameButton mediaId={job.mediaVersionId} onAdd={creation.onPin} />
+                    )}
                     {!job.inLibrary && config?.canEdit && (
                       <button
                         disabled={busy}

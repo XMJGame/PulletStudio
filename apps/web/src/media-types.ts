@@ -19,6 +19,8 @@ export type MediaVersion = {
     audioCodecs: string[];
     sampleRate: number | null;
     channels: number | null;
+    frameRate?: string | null;
+    derivedFrom?: { mediaVersionId: string; atMs: number };
   };
   contentUrl: string;
   downloadUrl: string;
