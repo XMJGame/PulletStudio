@@ -84,8 +84,9 @@ export class GenerationController {
     );
   }
   @Post('generation-jobs/:id/save-to-library')
-  saveCandidate(@Req() req: StudioRequest, @Param('id') id: string) {
-    return this.generation.saveCandidate(req.user, parse(uuid, id));
+  saveCandidate(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    const input = parse(z.object({ outputId: uuid.optional() }).strict(), body ?? {});
+    return this.generation.saveCandidate(req.user, parse(uuid, id), input.outputId);
   }
   @Get(['projects/:id/generation-images', 'projects/:id/generation-reference-media'])
   images(

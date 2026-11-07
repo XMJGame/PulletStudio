@@ -10,6 +10,7 @@ import {
   fixtureReferenceImages,
   fixtureRequiredMedia,
   fixtureI2V,
+  fixtureExtendedOutputs,
   fixtureOptionalMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
@@ -566,6 +567,95 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await dialog.getByLabel('选择工作流节点').selectOption('3');
   await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-dark.png', animations: 'disabled' });
+});
+
+test('workflow trials and free generation switch typed artifacts without archiving unrelated results', async ({
+  page,
+}) => {
+  const files = {};
+  for (const name of ['clip.mp4', 'image.jpg', 'image.png', 'sound.mp3'])
+    files[name] = await readFile(resolve('test-results/workflow-fixtures', name));
+  const outputRemote = await startComfyMock({ ...files, 'extra.png': files['image.png'] });
+  try {
+    const value = await project('Multi output controls');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Multi output fixture',
+      baseUrl: outputRemote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await api(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureExtendedOutputs(connection.id),
+    );
+    await open(page, value);
+    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+    await expect(center.getByLabel('媒体输出1数量', { exact: true })).toHaveValue('multiple');
+    await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
+    const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+    await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
+    const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+    await trial.getByLabel('正向提示词').fill('Trial each artifact');
+    await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
+    await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+    const evidence = (await api('GET', '/generation-workflows/' + workflow.id + '/test-jobs'))[0];
+    await trial.getByLabel('选择生成产物', { exact: true }).selectOption(evidence.outputs[2].id);
+    const player = trial.getByLabel('生成音频候选');
+    await expect(player).toBeVisible();
+    await expect
+      .poll(() => player.evaluate((el: HTMLAudioElement) => el.readyState))
+      .toBeGreaterThanOrEqual(2);
+    expect(
+      await (
+        await owner.get(
+          (await trial.getByRole('link', { name: '下载生成原件', exact: true }).getAttribute('href'))!,
+        )
+      ).body(),
+    ).toEqual(files['sound.mp3']);
+    await expect(trial.getByRole('button', { name: '存入素材库', exact: true })).toHaveCount(0);
+    await trial.getByRole('button', { name: '关闭', exact: true }).click();
+    await release.getByText('预览试跑结果', { exact: true }).click();
+    await release.getByLabel('选择生成产物').selectOption(evidence.outputs[1].id);
+    await expect(release.getByRole('img', { name: '试跑结果', exact: true })).toBeVisible();
+    await release.getByRole('button', { name: '关闭', exact: true }).click();
+    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).click();
+    const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
+    await generation.getByLabel('生成工作流').selectOption(workflow.id);
+    await generation.getByLabel('正向提示词').fill('Archive only chosen artifacts');
+    await generation.getByRole('button', { name: '加入生成队列', exact: true }).click();
+    await expect(generation.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 15000 });
+    const done = (await api('GET', '/projects/' + value.id + '/generation-jobs')).items[0];
+    await generation.getByLabel('选择生成产物').selectOption(done.outputs[2].id);
+    await generation.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(generation.getByText('已存入素材库', { exact: true })).toBeVisible();
+    const archived = await api('GET', '/generation-jobs/' + done.id);
+    expect(archived.inLibrary).toBe(false);
+    expect(archived.outputs.map((o: any) => o.inLibrary)).toEqual([false, false, true]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await generation.getByLabel('选择生成产物').scrollIntoViewIfNeeded();
+    expect(await generation.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b6-free-outputs-mobile.png', animations: 'disabled' });
+    await generation.getByLabel('选择生成产物').selectOption('');
+    await expect(generation.locator('video')).toBeVisible();
+    expect(outputRemote.mock.submissions).toHaveLength(2);
+    const references = (await api('GET', '/projects/' + value.id + '/generation-reference-media?type=image'))
+      .items;
+    expect(references.map((file: any) => file.id).sort()).toEqual(
+      done.outputs
+        .slice(0, 2)
+        .map((output: any) => output.mediaVersionId)
+        .sort(),
+    );
+    expect(
+      references.some((file: any) =>
+        evidence.outputs.some((output: any) => output.mediaVersionId === file.id),
+      ),
+    ).toBe(false);
+  } finally {
+    await outputRemote.close();
+  }
 });
 
 test('free generation filters output types and keeps API jobs outside ComfyUI routing', async ({ page }) => {

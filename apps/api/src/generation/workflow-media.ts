@@ -160,11 +160,10 @@ export function mediaInputMatchesMetadata(mediaType: string, definition: unknown
 export function hasExtendedMedia(schema?: WorkflowMediaSchema) {
   return Boolean(schema?.inputs.length || schema?.outputs.length);
 }
-export const mediaExecutionReason = '此工作流包含未支持的可选媒体策略或扩展输出，当前执行尚未接通。';
+export const mediaExecutionReason = '此工作流包含未支持的媒体缺失策略，当前执行尚未接通。';
 export function supportsReferenceMedia(schema?: WorkflowMediaSchema) {
   return Boolean(
-    schema?.inputs.length &&
-    !schema.outputs.length &&
+    (schema?.inputs.length || schema?.outputs.length) &&
     schema.inputs.every((slot) => slot.required || slot.onMissing === 'disconnect'),
   );
 }

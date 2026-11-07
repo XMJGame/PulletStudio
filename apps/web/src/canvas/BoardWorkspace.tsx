@@ -790,7 +790,8 @@ export default function BoardWorkspace({
   }
   function addResult(job: GenerationJob) {
     if (!editable || !layout) return;
-    const existing = layout.nodes.find((n) => n.type === 'result' && n.data.jobId === job.id);
+    const resultId = job.selectedOutputId ?? job.id;
+    const existing = layout.nodes.find((n) => n.type === 'result' && n.id === resultId);
     if (existing) {
       setSelected([existing.id]);
       return;
@@ -800,26 +801,43 @@ export default function BoardWorkspace({
       return;
     }
     const producer = layout.nodes.find((n) => n.id === job.boardExecution?.nodeId);
+    const parent = producer?.parentId
+      ? layout.nodes.find((item) => item.id === producer.parentId)
+      : undefined;
+    const origin = {
+      x: (producer?.position.x ?? 0) + (parent?.position.x ?? 0) + 320,
+      y: (producer?.position.y ?? 0) + (parent?.position.y ?? 0),
+    };
+    let position = origin;
+    for (let i = 0; i <= layout.nodes.length * 4; i++) {
+      position = {
+        x: clamp(origin.x + (i % 2) * 280, -50000, 50000),
+        y: clamp(origin.y + Math.floor(i / 2) * 310, -50000, 50000),
+      };
+      if (
+        !layout.nodes.some(
+          (item) => !item.parentId && item.type !== 'group' && overlaps(item, position, 250, 280),
+        )
+      )
+        break;
+    }
     setLayout({
       ...layout,
       nodes: [
         ...layout.nodes,
         {
-          id: job.id,
+          id: resultId,
           type: 'result',
-          position: {
-            x: clamp((producer?.position.x ?? 0) + 320, -50000, 50000),
-            y: producer?.position.y ?? 0,
-          },
+          position,
           width: 250,
           height: 280,
-          data: { jobId: job.id },
+          data: { jobId: job.id, ...(job.selectedOutputId ? { outputId: job.selectedOutputId } : {}) },
         },
       ],
     });
     setResolved((old) => ({
       ...old,
-      [job.id]: {
+      [resultId]: {
         status: job.state === 'completed' ? 'current' : 'draft',
         title: '生成结果',
         summary: job.state,

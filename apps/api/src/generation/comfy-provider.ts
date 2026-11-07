@@ -15,6 +15,7 @@ import {
   WorkflowParameter,
 } from './generation-contract';
 import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
+import type { OutputDescriptor } from './generation-output-contract';
 import {
   mediaDisconnectTargets,
   mediaInputMatchesMetadata,
@@ -28,7 +29,8 @@ export class GenerationError extends Error {
 }
 type Config = { baseUrl: string; trustedPrivate: boolean; token: string | null };
 export type RemoteObservation =
-  { state: 'pending' | 'failed' } | { state: 'ready'; result: ResultDescriptor };
+  | { state: 'pending' | 'failed' }
+  | { state: 'ready'; result: ResultDescriptor; outputs?: OutputDescriptor[] };
 export interface MediaProvider {
   probe(signal?: AbortSignal): Promise<void>;
   queueStatus(signal?: AbortSignal): Promise<{ running: number; pending: number }>;
@@ -324,7 +326,33 @@ export class ComfyProvider {
           throw new GenerationError('WORKFLOW_OUTPUT_COUNT');
         const result = resultDescriptor.safeParse(outputs[0]);
         if (!result.success) throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
-        return { state: 'ready', result: result.data };
+        const extra: OutputDescriptor[] = [];
+        const seen = new Set([JSON.stringify(result.data)]);
+        for (const slot of workflow.mediaSchema?.outputs ?? []) {
+          const files = object(object(row.outputs)[slot.node])[slot.field];
+          if (
+            !Array.isArray(files) ||
+            !files.length ||
+            files.length > (slot.multiple ? 8 : 1) ||
+            extra.length + files.length > 32
+          )
+            throw new GenerationError('WORKFLOW_OUTPUT_COUNT');
+          for (const [index, file] of files.entries()) {
+            const parsed = resultDescriptor.safeParse(file);
+            if (!parsed.success || seen.has(JSON.stringify(parsed.data)))
+              throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
+            seen.add(JSON.stringify(parsed.data));
+            extra.push({
+              slotId: slot.id,
+              index,
+              label: slot.label,
+              role: slot.role,
+              mediaType: slot.mediaType,
+              result: parsed.data,
+            });
+          }
+        }
+        return { state: 'ready', result: result.data, ...(extra.length ? { outputs: extra } : {}) };
       },
       async download(result, limit, signal) {
         const query = new URLSearchParams({

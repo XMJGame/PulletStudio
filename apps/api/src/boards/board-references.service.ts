@@ -11,6 +11,7 @@ import {
   mediaAssets,
   shots,
   generationJobs,
+  generationOutputs,
   libraryFolders,
   libraryPlacements,
 } from '../db/schema';
@@ -46,7 +47,7 @@ export class BoardReferencesService {
       references.map((item) => [item.nodeId, this.resolve(user, projectId, item.ref)]),
     );
   }
-  result(user: CurrentUser, projectId: string, id: string, strict = false): BoardResolved {
+  result(user: CurrentUser, projectId: string, id: string, strict = false, outputId?: string): BoardResolved {
     this.authz.project(user, projectId);
     const row = this.database.db
       .select()
@@ -56,6 +57,23 @@ export class BoardReferencesService {
     if (!row || row.purpose !== 'production' || row.shotId) {
       if (strict) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '生成结果不存在或无权访问');
       return { status: 'unavailable', title: '结果不可用' };
+    }
+    const output = outputId
+      ? this.database.db
+          .select()
+          .from(generationOutputs)
+          .where(
+            and(
+              eq(generationOutputs.id, outputId),
+              eq(generationOutputs.jobId, row.id),
+              eq(generationOutputs.projectId, projectId),
+            ),
+          )
+          .get()
+      : undefined;
+    if (outputId && !output) {
+      if (strict) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '生成产物不存在或无权访问');
+      return { status: 'unavailable', title: '产物不可用' };
     }
     if (row.state !== 'completed' || !row.mediaVersionId) {
       const states: Record<string, string> = {
@@ -70,7 +88,12 @@ export class BoardReferencesService {
       };
       return { status: 'draft', title: '生成结果', summary: states[row.state] ?? '请查看生成任务记录' };
     }
-    const value = this.resolve(user, projectId, { kind: 'media', id: row.mediaVersionId }, strict);
+    const value = this.resolve(
+      user,
+      projectId,
+      { kind: 'media', id: output?.mediaVersionId ?? row.mediaVersionId },
+      strict,
+    );
     return { ...value, title: value.status === 'unavailable' ? value.title : `生成结果 · ${value.title}` };
   }
   resolve(user: CurrentUser, projectId: string, ref: BoardReference, strict = false): BoardResolved {

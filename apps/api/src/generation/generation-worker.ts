@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { addAbortSignal } from 'node:stream';
 import { CurrentUser } from '../common/http';
 import { DatabaseService } from '../db/database.service';
-import { generationJobs, mediaUploads, users } from '../db/schema';
+import { generationJobs, generationOutputs, mediaUploads, users } from '../db/schema';
 import { ProductionService } from '../production/production.service';
 import { MediaService } from '../assets/media.service';
 import { AppConfig } from '../config';
@@ -13,6 +13,7 @@ import { modelScopeImage, modelScopeResult } from './modelscope-provider';
 import { GenerationService, GenerationSnapshot, Job } from './generation.service';
 import { resultDescriptor, WorkflowInput, type ReferenceMediaType } from './generation-contract';
 import { mediaDisconnectTargets, supportsReferenceMedia } from './workflow-media';
+import { outputManifest } from './generation-output-contract';
 import { checkReservedInstance, instanceLoad, jobRoute, type JobRoute } from './generation-routing';
 
 const leaseMs = 45_000;
@@ -98,7 +99,10 @@ export class GenerationWorker {
         return this.database.db
           .update(generationJobs)
           .set({
-            leaseId: leaseId + (snapshot.optionalReferenceMedia || snapshot.audioOutput ? ':b4' : ''),
+            leaseId:
+              leaseId +
+              (snapshot.extendedOutputs ? ':b6' : '') +
+              (snapshot.optionalReferenceMedia || snapshot.audioOutput ? ':b4' : ''),
             leaseUntil: now + leaseMs,
             state: row.state === 'queued' ? 'preparing' : row.state,
             updatedAt,
@@ -196,6 +200,71 @@ export class GenerationWorker {
     } finally {
       file.stream.destroy();
     }
+  }
+  private async archiveFile(
+    job: Job,
+    user: CurrentUser,
+    connection: ReturnType<GenerationService['connection']>,
+    result: ReturnType<typeof resultDescriptor.parse> | ReturnType<typeof modelScopeResult.parse>,
+    mediaType: ReferenceMediaType,
+    signal: AbortSignal,
+    output?: typeof generationOutputs.$inferSelect,
+  ) {
+    const reserved = output
+      ? output.uploadId
+        ? { id: output.uploadId }
+        : null
+      : this.database.db
+          .select({ id: mediaUploads.id })
+          .from(mediaUploads)
+          .where(eq(mediaUploads.generationJobId, job.id))
+          .get();
+    let upload = reserved ? await this.media.upload(user, reserved.id) : null;
+    if (upload?.state === 'needs_reconciliation')
+      upload = await this.media.reconcile(user, upload.id, job.id);
+    if (upload?.state !== 'complete') {
+      if (upload?.state === 'uploading') {
+        this.release(job, { nextAt: Date.now() + 10000 });
+        return;
+      }
+      const download =
+        'url' in result
+          ? await this.jobs.modelScope.download(result, this.config.mediaMaxBytes, signal)
+          : {
+              ...(await (
+                await this.jobs.provider(connection)
+              ).download(result, this.config.mediaMaxBytes, signal)),
+              fileName: result.filename,
+            };
+      try {
+        this.owns(job);
+        upload = await this.media.initiate(
+          user,
+          job.projectId,
+          {
+            fileName: download.fileName,
+            byteLength: download.length,
+            assetId: null,
+            expectedAssetVersion: 0,
+            contentType: '',
+          },
+          output ? `generation-output:${output.id}` : `generation:${job.id}`,
+          output ? undefined : job.id,
+          undefined,
+          output?.id,
+        );
+        upload = await this.media.receive(user, upload.id, download.body, String(download.length), {
+          jobId: job.id,
+          mediaType,
+          signal,
+        });
+      } finally {
+        download.body.destroy();
+      }
+    }
+    if (!upload?.mediaVersion || upload.mediaVersion.mediaType !== mediaType)
+      throw new GenerationError('GENERATION_OUTPUT_INVALID');
+    return upload.mediaVersion.id;
   }
   async tick() {
     const job = this.claim();
@@ -319,6 +388,8 @@ export class GenerationWorker {
           slots.some((slot) => slot.onMissing === 'disconnect') !== Boolean(snapshot.optionalReferenceImages))
       )
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
+      if (Boolean(definition.mediaSchema?.outputs.length) !== Boolean(snapshot.extendedOutputs))
+        throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
       if ((definition.capability === 'audio.music') !== Boolean(snapshot.audioOutput))
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
       if (route)
@@ -409,7 +480,11 @@ export class GenerationWorker {
         this.release(job, {
           state: 'fetching',
           remoteId: candidate,
-          resultJson: JSON.stringify(result.result),
+          resultJson: JSON.stringify(
+            'outputs' in result && result.outputs?.length
+              ? { version: 'studio.generation-outputs.v1', primary: result.result, outputs: result.outputs }
+              : result.result,
+          ),
           nextAt: Date.now(),
           errorCode: null,
         });
@@ -418,62 +493,77 @@ export class GenerationWorker {
     }
     if (job.state !== 'fetching') return;
     const storedResult = JSON.parse(job.resultJson!);
-    const result = apiImage ? modelScopeResult.parse(storedResult) : resultDescriptor.parse(storedResult);
+    const extended = Boolean((JSON.parse(job.snapshotJson) as GenerationSnapshot).extendedOutputs);
+    const manifest = extended ? outputManifest.parse(storedResult) : null;
+    const result =
+      manifest?.primary ??
+      (apiImage ? modelScopeResult.parse(storedResult) : resultDescriptor.parse(storedResult));
     const mediaType =
       workflow.capability === 'image.text_to_image'
         ? 'image'
         : workflow.capability === 'audio.music'
           ? 'audio'
           : 'video';
-    const reserved = this.database.db
-      .select({ id: mediaUploads.id })
-      .from(mediaUploads)
-      .where(eq(mediaUploads.generationJobId, job.id))
-      .get();
-    let upload = reserved ? await this.media.upload(user, reserved.id) : null;
-    if (upload?.state === 'needs_reconciliation')
-      upload = await this.media.reconcile(user, upload.id, job.id);
-    if (upload?.state !== 'complete') {
-      if (upload?.state === 'uploading') {
-        this.release(job, { nextAt: Date.now() + 10000 });
-        return;
-      }
-      const download =
-        'url' in result
-          ? await this.jobs.modelScope.download(result, this.config.mediaMaxBytes, signal)
-          : {
-              ...(await (
-                await this.jobs.provider(connection)
-              ).download(result, this.config.mediaMaxBytes, signal)),
-              fileName: result.filename,
-            };
-      try {
-        this.owns(job);
-        upload = await this.media.initiate(
-          user,
-          job.projectId,
-          {
-            fileName: download.fileName,
-            byteLength: download.length,
-            assetId: null,
-            expectedAssetVersion: 0,
-            contentType: '',
-          },
-          `generation:${job.id}`,
-          job.id,
-        );
-        upload = await this.media.receive(user, upload.id, download.body, String(download.length), {
-          jobId: job.id,
-          mediaType,
-          signal,
+    const mediaVersionId = await this.archiveFile(job, user, connection, result, mediaType, signal);
+    if (!mediaVersionId) return;
+    if (manifest) {
+      const records = this.database.db.transaction(
+        () => {
+          this.owns(job);
+          for (const item of manifest.outputs) {
+            const prior = this.database.db
+              .select()
+              .from(generationOutputs)
+              .where(
+                and(
+                  eq(generationOutputs.jobId, job.id),
+                  eq(generationOutputs.slotId, item.slotId),
+                  eq(generationOutputs.position, item.index),
+                ),
+              )
+              .get();
+            if (!prior)
+              this.database.db
+                .insert(generationOutputs)
+                .values({
+                  id: randomUUID(),
+                  jobId: job.id,
+                  projectId: job.projectId,
+                  workspaceId: job.workspaceId,
+                  slotId: item.slotId,
+                  position: item.index,
+                  label: item.label,
+                  role: item.role,
+                  mediaType: item.mediaType,
+                  descriptorJson: JSON.stringify(item.result),
+                })
+                .run();
+          }
+          const rows = this.database.db
+            .select()
+            .from(generationOutputs)
+            .where(eq(generationOutputs.jobId, job.id))
+            .all();
+          if (rows.length !== manifest.outputs.length) throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
+          return rows;
+        },
+        { behavior: 'immediate' },
+      );
+      for (const item of manifest.outputs) {
+        const row = records.find((row) => row.slotId === item.slotId && row.position === item.index)!;
+        if (!row) throw new GenerationError('WORKFLOW_OUTPUT_INVALID');
+        const id = await this.archiveFile(job, user, connection, item.result, item.mediaType, signal, row);
+        if (!id) return;
+        this.database.db.transaction(() => {
+          this.owns(job);
+          this.database.db
+            .update(generationOutputs)
+            .set({ mediaVersionId: id })
+            .where(eq(generationOutputs.id, row.id))
+            .run();
         });
-      } finally {
-        download.body.destroy();
       }
     }
-    if (!upload?.mediaVersion || upload.mediaVersion.mediaType !== mediaType)
-      throw new GenerationError('GENERATION_OUTPUT_INVALID');
-    const mediaVersionId = upload.mediaVersion.id;
     this.database.db.transaction(
       () => {
         this.owns(job);

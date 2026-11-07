@@ -33,7 +33,13 @@ const node = z.discriminatedUnion('type', [
         .strict(),
     })
     .strict(),
-  z.object({ ...base, type: z.literal('result'), data: z.object({ jobId: z.uuid() }).strict() }).strict(),
+  z
+    .object({
+      ...base,
+      type: z.literal('result'),
+      data: z.object({ jobId: z.uuid(), outputId: z.uuid().optional() }).strict(),
+    })
+    .strict(),
   z
     .object({
       ...base,
@@ -101,7 +107,8 @@ export const boardLayout = z
     const invalid = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (ids.size !== layout.nodes.length) invalid('节点标识不能重复');
     for (const n of layout.nodes)
-      if (n.type === 'result' && n.id !== n.data.jobId) invalid('结果节点使用任务标识，不能重复加入同一结果');
+      if (n.type === 'result' && n.id !== (n.data.outputId ?? n.data.jobId))
+        invalid('结果节点使用任务或产物标识，不能重复加入同一结果');
     for (const n of layout.nodes)
       if (n.parentId && (n.type === 'group' || ids.get(n.parentId)?.type !== 'group'))
         invalid('分组须引用本画布的一级分组');

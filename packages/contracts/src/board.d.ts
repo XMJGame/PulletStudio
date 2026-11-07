@@ -15,6 +15,7 @@ export type BoardNode = {
     collapsed?: boolean;
     ref?: BoardReference;
     jobId?: string;
+    outputId?: string;
     generation?: {
       workflowId?: string;
       parameterValues?: Partial<Record<'aspectRatio' | 'durationSeconds' | 'seed', string | number>>;

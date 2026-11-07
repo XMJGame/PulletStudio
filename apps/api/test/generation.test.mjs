@@ -18,6 +18,7 @@ import {
   fixtureOptionalImages,
   fixtureRequiredMedia,
   fixtureOptionalMedia,
+  fixtureExtendedOutputs,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
@@ -93,6 +94,8 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
       'image.png': fixtures['image.png'].bytes,
       'clip.mp4': fixtures['clip.mp4'].bytes,
       'sound.mp3': fixtures['sound.mp3'].bytes,
+      'image.jpg': fixtures['image.jpg'].bytes,
+      'extra.png': fixtures['image.png'].bytes,
     });
     await start();
     const setup = (
@@ -1439,6 +1442,334 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
             .get(failed.id).n,
           0,
         );
+      },
+    );
+
+    await t.test(
+      'extended outputs archive typed fixed files independently and retain main result compatibility',
+      async () => {
+        const path = '/projects/' + project.id;
+        const definition = fixtureExtendedOutputs(connectionId);
+        const saved = await owner('POST', path + '/generation-workflows', definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        assert.equal((await queue(saved.data.id)).data.code, 'WORKFLOW_MEDIA_UNSUPPORTED');
+        const submit = (endpoint = 'generation-jobs') =>
+          owner(
+            'POST',
+            path + '/' + endpoint,
+            { workflowId: saved.data.id, positivePrompt: 'A production with artifacts', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        const queued = await submit();
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET lease_id='free:old' WHERE id=?").run(queued.data.id),
+          /extended outputs require updated generation worker/,
+        );
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.equal(done.result.mediaType, 'video');
+        assert.equal(done.outputs.length, 3);
+        assert.deepEqual(
+          done.outputs.map((o) => [o.label, o.index, o.result.mediaType]),
+          [
+            ['Storyboard', 0, 'image'],
+            ['Storyboard', 1, 'image'],
+            ['Music', 0, 'audio'],
+          ],
+        );
+        for (const [i, name] of ['image.jpg', 'extra.png', 'sound.mp3'].entries()) {
+          const expected = fixtures[name === 'extra.png' ? 'image.png' : name].bytes;
+          assert.deepEqual(
+            (await owner('GET', done.outputs[i].result.contentUrl.replace('/api/v1', ''))).data,
+            expected,
+          );
+          assert.equal(done.outputs[i].inLibrary, false);
+        }
+        const archived = await owner('POST', '/generation-jobs/' + done.id + '/save-to-library', {
+          outputId: done.outputs[1].id,
+        });
+        assert.equal(archived.status, 201, JSON.stringify(archived.data));
+        assert.equal(archived.data.inLibrary, false);
+        assert.deepEqual(
+          archived.data.outputs.map((o) => o.inLibrary),
+          [false, true, false],
+        );
+        assert.equal(
+          (
+            await owner('POST', '/generation-jobs/' + done.id + '/save-to-library', {
+              outputId: randomUUID(),
+            })
+          ).status,
+          404,
+        );
+        assert.equal(
+          (
+            await viewer('POST', '/generation-jobs/' + done.id + '/save-to-library', {
+              outputId: done.outputs[0].id,
+            })
+          ).status,
+          403,
+        );
+        const raw = db().prepare('SELECT * FROM generation_outputs WHERE job_id=?').all(done.id);
+        const upload = (await owner('GET', '/media-uploads/' + raw[0].upload_id)).data;
+        assert.equal(upload.mediaVersion.origin, 'generation');
+        assert.equal(
+          (await owner('PUT', '/media-uploads/' + raw[0].upload_id + '/content', fixtures['image.jpg'].bytes))
+            .data.code,
+          'GENERATION_UPLOAD_RESERVED',
+        );
+        assert.equal(
+          (await owner('POST', '/media-uploads/' + raw[0].upload_id + '/reconcile', {})).data.code,
+          'GENERATION_UPLOAD_RESERVED',
+        );
+        assert.throws(
+          () => db().prepare("UPDATE generation_outputs SET label='changed' WHERE id=?").run(raw[0].id),
+          /identity is immutable/,
+        );
+        assert.throws(
+          () => db().prepare("UPDATE generation_jobs SET result_json='{}' WHERE id=?").run(done.id),
+          /manifest is immutable/,
+        );
+        const trial = await submit('workflow-trials');
+        assert.equal(trial.status, 201, JSON.stringify(trial.data));
+        for (let i = 0; i < 3; i++) await tick();
+        const evidence = await read(trial.data.id);
+        assert.equal(evidence.state, 'test_completed', JSON.stringify(evidence));
+        assert.equal(evidence.outputs.length, 3);
+        for (const file of evidence.outputs)
+          assert.notEqual(
+            (
+              await owner('POST', '/generation-jobs/' + evidence.id + '/save-to-library', {
+                outputId: file.id,
+              })
+            ).status,
+            201,
+          );
+        const evidenceIds = evidence.outputs.map((o) => o.mediaVersionId);
+        for (const type of ['image', 'audio'])
+          assert.ok(
+            !(await owner('GET', path + '/generation-reference-media?type=' + type)).data.items.some((o) =>
+              evidenceIds.includes(o.id),
+            ),
+          );
+        assert.equal(
+          db()
+            .prepare(
+              "SELECT count(*) n FROM media_versions WHERE id IN (SELECT media_version_id FROM generation_outputs WHERE job_id=?) AND origin='workflow_test'",
+            )
+            .get(evidence.id).n,
+          3,
+        );
+
+        const board = (
+          await owner(
+            'POST',
+            path + '/boards',
+            { title: 'Fixed output references' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).data;
+        const node = (outputId, jobId = done.id) => ({
+          id: outputId,
+          type: 'result',
+          position: { x: 0, y: 0 },
+          width: 250,
+          height: 280,
+          data: { jobId, outputId },
+        });
+        const save = (nodes, expectedRevision = board.revision) =>
+          owner(
+            'POST',
+            '/boards/' + board.id + '/revisions',
+            { title: board.title, expectedRevision, layout: { ...board.layout, nodes } },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        assert.equal((await save([node(done.outputs[0].id, randomUUID())])).status, 404);
+        assert.equal((await save([node(evidence.outputs[0].id, evidence.id)])).status, 404);
+        const pinned = await save([node(done.outputs[0].id)]);
+        assert.equal(pinned.status, 201, JSON.stringify(pinned.data));
+        assert.equal(pinned.data.resolved[done.outputs[0].id].media.id, done.outputs[0].mediaVersionId);
+        const elsewhere = (
+          await owner('POST', '/projects', { workspaceId: workspace.id, title: 'Unrelated outputs' })
+        ).data;
+        const foreignBoard = (
+          await owner(
+            'POST',
+            '/projects/' + elsewhere.id + '/boards',
+            { title: 'Foreign output' },
+            { 'Idempotency-Key': randomUUID() },
+          )
+        ).data;
+        assert.equal(
+          (
+            await owner(
+              'POST',
+              '/boards/' + foreignBoard.id + '/revisions',
+              {
+                title: foreignBoard.title,
+                expectedRevision: foreignBoard.revision,
+                layout: { ...foreignBoard.layout, nodes: [node(done.outputs[0].id)] },
+              },
+              { 'Idempotency-Key': randomUUID() },
+            )
+          ).status,
+          404,
+        );
+        assert.deepEqual(db().pragma('foreign_key_check'), []);
+      },
+    );
+    await t.test(
+      'partial output downloads and archive registration resume without refetching completed files',
+      async () => {
+        const path = '/projects/' + project.id;
+        const saved = await owner(
+          'POST',
+          path + '/generation-workflows',
+          fixtureExtendedOutputs(connectionId),
+        );
+        const submit = () =>
+          owner(
+            'POST',
+            path + '/generation-jobs',
+            { workflowId: saved.data.id, positivePrompt: 'Recover all artifacts', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+        const queued = await submit();
+        const start = remote.mock.downloads.length;
+        remote.mock.missingFile = 'sound.mp3';
+        try {
+          for (let i = 0; i < 3; i++) await tick();
+        } finally {
+          remote.mock.missingFile = undefined;
+        }
+        const partial = await read(queued.data.id);
+        assert.equal(partial.state, 'needs_reconciliation');
+        assert.equal(partial.mediaVersionId, null);
+        assert.deepEqual(partial.outputs, []);
+        assert.equal(
+          db()
+            .prepare(
+              'SELECT count(*) n FROM generation_outputs WHERE job_id=? AND media_version_id IS NOT NULL',
+            )
+            .get(queued.data.id).n,
+          2,
+        );
+        const frozen = db()
+          .prepare('SELECT result_json FROM generation_jobs WHERE id=?')
+          .get(queued.data.id).result_json;
+        const record = remote.mock.history.get((await read(queued.data.id)).remoteId);
+        record.outputs['8'].images = [];
+        assert.equal((await control(queued.data.id, 'reconcile')).status, 201);
+        await tick();
+        const done = await read(queued.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.deepEqual(remote.mock.downloads.slice(start), [
+          'clip.mp4',
+          'image.jpg',
+          'extra.png',
+          'sound.mp3',
+          'sound.mp3',
+        ]);
+        assert.equal(
+          db().prepare('SELECT result_json FROM generation_jobs WHERE id=?').get(done.id).result_json,
+          frozen,
+        );
+        assert.equal(
+          db()
+            .prepare(
+              'SELECT count(*) n FROM media_uploads WHERE id IN (SELECT upload_id FROM generation_outputs WHERE job_id=?)',
+            )
+            .get(done.id).n,
+          3,
+        );
+        const retry = await submit();
+        db().exec(
+          "CREATE TRIGGER fixture_output_registration BEFORE INSERT ON media_versions WHEN NEW.file_name='sound.mp3' BEGIN SELECT RAISE(ABORT,'fixture archive registration'); END;",
+        );
+        try {
+          for (let i = 0; i < 3; i++) await tick();
+        } finally {
+          db().exec('DROP TRIGGER fixture_output_registration');
+        }
+        assert.equal((await read(retry.data.id)).state, 'needs_reconciliation');
+        const pending = db()
+          .prepare(
+            "SELECT u.* FROM media_uploads u JOIN generation_outputs o ON o.upload_id=u.id WHERE o.job_id=? AND o.media_type='audio'",
+          )
+          .get(retry.data.id);
+        assert.equal(pending.state, 'needs_reconciliation');
+        const downloads = remote.mock.downloads.length;
+        await control(retry.data.id, 'reconcile');
+        await tick();
+        assert.equal((await read(retry.data.id)).state, 'completed');
+        assert.equal(remote.mock.downloads.length, downloads);
+      },
+    );
+    await t.test(
+      'missing excessive duplicate and incorrect output types never become successful jobs',
+      async () => {
+        const path = '/projects/' + project.id;
+        const saved = await owner(
+          'POST',
+          path + '/generation-workflows',
+          fixtureExtendedOutputs(connectionId),
+        );
+        for (const change of [
+          (row) => (row.outputs['8'].images = []),
+          (row) => (row.outputs['8'].images = Array.from({ length: 9 }, () => row.outputs['8'].images[0])),
+          (row) => (row.outputs['9'].audio[0].filename = 'image.jpg'),
+          (row) => (row.outputs['9'].audio[0].filename = 'image.png'),
+          (row) => (row.outputs['9'].audio[0].filename = '../sound.mp3'),
+        ]) {
+          const q = await owner(
+            'POST',
+            path + '/generation-jobs',
+            { workflowId: saved.data.id, positivePrompt: 'Reject bad artifacts', confirmed: true },
+            { 'Idempotency-Key': randomUUID() },
+          );
+          await tick();
+          change(remote.mock.history.get((await read(q.data.id)).remoteId));
+          await tick();
+          await tick();
+          const result = await read(q.data.id);
+          assert.equal(result.state, 'needs_reconciliation');
+          assert.equal(result.mediaVersionId, null);
+        }
+      },
+    );
+
+    await t.test(
+      'optional mixed references and audio output coexist with the extended worker contract',
+      async () => {
+        const definition = fixtureOptionalMedia(connectionId, true);
+        definition.graph['9'] = { class_type: 'ImagesOutput', inputs: { conditioning: ['1', 0] } };
+        definition.mediaSchema.outputs = [
+          {
+            id: randomUUID(),
+            label: 'Cover study',
+            role: 'preview',
+            mediaType: 'image',
+            node: '9',
+            field: 'images',
+            multiple: true,
+          },
+        ];
+        const saved = await owner('POST', '/projects/' + project.id + '/generation-workflows', definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const queued = await owner(
+          'POST',
+          '/projects/' + project.id + '/generation-jobs',
+          { workflowId: saved.data.id, positivePrompt: 'Music and cover studies', confirmed: true },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.equal(done.result.mediaType, 'audio');
+        assert.equal(done.outputs.length, 2);
       },
     );
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {

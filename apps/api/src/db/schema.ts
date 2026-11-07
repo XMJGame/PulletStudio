@@ -1874,6 +1874,41 @@ export const generationJobRoutes = sqliteTable(
   ],
 );
 
+export const generationOutputs = sqliteTable(
+  'generation_outputs',
+  {
+    id: text('id').primaryKey(),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => generationJobs.id),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    slotId: text('slot_id').notNull(),
+    position: integer('position').notNull(),
+    label: text('label').notNull(),
+    role: text('role', { enum: ['preview', 'intermediate'] }).notNull(),
+    mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),
+    descriptorJson: text('descriptor_json').notNull(),
+    uploadId: text('upload_id')
+      .unique()
+      .references(() => mediaUploads.id),
+    mediaVersionId: text('media_version_id')
+      .unique()
+      .references(() => mediaVersions.id),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('generation_output_slot').on(t.jobId, t.slotId, t.position),
+    index('generation_output_job').on(t.jobId),
+    check('generation_output_position', sql`${t.position}>=0 AND ${t.position}<8`),
+    check('generation_output_type', sql`${t.mediaType} IN ('image','video','audio')`),
+    check('generation_output_role', sql`${t.role} IN ('preview','intermediate')`),
+  ],
+);
+
 export const workflowReleaseEvents = sqliteTable(
   'workflow_release_events',
   {

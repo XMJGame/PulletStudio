@@ -82,7 +82,7 @@ export class BoardGenerationService {
           const source = layout.nodes.find((n) => n.id === sourceId)!;
           const value =
             source.type === 'result'
-              ? this.references.result(user, board.projectId, source.data.jobId!, true)
+              ? this.references.result(user, board.projectId, source.data.jobId!, true, source.data.outputId)
               : this.references.resolve(user, board.projectId, source.data.ref!, true);
           if (value.status === 'unavailable' || value.media?.mediaType !== type)
             fail(

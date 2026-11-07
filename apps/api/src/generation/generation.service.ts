@@ -9,6 +9,7 @@ import {
   auditEvents,
   generationConnections,
   generationJobs,
+  generationOutputs,
   generationJobRoutes,
   generationWorkflows,
   promptArtifacts,
@@ -68,6 +69,7 @@ export type GenerationSnapshot = {
   optionalReferenceImages?: true;
   optionalReferenceMedia?: true;
   audioOutput?: true;
+  extendedOutputs?: true;
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
@@ -660,6 +662,42 @@ export class GenerationService {
             posterUrl: result.posterUrl,
           }
         : null,
+      outputs: ['completed', 'test_completed'].includes(row.state)
+        ? (definition.mediaSchema?.outputs ?? []).flatMap((slot) =>
+            this.database.db
+              .select()
+              .from(generationOutputs)
+              .where(and(eq(generationOutputs.jobId, row.id), eq(generationOutputs.slotId, slot.id)))
+              .all()
+              .sort((a, b) => a.position - b.position)
+              .map((output) => {
+                const file = output.mediaVersionId ? this.media.version(user, output.mediaVersionId) : null;
+                return {
+                  id: output.id,
+                  slotId: output.slotId,
+                  index: output.position,
+                  label: output.label,
+                  role: output.role,
+                  mediaVersionId: output.mediaVersionId,
+                  inLibrary: file
+                    ? (this.database.db
+                        .select({ value: mediaAssets.inLibrary })
+                        .from(mediaAssets)
+                        .where(eq(mediaAssets.id, file.assetId))
+                        .get()?.value ?? false)
+                    : false,
+                  result: file
+                    ? {
+                        mediaType: file.mediaType,
+                        metadata: file.metadata,
+                        contentUrl: file.contentUrl,
+                        posterUrl: file.posterUrl,
+                      }
+                    : null,
+                };
+              }),
+          )
+        : [],
       workflowName: workflow.name,
       capability: workflow.capability,
       state: row.state,
@@ -977,6 +1015,7 @@ export class GenerationService {
                 ? { optionalReferenceMedia: true }
                 : {}),
               ...(definition.capability === 'audio.music' ? { audioOutput: true } : {}),
+              ...(definition.mediaSchema?.outputs.length ? { extendedOutputs: true } : {}),
               parameterValues,
               fieldValues,
               ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),
@@ -1075,14 +1114,23 @@ export class GenerationService {
       nextCursor: rows.length > 30 ? rows[29].id : null,
     };
   }
-  saveCandidate(user: CurrentUser, id: string) {
+  saveCandidate(user: CurrentUser, id: string, outputId?: string) {
     return this.database.db.transaction(
       () => {
         const job = this.job(id);
         this.authz.project(user, job.projectId, 'edit');
         if (job.shotId || job.purpose !== 'production' || job.state !== 'completed' || !job.mediaVersionId)
           fail(409, 'CANDIDATE_NOT_READY', '请选择已完成的自由创作结果');
-        const version = this.media.version(user, job.mediaVersionId);
+        const output = outputId
+          ? this.database.db
+              .select()
+              .from(generationOutputs)
+              .where(and(eq(generationOutputs.id, outputId), eq(generationOutputs.jobId, job.id)))
+              .get()
+          : undefined;
+        if (outputId && !output?.mediaVersionId)
+          fail(404, 'GENERATION_OUTPUT_UNAVAILABLE', '生成产物不存在或无权访问');
+        const version = this.media.version(user, output?.mediaVersionId ?? job.mediaVersionId);
         const saved = this.database.db
           .update(mediaAssets)
           .set({ inLibrary: true })

@@ -4,6 +4,7 @@ import { Dialog } from '../components/Dialog';
 import { describeParameters } from '../components/GenerationParameters';
 import { GenerationDialog, generationStates, type GenerationJob } from '../components/GenerationDialog';
 import type { GenerationConfig, Workflow } from './workflow-types';
+import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
 
 type ReleaseEvent = {
   id: string;
@@ -17,12 +18,15 @@ type ReleaseEvent = {
 };
 type ReleaseHistory = { items: ReleaseEvent[]; nextCursor: number | null };
 
-function EvidencePreview({ job }: { job: GenerationJob }) {
+function EvidencePreview({ job: original }: { job: GenerationJob }) {
+  const [output, setOutput] = useState('');
+  const job = selectedGenerationOutput(original, output);
   if (!job.result) return null;
   const { contentUrl, mediaType } = job.result;
   return (
     <details>
       <summary>预览试跑结果</summary>
+      <GenerationOutputPicker job={job} onChange={setOutput} />
       {mediaType === 'image' ? (
         <img src={contentUrl} alt="试跑结果" loading="lazy" />
       ) : mediaType === 'audio' ? (

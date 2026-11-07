@@ -17,7 +17,10 @@ import { CreativeParameters, creativeValues } from '../workflows/CreativeParamet
 import type { MediaVersion } from '../media-types';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft } from '../prompts/prompt-library-types';
+import { GenerationOutputPicker, selectedGenerationOutput } from './GenerationOutputPicker';
 export type GenerationJob = {
+  selectedOutputId?: string;
+  outputs?: GenerationOutput[];
   boardExecution?: import('../../../../packages/contracts/src/board').BoardExecution;
   id: string;
   shotId: string | null;
@@ -75,6 +78,16 @@ export type GenerationJob = {
     };
   } | null;
 };
+export type GenerationOutput = {
+  id: string;
+  slotId: string;
+  index: number;
+  label: string;
+  role: 'preview' | 'intermediate';
+  mediaVersionId: string | null;
+  inLibrary: boolean;
+  result: GenerationJob['result'];
+};
 type Job = GenerationJob;
 type ReferenceOption = {
   id: string;
@@ -117,8 +130,8 @@ export const generationErrors: Record<string, string> = {
   COMFY_HISTORY_PENDING: '查询窗口内未找到已完成的远端记录。',
   COMFY_EXECUTION_FAILED: '远端执行失败。请在 ComfyUI 中查看详情。',
   COMFY_DOWNLOAD_INVALID: '远端文件无法安全下载，请核对大小及返回头。',
-  WORKFLOW_OUTPUT_COUNT: '配置的输出位置必须返回一个文件。',
-  WORKFLOW_OUTPUT_INVALID: '远端文件描述不符合归档要求。',
+  WORKFLOW_OUTPUT_COUNT: '主输出须为一份文件；扩展单项须为一份，多项每槽最多八份、合计最多三十二份。',
+  WORKFLOW_OUTPUT_INVALID: '远端文件描述重复或不符合归档要求，请使用保存节点的正式输出文件。',
   GENERATION_INPUT_CHANGED: '项目或连接已变化。请按当前输入创建任务。',
   GENERATION_APPROVAL_CHANGED: '资产审批已变化。请重新核对输入。',
   ASSET_NOT_READY: '固定资产的审批或声音权限未通过。',
@@ -155,6 +168,7 @@ export function GenerationDialog({
 }) {
   const [config, setConfig] = useState<Config>();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [outputs, setOutputs] = useState<Record<string, string>>({});
   const [positivePrompt, setPositivePrompt] = useState(creation.initialDraft?.positivePrompt ?? '');
   const [negativePrompt, setNegativePrompt] = useState(creation.initialDraft?.negativePrompt ?? '');
   const [source, setSource] = useState(creation.initialDraft?.source ?? '');
@@ -801,238 +815,250 @@ export function GenerationDialog({
         )}
         <h3>{testWorkflow ? '此修订的试跑任务' : '生成候选'}</h3>
         {!jobs.length && <p className="field-hint">暂无生成任务。</p>}
-        {jobs.map((job) => (
-          <article className="entity-reference" key={job.id}>
-            <div>
-              <strong>
-                {job.workflowName} · 工作流 v{job.workflowRevision}
-                {job.shotVersion !== null ? ` · 制作卡 v${job.shotVersion}` : ''}
-              </strong>
-              {job.instance && (
-                <p className="field-hint">
-                  实例 {job.instance.name} · {job.instance.mode === 'auto' ? '自动选机' : '手动指定'}
-                </p>
-              )}
-              {job.image && (
-                <p className="field-hint">
-                  首帧 {job.image.fileName} · v{job.image.version}
-                </p>
-              )}
-              {Object.keys(job.parameterValues ?? {}).length > 0 && (
-                <p className="field-hint">请求参数 · {describeParameters(job.parameterValues)}</p>
-              )}
-              {job.creativeParameters?.map((parameter, index) => (
-                <p className="field-hint" key={index}>
-                  {parameter.label}：
-                  {typeof parameter.value === 'boolean'
-                    ? parameter.value
-                      ? '开启'
-                      : '关闭'
-                    : String(parameter.value)}
-                </p>
-              ))}
-              {job.result && (
-                <p className="field-hint">
-                  实际产物 ·{' '}
-                  {job.result.metadata.width
-                    ? `${job.result.metadata.width}×${job.result.metadata.height}`
-                    : ''}
-                  {job.result.metadata.durationMs !== null
-                    ? ` · ${(job.result.metadata.durationMs / 1000).toFixed(2)} 秒`
-                    : ''}
-                  {job.result.metadata.frameRate ? ` · ${job.result.metadata.frameRate} fps` : ''}
-                </p>
-              )}
-              <p>
-                {!job.shotId && job.state === 'completed'
-                  ? job.inLibrary
-                    ? '已存入素材库'
-                    : '候选已生成'
-                  : (generationStates[job.state] ?? job.state)}
-              </p>
-              {job.result &&
-                (job.result.mediaType === 'image' ? (
-                  <img
-                    className="candidate-preview"
-                    src={job.result.contentUrl}
-                    alt="生成候选"
-                    loading="lazy"
-                  />
-                ) : job.result.mediaType === 'audio' ? (
-                  <audio aria-label="生成音频候选" src={job.result.contentUrl} controls preload="metadata" />
-                ) : (
-                  <video
-                    className="candidate-preview"
-                    src={job.result.contentUrl}
-                    controls
-                    preload="none"
-                    playsInline
-                  />
+        {jobs.map((rawJob) => {
+          const job = selectedGenerationOutput(rawJob, outputs[rawJob.id]);
+          return (
+            <article className="entity-reference" key={job.id}>
+              <div>
+                <strong>
+                  {job.workflowName} · 工作流 v{job.workflowRevision}
+                  {job.shotVersion !== null ? ` · 制作卡 v${job.shotVersion}` : ''}
+                </strong>
+                {job.instance && (
+                  <p className="field-hint">
+                    实例 {job.instance.name} · {job.instance.mode === 'auto' ? '自动选机' : '手动指定'}
+                  </p>
+                )}
+                {job.image && (
+                  <p className="field-hint">
+                    首帧 {job.image.fileName} · v{job.image.version}
+                  </p>
+                )}
+                {Object.keys(job.parameterValues ?? {}).length > 0 && (
+                  <p className="field-hint">请求参数 · {describeParameters(job.parameterValues)}</p>
+                )}
+                {job.creativeParameters?.map((parameter, index) => (
+                  <p className="field-hint" key={index}>
+                    {parameter.label}：
+                    {typeof parameter.value === 'boolean'
+                      ? parameter.value
+                        ? '开启'
+                        : '关闭'
+                      : String(parameter.value)}
+                  </p>
                 ))}
-              {job.promptLibrary && (
-                <p className="field-hint">
-                  提示词库 · {job.promptLibrary.title} · v{job.promptLibrary.version}
+                {job.result && (
+                  <p className="field-hint">
+                    实际产物 ·{' '}
+                    {job.result.metadata.width
+                      ? `${job.result.metadata.width}×${job.result.metadata.height}`
+                      : ''}
+                    {job.result.metadata.durationMs !== null
+                      ? ` · ${(job.result.metadata.durationMs / 1000).toFixed(2)} 秒`
+                      : ''}
+                    {job.result.metadata.frameRate ? ` · ${job.result.metadata.frameRate} fps` : ''}
+                  </p>
+                )}
+                <p>
+                  {!job.shotId && job.state === 'completed'
+                    ? job.inLibrary
+                      ? '已存入素材库'
+                      : '候选已生成'
+                    : (generationStates[job.state] ?? job.state)}
                 </p>
-              )}
-              {!!(job.referenceMedia ?? job.referenceImages)?.length && (
-                <details>
-                  <summary>{job.referenceMedia ? '查看此次参考素材' : '查看此次参考图片'}</summary>
-                  <ul>
-                    {(job.referenceMedia ?? job.referenceImages)?.map((item) => (
-                      <li key={item.slotId}>
-                        {item.label} · {item.fileName} · v{item.version}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {job.prompt && (
-                <details>
-                  <summary>查看此次提示词</summary>
-                  <p className="preserve-space">{job.prompt.positivePrompt}</p>
-                  {job.prompt.negativePrompt && <p>负向：{job.prompt.negativePrompt}</p>}
-                  {job.prompt.source && <p>来源：{job.prompt.source}</p>}
-                </details>
-              )}
-              {!testWorkflow && job.state === 'completed' && (
-                <div className="review-actions">
-                  {!job.inLibrary && config?.canEdit && (
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          const value = await api<Job>(
-                            `/generation-jobs/${job.id}/save-to-library`,
-                            'POST',
-                            {},
-                          );
-                          setJobs((previous) =>
-                            previous.map((item) => (item.id === value.id ? value : item)),
-                          );
-                          setMessage('已存入项目素材库。');
-                        })
-                      }
-                    >
-                      存入素材库
-                    </button>
-                  )}
-                  {config?.canEdit && job.prompt && (
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setLibraryRevisionId(job.promptLibrary?.revisionId);
-                        setPositivePrompt(job.prompt!.positivePrompt);
-                        setNegativePrompt(job.prompt!.negativePrompt);
-                        setSource(job.prompt!.source);
-                        resetRequest();
-                        setMessage('提示词已复用，可继续修改生成。');
-                      }}
-                    >
-                      复用提示词
-                    </button>
-                  )}
-                  {config?.canEdit &&
-                    job.mediaVersionId &&
-                    selectedWorkflow?.capability === 'video.image_to_video' &&
-                    job.result?.mediaType === 'image' && (
+                <GenerationOutputPicker
+                  job={job}
+                  onChange={(id) => setOutputs((old) => ({ ...old, [job.id]: id }))}
+                />
+                {job.result &&
+                  (job.result.mediaType === 'image' ? (
+                    <img
+                      className="candidate-preview"
+                      src={job.result.contentUrl}
+                      alt="生成候选"
+                      loading="lazy"
+                    />
+                  ) : job.result.mediaType === 'audio' ? (
+                    <audio
+                      aria-label="生成音频候选"
+                      src={job.result.contentUrl}
+                      controls
+                      preload="metadata"
+                    />
+                  ) : (
+                    <video
+                      className="candidate-preview"
+                      src={job.result.contentUrl}
+                      controls
+                      preload="none"
+                      playsInline
+                    />
+                  ))}
+                {job.promptLibrary && (
+                  <p className="field-hint">
+                    提示词库 · {job.promptLibrary.title} · v{job.promptLibrary.version}
+                  </p>
+                )}
+                {!!(job.referenceMedia ?? job.referenceImages)?.length && (
+                  <details>
+                    <summary>{job.referenceMedia ? '查看此次参考素材' : '查看此次参考图片'}</summary>
+                    <ul>
+                      {(job.referenceMedia ?? job.referenceImages)?.map((item) => (
+                        <li key={item.slotId}>
+                          {item.label} · {item.fileName} · v{item.version}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {job.prompt && (
+                  <details>
+                    <summary>查看此次提示词</summary>
+                    <p className="preserve-space">{job.prompt.positivePrompt}</p>
+                    {job.prompt.negativePrompt && <p>负向：{job.prompt.negativePrompt}</p>}
+                    {job.prompt.source && <p>来源：{job.prompt.source}</p>}
+                  </details>
+                )}
+                {!testWorkflow && job.state === 'completed' && (
+                  <div className="review-actions">
+                    {!job.inLibrary && config?.canEdit && (
                       <button
                         disabled={busy}
                         onClick={() =>
                           void run(async () => {
-                            const media = await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`);
-                            setImages((previous) => ({
-                              items: [
-                                {
-                                  id: media.id,
-                                  fileName: media.fileName,
-                                  version: media.version,
-                                  createdAt: job.createdAt,
-                                },
-                                ...(previous?.items.filter((item) => item.id !== media.id) ?? []),
-                              ],
-                              nextCursor: previous?.nextCursor ?? null,
-                            }));
-                            setImageVersionId(media.id);
-                            resetRequest();
+                            const value = await api<Job>(
+                              `/generation-jobs/${job.id}/save-to-library`,
+                              'POST',
+                              { outputId: job.selectedOutputId },
+                            );
+                            setJobs((previous) =>
+                              previous.map((item) => (item.id === value.id ? value : item)),
+                            );
+                            setMessage('已存入项目素材库。');
                           })
                         }
                       >
-                        用作首帧
+                        存入素材库
                       </button>
                     )}
-                  {creation.onPin && job.mediaVersionId && (
+                    {config?.canEdit && job.prompt && (
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setLibraryRevisionId(job.promptLibrary?.revisionId);
+                          setPositivePrompt(job.prompt!.positivePrompt);
+                          setNegativePrompt(job.prompt!.negativePrompt);
+                          setSource(job.prompt!.source);
+                          resetRequest();
+                          setMessage('提示词已复用，可继续修改生成。');
+                        }}
+                      >
+                        复用提示词
+                      </button>
+                    )}
+                    {config?.canEdit &&
+                      job.mediaVersionId &&
+                      selectedWorkflow?.capability === 'video.image_to_video' &&
+                      job.result?.mediaType === 'image' && (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              const media = await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`);
+                              setImages((previous) => ({
+                                items: [
+                                  {
+                                    id: media.id,
+                                    fileName: media.fileName,
+                                    version: media.version,
+                                    createdAt: job.createdAt,
+                                  },
+                                  ...(previous?.items.filter((item) => item.id !== media.id) ?? []),
+                                ],
+                                nextCursor: previous?.nextCursor ?? null,
+                              }));
+                              setImageVersionId(media.id);
+                              resetRequest();
+                            })
+                          }
+                        >
+                          用作首帧
+                        </button>
+                      )}
+                    {creation.onPin && job.mediaVersionId && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await creation.onPin!(
+                              await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`),
+                            );
+                            setMessage('已添加到画布，请保存画布。');
+                          })
+                        }
+                      >
+                        添加到画布
+                      </button>
+                    )}
+                  </div>
+                )}
+                {job.errorCode && (
+                  <p className="field-hint">
+                    {generationErrors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
+                  </p>
+                )}
+                {job.mediaVersionId && (
+                  <a href={`/api/v1/media-versions/${job.mediaVersionId}/content?download=1`} download>
+                    下载生成原件
+                  </a>
+                )}
+              </div>
+              {job.canControl && ['queued', 'preparing'].includes(job.state) && (
+                <button disabled={busy} onClick={() => void run(() => control(job, 'cancel'))}>
+                  取消待提交任务
+                </button>
+              )}
+              {job.canControl && job.state === 'submitted' && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm('确认结束本地跟踪？远端任务可能仍在运行。'))
+                      void run(() => control(job, 'stop'));
+                  }}
+                >
+                  结束本地跟踪
+                </button>
+              )}
+              {job.canControl && job.state === 'needs_reconciliation' && (
+                <div>
+                  {!job.remoteId && (
+                    <label>
+                      远端任务编号（旧版 ComfyUI 可选填）
+                      <input
+                        value={remoteIds[job.id] ?? ''}
+                        onChange={(event) => setRemoteIds({ ...remoteIds, [job.id]: event.target.value })}
+                      />
+                    </label>
+                  )}
+                  <div className="review-actions">
+                    <button disabled={busy} onClick={() => void run(() => control(job, 'reconcile'))}>
+                      查询并恢复
+                    </button>
                     <button
                       disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await creation.onPin!(
-                            await api<MediaVersion>(`/media-versions/${job.mediaVersionId}`),
-                          );
-                          setMessage('已添加到画布，请保存画布。');
-                        })
-                      }
+                      onClick={() => {
+                        if (window.confirm('确认结束本地跟踪？远端任务可能仍在运行。'))
+                          void run(() => control(job, 'stop'));
+                      }}
                     >
-                      添加到画布
+                      结束本地跟踪
                     </button>
-                  )}
+                  </div>
                 </div>
               )}
-              {job.errorCode && (
-                <p className="field-hint">
-                  {generationErrors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
-                </p>
-              )}
-              {job.mediaVersionId && (
-                <a href={`/api/v1/media-versions/${job.mediaVersionId}/content?download=1`} download>
-                  下载生成原件
-                </a>
-              )}
-            </div>
-            {job.canControl && ['queued', 'preparing'].includes(job.state) && (
-              <button disabled={busy} onClick={() => void run(() => control(job, 'cancel'))}>
-                取消待提交任务
-              </button>
-            )}
-            {job.canControl && job.state === 'submitted' && (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  if (window.confirm('确认结束本地跟踪？远端任务可能仍在运行。'))
-                    void run(() => control(job, 'stop'));
-                }}
-              >
-                结束本地跟踪
-              </button>
-            )}
-            {job.canControl && job.state === 'needs_reconciliation' && (
-              <div>
-                {!job.remoteId && (
-                  <label>
-                    远端任务编号（旧版 ComfyUI 可选填）
-                    <input
-                      value={remoteIds[job.id] ?? ''}
-                      onChange={(event) => setRemoteIds({ ...remoteIds, [job.id]: event.target.value })}
-                    />
-                  </label>
-                )}
-                <div className="review-actions">
-                  <button disabled={busy} onClick={() => void run(() => control(job, 'reconcile'))}>
-                    查询并恢复
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => {
-                      if (window.confirm('确认结束本地跟踪？远端任务可能仍在运行。'))
-                        void run(() => control(job, 'stop'));
-                    }}
-                  >
-                    结束本地跟踪
-                  </button>
-                </div>
-              </div>
-            )}
-          </article>
-        ))}
+            </article>
+          );
+        })}
         {!testWorkflow && nextCursor && (
           <button
             disabled={busy}

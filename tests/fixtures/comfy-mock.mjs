@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 export async function startComfyMock(files) {
   const history = new Map();
   const requests = [];
-  const mock = { mode: 'normal', submissions: [], uploads: [], requests, history };
+  const mock = { mode: 'normal', submissions: [], uploads: [], downloads: [], requests, history };
   const send = (res, data, status = 200) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(data));
@@ -60,6 +60,11 @@ export async function startComfyMock(files) {
         },
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
+        ImagesOutput: {
+          output_node: true,
+          input: { required: { conditioning: ['CONDITIONING'] } },
+          output: [],
+        },
         AudioOutput: {
           output_node: true,
           input: {
@@ -135,32 +140,39 @@ export async function startComfyMock(files) {
         return send(res, { error: { type: 'prompt_outputs_failed_validation' }, node_errors: {} }, 400);
       if (mock.mode === 'server-error') return send(res, {}, 503);
       const remoteId = mock.mode === 'legacy-lost' ? randomUUID() : data.prompt_id;
-      const node = Object.entries(data.prompt).find(
+      const nodes = Object.entries(data.prompt).filter(
         ([, value]) => value.class_type.endsWith('Output') || value.class_type === 'SaveVideo',
       );
-      const file =
-        node[1].class_type === 'ImageOutput'
-          ? 'image.png'
-          : node[1].class_type === 'AudioOutput'
-            ? 'sound.mp3'
-            : 'clip.mp4';
-      const result = {
-        type: 'output',
-        subfolder: 'studio',
-        filename: mock.mode === 'unsafe' ? '../image.png' : file,
-      };
-      history.set(remoteId, {
-        prompt: [0, remoteId, data.prompt, data.extra_data, [node[0]]],
-        status: { completed: true, status_str: 'success' },
-        outputs: {
-          [node[0]]: {
-            [file.endsWith('png') || node[1].class_type === 'SaveVideo'
+      const outputs = {};
+      for (const [id, node] of nodes) {
+        const names =
+          node.class_type === 'ImagesOutput'
+            ? ['image.jpg', 'extra.png']
+            : [
+                node.class_type === 'ImageOutput'
+                  ? 'image.png'
+                  : node.class_type === 'AudioOutput'
+                    ? 'sound.mp3'
+                    : 'clip.mp4',
+              ];
+        const field =
+          node.class_type === 'AudioOutput'
+            ? 'audio'
+            : names[0].endsWith('png') || names[0].endsWith('jpg') || node.class_type === 'SaveVideo'
               ? 'images'
-              : file.endsWith('mp3')
-                ? 'audio'
-                : 'videos']: [result],
-          },
-        },
+              : 'videos';
+        outputs[id] = {
+          [field]: names.map((filename) => ({
+            type: 'output',
+            subfolder: 'studio',
+            filename: mock.mode === 'unsafe' ? '../image.png' : filename,
+          })),
+        };
+      }
+      history.set(remoteId, {
+        prompt: [0, remoteId, data.prompt, data.extra_data, nodes.map(([id]) => id)],
+        status: { completed: true, status_str: 'success' },
+        outputs,
       });
       if (['lost', 'legacy-lost'].includes(mock.mode)) return req.socket.destroy();
       return send(res, { prompt_id: remoteId });
@@ -172,6 +184,8 @@ export async function startComfyMock(files) {
       return send(res, record ? { [id]: record } : {});
     }
     if (url.pathname === '/view') {
+      mock.downloads.push(url.searchParams.get('filename'));
+      if (mock.missingFile === url.searchParams.get('filename')) return send(res, {}, 503);
       const file = files[url.searchParams.get('filename')];
       if (
         !file ||
@@ -416,4 +430,36 @@ export function fixtureParameterized(connectionId) {
       { key: 'seed', node: '8', input: 'noise_seed', min: 0, max: 4294967295, step: 1 },
     ],
   };
+}
+
+export function fixtureExtendedOutputs(connectionId) {
+  const workflow = fixtureWorkflow(connectionId, true);
+  workflow.name = 'Video with storyboard and sound';
+  workflow.graph['8'] = { class_type: 'ImagesOutput', inputs: { conditioning: ['1', 0] } };
+  workflow.graph['9'] = { class_type: 'AudioOutput', inputs: { conditioning: ['1', 0] } };
+  workflow.mediaSchema = {
+    version: 'studio.workflow-media.v1',
+    inputs: [],
+    outputs: [
+      {
+        id: randomUUID(),
+        label: 'Storyboard',
+        role: 'preview',
+        mediaType: 'image',
+        node: '8',
+        field: 'images',
+        multiple: true,
+      },
+      {
+        id: randomUUID(),
+        label: 'Music',
+        role: 'intermediate',
+        mediaType: 'audio',
+        node: '9',
+        field: 'audio',
+        multiple: false,
+      },
+    ],
+  };
+  return workflow;
 }

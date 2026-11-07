@@ -11,6 +11,7 @@ import {
   fixtureOptionalImages,
   fixtureRequiredMedia,
   fixtureOptionalMedia,
+  fixtureExtendedOutputs,
 } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
@@ -2448,6 +2449,122 @@ test('canvas binds typed image video and audio inputs in one generation', async 
     ).toEqual(['image', 'video', 'audio']);
     await page.screenshot({ path: 'test-results/board-reference-media.png', animations: 'disabled' });
     await expect(panel.getByRole('button', { name: '存入素材库', exact: true })).toBeVisible();
+  } finally {
+    await remote.close();
+  }
+});
+
+test('one job exposes independent storyboard sound and main results as fixed canvas outputs', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'sound.mp3': fixtures['sound.mp3'].bytes,
+  });
+  try {
+    const value = await project('Multiple production outputs');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Output fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureExtendedOutputs(connection.id),
+    );
+    const nextWorkflow = await call(
+      'POST',
+      '/projects/' + value.id + '/generation-workflows',
+      fixtureOptionalMedia(connection.id, true),
+    );
+    await open(page, value);
+    const boardId = await createBoard(page, 'Storyboard and sound');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('One production with distinct deliverables');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const job = (await history()).items[0];
+    expect(job.outputs).toHaveLength(3);
+    const outputs = panel.getByLabel('选择生成产物', { exact: true });
+    await expect(outputs.locator('option')).toHaveCount(4);
+    await outputs.selectOption(job.outputs[0].id);
+    const image = panel.getByRole('img', { name: '节点生成结果', exact: true });
+    await expect(image).toBeVisible();
+    await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    let stored = (await history()).items[0];
+    expect(stored.inLibrary).toBe(false);
+    expect(stored.outputs.map((o: any) => o.inLibrary)).toEqual([true, false, false]);
+    for (const output of ['', ...job.outputs.map((o: any) => o.id)]) {
+      await outputs.selectOption(output);
+      await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+      await expect(panel.getByRole('button', { name: '加入画布结果', exact: true })).toBeDisabled();
+    }
+    await save(page);
+    let board = await call('GET', '/boards/' + boardId);
+    const resultNodes = board.layout.nodes.filter((n: any) => n.type === 'result');
+    expect(resultNodes.map((n: any) => n.id)).toEqual([job.id, ...job.outputs.map((o: any) => o.id)]);
+    expect(resultNodes.map((n: any) => board.resolved[n.id].media.mediaType)).toEqual([
+      'video',
+      'image',
+      'image',
+      'audio',
+    ]);
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    await page.reload();
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await outputs.selectOption(job.outputs[2].id);
+    const audio = panel.getByLabel('节点生成音频', { exact: true });
+    await expect(audio).toBeVisible();
+    await expect
+      .poll(() => audio.evaluate((el: HTMLAudioElement) => el.readyState))
+      .toBeGreaterThanOrEqual(2);
+    await audio.evaluate((el: HTMLAudioElement) => el.play());
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThan(0);
+    await audio.evaluate((el: HTMLAudioElement) => el.pause());
+    const download = panel.getByRole('link', { name: '下载原件', exact: true });
+    expect(await (await owner.get((await download.getAttribute('href'))!)).body()).toEqual(
+      fixtures['sound.mp3'].bytes,
+    );
+    await outputs.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/b6-canvas-outputs-desktop.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await outputs.scrollIntoViewIfNeeded();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b6-canvas-outputs-mobile.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await panel.getByRole('button', { name: '生成音频', exact: true }).click();
+    await panel.getByLabel('节点工作流').selectOption(nextWorkflow.id);
+    await panel
+      .getByLabel('节点参考音频 2：Sound reference', { exact: true })
+      .selectOption(job.outputs[2].id);
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect
+      .poll(async () => (await history()).items.filter((j: any) => j.state === 'completed').length)
+      .toBe(2);
+    stored = (await history()).items[0];
+    expect(stored.referenceMedia[0].fileName).toBe('sound.mp3');
+    expect(remote.mock.uploads.at(-1).bytes).toEqual(fixtures['sound.mp3'].bytes);
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator('.react-flow__node[data-id="' + job.outputs[1].id + '"]').click();
+    await page.keyboard.press('Delete');
+    await save(page);
+    board = await call('GET', '/boards/' + boardId);
+    expect(board.layout.nodes.some((n: any) => n.id === job.outputs[1].id)).toBe(false);
+    expect(await (await owner.get(job.outputs[1].result.contentUrl)).body()).toEqual(
+      fixtures['image.png'].bytes,
+    );
+    expect(
+      (await history()).items.find((j: any) => j.id === job.id).outputs.map((o: any) => o.mediaVersionId),
+    ).toEqual(job.outputs.map((o: any) => o.mediaVersionId));
   } finally {
     await remote.close();
   }

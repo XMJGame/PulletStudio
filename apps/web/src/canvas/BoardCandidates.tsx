@@ -4,6 +4,7 @@ import type { CursorPage } from '../api';
 import { generationStates, generationErrors, type GenerationJob } from '../components/GenerationDialog';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import './board-candidates.css';
+import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
 
 export function BoardCandidates({
   jobs,
@@ -25,14 +26,17 @@ export function BoardCandidates({
   onMore: () => void;
 }) {
   const [selected, setSelected] = useState<string>();
+  const [outputs, setOutputs] = useState<Record<string, string>>({});
   const [comparing, setComparing] = useState(false);
   const [comparison, setComparison] = useState('');
-  const primary = jobs.items.find((job) => job.id === selected) ?? jobs.items[0];
+  const current = jobs.items.find((job) => job.id === selected) ?? jobs.items[0];
+  const primary = current ? selectedGenerationOutput(current, outputs[current.id]) : undefined;
   const alternatives = jobs.items.filter((job) => job.result && job.id !== primary?.id);
-  const secondary =
+  const compared =
     comparing && primary?.result
       ? (alternatives.find((job) => job.id === comparison) ?? alternatives[0])
       : undefined;
+  const secondary = compared ? selectedGenerationOutput(compared, outputs[compared.id]) : undefined;
   if (!primary) return null;
   return (
     <div className="v2-candidate-review">
@@ -134,6 +138,13 @@ export function BoardCandidates({
             画布 v{job.boardExecution?.revision} · {new Date(job.createdAt).toLocaleTimeString()}
           </small>
         </header>
+        <GenerationOutputPicker
+          job={job}
+          onChange={(id) => {
+            if (!secondary) setSelected(job.id);
+            setOutputs((old) => ({ ...old, [job.id]: id }));
+          }}
+        />
         {job.errorCode && (
           <p role="status">
             {generationErrors[job.errorCode] ?? '生成遇到问题，请检查工作流、参考素材或实例连接。'}
@@ -165,7 +176,7 @@ export function BoardCandidates({
               icon="plus"
               disabled={
                 busy ||
-                layout.nodes.some((n) => n.type === 'result' && n.data.jobId === job.id) ||
+                layout.nodes.some((n) => n.type === 'result' && n.id === (job.selectedOutputId ?? job.id)) ||
                 layout.nodes.length >= 100
               }
               onClick={() => onResult(job)}

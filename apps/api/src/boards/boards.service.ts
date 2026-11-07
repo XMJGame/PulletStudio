@@ -104,7 +104,13 @@ export class BoardsService {
       const resolved: BoardView['resolved'] = {};
       for (const node of layout.nodes)
         if (node.type === 'result')
-          resolved[node.id] = this.references.result(user, board.projectId, node.data.jobId!);
+          resolved[node.id] = this.references.result(
+            user,
+            board.projectId,
+            node.data.jobId!,
+            false,
+            node.data.outputId,
+          );
         else if (node.type === 'reference' && node.data.ref)
           resolved[node.id] = this.references.resolve(user, board.projectId, node.data.ref);
       const unit = board.unitId
@@ -277,7 +283,13 @@ export class BoardsService {
               user,
               row.projectId,
               node.data.jobId!,
-              !previous.nodes.some((n) => n.type === 'result' && n.data.jobId === node.data.jobId),
+              !previous.nodes.some(
+                (n) =>
+                  n.type === 'result' &&
+                  n.data.jobId === node.data.jobId &&
+                  n.data.outputId === node.data.outputId,
+              ),
+              node.data.outputId,
             );
         }
         for (const node of input.layout.nodes)

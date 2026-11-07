@@ -645,7 +645,9 @@ export function BoardExecutionPanel({
                 if (!editable || busy) return;
                 setBusy(true);
                 setError('');
-                void api<GenerationJob>(`/generation-jobs/${job.id}/save-to-library`, 'POST', {})
+                void api<GenerationJob>(`/generation-jobs/${job.id}/save-to-library`, 'POST', {
+                  outputId: job.selectedOutputId,
+                })
                   .then((saved) => {
                     setJobs(
                       (value) =>
