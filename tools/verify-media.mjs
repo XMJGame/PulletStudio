@@ -22,10 +22,21 @@ export async function verifyMedia(databasePath, mediaRoot) {
     db.exec('BEGIN');
     if (db.pragma('integrity_check', { simple: true }) !== 'ok' || db.pragma('foreign_key_check').length)
       throw new Error('DATABASE_INTEGRITY');
-    const count = db.prepare('SELECT COUNT(*) n FROM media_versions').get().n;
+    const hasWorkspaceFiles = !!db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace_media_files'")
+      .get();
+    const count =
+      db.prepare('SELECT COUNT(*) n FROM media_versions').get().n +
+      (hasWorkspaceFiles ? db.prepare('SELECT COUNT(*) n FROM workspace_media_files').get().n : 0);
     manifest.pendingUploads = db
       .prepare("SELECT COUNT(*) n FROM media_uploads WHERE state IN ('uploading','needs_reconciliation')")
       .get().n;
+    if (hasWorkspaceFiles)
+      manifest.pendingUploads += db
+        .prepare(
+          "SELECT COUNT(*) n FROM workspace_media_uploads WHERE state IN ('uploading','needs_reconciliation')",
+        )
+        .get().n;
     try {
       await lstat(resolve(mediaRoot, '.pullet-storage.json'));
       manifest.storageId = await storage.ready();
@@ -39,36 +50,40 @@ export async function verifyMedia(databasePath, mediaRoot) {
         message: '请先完成或核对上传任务，再制作一致备份。',
       });
     }
-    for (const row of db
-      .prepare('SELECT id,storage_id,object_key,byte_length,sha256,poster_json FROM media_versions')
-      .iterate()) {
-      if (row.storage_id !== manifest.storageId) {
-        manifest.valid = false;
-        manifest.errors.push({ mediaVersionId: row.id, code: 'STORAGE_CONNECTION_UNAVAILABLE' });
-        continue;
-      }
-      const files = [
-        { key: row.object_key, bytes: row.byte_length, sha256: row.sha256, role: 'original' },
-        ...(row.poster_json ? [{ ...JSON.parse(row.poster_json), role: 'poster' }] : []),
-      ];
-      for (const file of files) {
-        try {
-          const actual = await storage.digest(file.key);
-          if (actual.bytes !== file.bytes || actual.sha256 !== file.sha256)
-            throw new Error('MEDIA_INTEGRITY_FAILED');
-          manifest.files.push({
-            mediaVersionId: row.id,
-            role: file.role,
-            key: file.key,
-            bytes: file.bytes,
-            sha256: file.sha256,
-          });
-        } catch {
+    const sources = hasWorkspaceFiles ? ['media_versions', 'workspace_media_files'] : ['media_versions'];
+    for (const source of sources)
+      for (const row of db
+        .prepare(`SELECT id,storage_id,object_key,byte_length,sha256,poster_json FROM ${source}`)
+        .iterate()) {
+        const identity =
+          source === 'media_versions' ? { mediaVersionId: row.id } : { workspaceFileId: row.id };
+        if (row.storage_id !== manifest.storageId) {
           manifest.valid = false;
-          manifest.errors.push({ mediaVersionId: row.id, role: file.role, code: 'MEDIA_INTEGRITY_FAILED' });
+          manifest.errors.push({ ...identity, code: 'STORAGE_CONNECTION_UNAVAILABLE' });
+          continue;
+        }
+        const files = [
+          { key: row.object_key, bytes: row.byte_length, sha256: row.sha256, role: 'original' },
+          ...(row.poster_json ? [{ ...JSON.parse(row.poster_json), role: 'poster' }] : []),
+        ];
+        for (const file of files) {
+          try {
+            const actual = await storage.digest(file.key);
+            if (actual.bytes !== file.bytes || actual.sha256 !== file.sha256)
+              throw new Error('MEDIA_INTEGRITY_FAILED');
+            manifest.files.push({
+              ...identity,
+              role: file.role,
+              key: file.key,
+              bytes: file.bytes,
+              sha256: file.sha256,
+            });
+          } catch {
+            manifest.valid = false;
+            manifest.errors.push({ ...identity, role: file.role, code: 'MEDIA_INTEGRITY_FAILED' });
+          }
         }
       }
-    }
     db.exec('ROLLBACK');
     return manifest;
   } finally {

@@ -6,7 +6,17 @@
 
 更新：2026-11-06。主栈NestJS/React/Drizzle/SQLite，本机不依赖Docker、PostgreSQL或Redis。当前只验收本机开发，正式局域网/TLS/部署另做。运行配置见根.env.example，不输出或提交.env内容。
 
+多参考图片执行使用增量迁移 0042。升级前运行 `npm run db:backup`，停止旧 Generation Worker，构建新版后再启动 API 与全部 Worker。数据库会拒绝旧 Worker 领取多图任务。
+
+ModelScope 文生图使用增量迁移 0043，同样需备份并统一升级 API、Web 和 Generation Worker。工作区的「API 设置」保存加密的文生图凭据。画布生成节点切换到「API · ModelScope」后使用固定的 Qwen Image 2512 配置。平台拒绝鉴权的任务会显示具体原因，丢失提交确认的任务不会自动重发。
+
+可选参考图使用增量迁移 0044 的租约保护。启用前按同样步骤备份并升级所有 Generation Worker。
+
+参考视频与音频使用增量迁移 0045 的租约保护，需同样统一升级。ComfyUI 文件上传仍使用原生接口，音视频使用输入目录根层，工作流必须显式配置其读取及解码路径。
+
 ## 安装与启动
+
+无需开发环境的本机体验方式见 [Windows 体验包](LOCAL-PREVIEW.md)：编译后的 Web、API 与 Generation Worker 使用包内独立数据库和媒体目录，自带运行时；通过 `start.cmd` / `stop.cmd` 操作，不迁移现用工程库。构建后 `npm run package:preview -- 新输出目录` 可生成白名单 ZIP；它不是正式 LAN/TLS 部署。
 
 首次或依赖锁文件变化时，在仓库根执行；正常开发不反复安装依赖。
 

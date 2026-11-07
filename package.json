@@ -11,6 +11,8 @@
   },
   "scripts": {
     "setup": "node tools/setup.mjs",
+    "package:preview": "node tools/package-preview.mjs",
+    "test:preview": "node --test tests/runtime/local-preview.test.mjs",
     "dev:api": "npm run start:dev --workspace @pullet-studio/api",
     "dev:web": "npm run dev --workspace @pullet-studio/web",
     "dev:studio-review": "vite apps/web --host 127.0.0.1 --port 5196 --strictPort",

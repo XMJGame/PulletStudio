@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Connection, EdgeChange, NodeChange } from '@xyflow/react';
 import type {
+  BoardInputPort,
   BoardLayout,
   BoardListItem,
   BoardNode,
@@ -23,6 +24,7 @@ import { BoardExecutionPanel } from './BoardExecutionPanel';
 import type { GenerationJob } from '../components/GenerationDialog';
 import { BoardInspector, BoardNodeLayout } from './BoardInspector';
 import { BoardSources } from './BoardSources';
+import { ResizableLibrary } from './ResizableLibrary';
 import type { CanvasNode } from './board-types';
 import './board.css';
 import { StudioBrand, StudioButton } from '../shared/ui/StudioUI';
@@ -317,12 +319,26 @@ export default function BoardWorkspace({
       setBusy(false);
     }
   }
-  function update(node: BoardNode) {
+  function update(node: BoardNode, clearFirstFrame = false) {
     if (editable)
-      setLayout(
-        (value) =>
-          value && { ...value, nodes: value.nodes.map((item) => (item.id === node.id ? node : item)) },
-      );
+      setLayout((value) => {
+        if (!value) return value;
+        const previous = value.nodes.find((item) => item.id === node.id);
+        const changedWorkflow = previous?.data.generation?.workflowId !== node.data.generation?.workflowId;
+        return {
+          ...value,
+          nodes: value.nodes.map((item) => (item.id === node.id ? node : item)),
+          edges: value.edges.filter(
+            (edge) =>
+              edge.target !== node.id ||
+              edge.kind !== 'input_binding' ||
+              !(
+                (changedWorkflow && edge.targetPort?.startsWith('reference:')) ||
+                (clearFirstFrame && edge.targetPort === 'first_frame')
+              ),
+          ),
+        };
+      });
   }
   function remove(ids: string[]) {
     if (!editable) return;
@@ -589,6 +605,9 @@ export default function BoardWorkspace({
   }
   const flowNodes = useMemo<CanvasNode[]>(() => {
     if (!layout) return [];
+    const referenceTargets = new Set(
+      layout.edges.filter((edge) => edge.targetPort?.startsWith('reference:')).map((edge) => edge.target),
+    );
     return [...layout.nodes]
       .sort((a, b) => Number(b.type === 'group') - Number(a.type === 'group'))
       .map((node) => ({
@@ -609,7 +628,7 @@ export default function BoardWorkspace({
           height: node.type === 'group' && node.data.collapsed ? 120 : node.height,
         },
         zIndex: node.type === 'group' ? -1 : 1,
-        data: { domain: node, value: resolved[node.id] },
+        data: { domain: node, value: resolved[node.id], hasReferenceInputs: referenceTargets.has(node.id) },
       }));
   }, [layout, resolved, selected]);
   const flowEdges = useMemo(
@@ -617,8 +636,20 @@ export default function BoardWorkspace({
       (layout?.edges ?? []).map((edge) => ({
         ...edge,
         sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
-        targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
-        label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
+        targetHandle:
+          edge.kind === 'input_binding'
+            ? edge.targetPort?.startsWith('reference:')
+              ? 'references'
+              : edge.targetPort
+            : 'in',
+        label:
+          edge.kind === 'input_binding'
+            ? edge.targetPort === 'prompt'
+              ? '提示词'
+              : edge.targetPort === 'first_frame'
+                ? '首帧'
+                : undefined
+            : undefined,
         style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
         hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
       })),
@@ -701,7 +732,7 @@ export default function BoardWorkspace({
       bindInput(target.id, port, source!.id);
       return;
     }
-    if (['text', 'image'].includes(connection.sourceHandle ?? '')) {
+    if (['text', 'image', 'video', 'audio'].includes(connection.sourceHandle ?? '')) {
       setError('具名输出只能连接匹配的生成输入端口。');
       return;
     }
@@ -728,8 +759,10 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
-  function bindInput(target: string, port: 'prompt' | 'first_frame', source: string) {
+  function bindInput(target: string, port: BoardInputPort, source: string) {
     if (!editable || !layout) return;
+    const sourcePort = port === 'prompt' ? 'text' : resolved[source]?.media?.mediaType;
+    if (source && (!sourcePort || (port === 'first_frame' && sourcePort !== 'image'))) return;
     const edges = layout.edges.filter(
       (e) => !(e.kind === 'input_binding' && e.target === target && e.targetPort === port),
     );
@@ -748,7 +781,7 @@ export default function BoardWorkspace({
               source,
               target,
               kind: 'input_binding',
-              sourcePort: port === 'prompt' ? 'text' : 'image',
+              sourcePort,
               targetPort: port,
             },
           ]
@@ -757,7 +790,8 @@ export default function BoardWorkspace({
   }
   function addResult(job: GenerationJob) {
     if (!editable || !layout) return;
-    const existing = layout.nodes.find((n) => n.type === 'result' && n.data.jobId === job.id);
+    const resultId = job.selectedOutputId ?? job.id;
+    const existing = layout.nodes.find((n) => n.type === 'result' && n.id === resultId);
     if (existing) {
       setSelected([existing.id]);
       return;
@@ -767,26 +801,43 @@ export default function BoardWorkspace({
       return;
     }
     const producer = layout.nodes.find((n) => n.id === job.boardExecution?.nodeId);
+    const parent = producer?.parentId
+      ? layout.nodes.find((item) => item.id === producer.parentId)
+      : undefined;
+    const origin = {
+      x: (producer?.position.x ?? 0) + (parent?.position.x ?? 0) + 320,
+      y: (producer?.position.y ?? 0) + (parent?.position.y ?? 0),
+    };
+    let position = origin;
+    for (let i = 0; i <= layout.nodes.length * 4; i++) {
+      position = {
+        x: clamp(origin.x + (i % 2) * 280, -50000, 50000),
+        y: clamp(origin.y + Math.floor(i / 2) * 310, -50000, 50000),
+      };
+      if (
+        !layout.nodes.some(
+          (item) => !item.parentId && item.type !== 'group' && overlaps(item, position, 250, 280),
+        )
+      )
+        break;
+    }
     setLayout({
       ...layout,
       nodes: [
         ...layout.nodes,
         {
-          id: job.id,
+          id: resultId,
           type: 'result',
-          position: {
-            x: clamp((producer?.position.x ?? 0) + 320, -50000, 50000),
-            y: producer?.position.y ?? 0,
-          },
+          position,
           width: 250,
           height: 280,
-          data: { jobId: job.id },
+          data: { jobId: job.id, ...(job.selectedOutputId ? { outputId: job.selectedOutputId } : {}) },
         },
       ],
     });
     setResolved((old) => ({
       ...old,
-      [job.id]: {
+      [resultId]: {
         status: job.state === 'completed' ? 'current' : 'draft',
         title: '生成结果',
         summary: job.state,
@@ -1156,24 +1207,26 @@ export default function BoardWorkspace({
           )}
           <div className={`creative-workspace ${showSources ? 'creative-workspace-library' : ''}`}>
             {showSources && (
-              <BoardSources
-                projectId={projectId}
-                editable={editable}
-                refresh={refresh}
-                add={(source) => {
-                  const added = add('reference', source);
-                  if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
-                  return Boolean(added);
-                }}
-                onDragSource={(source) => {
-                  draggedResource.current = source;
-                }}
-                onImport={() => setMediaLibrary(true)}
-                onClose={() => setShowSources(false)}
-                report={(reason) => {
-                  if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
-                }}
-              />
+              <ResizableLibrary userId={userId}>
+                <BoardSources
+                  projectId={projectId}
+                  editable={editable}
+                  refresh={refresh}
+                  add={(source) => {
+                    const added = add('reference', source);
+                    if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
+                    return Boolean(added);
+                  }}
+                  onDragSource={(source) => {
+                    draggedResource.current = source;
+                  }}
+                  onImport={() => setMediaLibrary(true)}
+                  onClose={() => setShowSources(false)}
+                  report={(reason) => {
+                    if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
+                  }}
+                />
+              </ResizableLibrary>
             )}
             <nav className="v2-live-tools" aria-label="画布工具">
               <StudioButton
@@ -1284,6 +1337,7 @@ export default function BoardWorkspace({
                         onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
                         onApplyPrompt={(revision) => applyLibraryRevision(revision, node.id)}
                         onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                        onPinMedia={pinCandidate}
                         update={update}
                         bind={(port, source) => bindInput(node.id, port, source)}
                         onResult={addResult}
@@ -1302,6 +1356,8 @@ export default function BoardWorkspace({
                       <BoardInspector
                         node={node}
                         value={node && resolved[node.id]}
+                        onMediaSaved={() => setRefresh((value) => value + 1)}
+                        onPinMedia={pinCandidate}
                         nodes={layout.nodes}
                         editable={editable}
                         update={update}

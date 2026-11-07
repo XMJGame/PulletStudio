@@ -7,6 +7,7 @@ import { AspectRatioField } from './components/AspectRatioField';
 import { MetadataDialog } from './components/MetadataDialog';
 import { VisualStyleField } from './components/VisualStyleField';
 import { TeamDialog } from './components/TeamDialog';
+import { ApiConnectionsDialog } from './components/ApiConnectionsDialog';
 import { TrashDialog } from './components/TrashDialog';
 import { ProjectTrashDialog } from './components/ProjectTrashDialog';
 import { ProjectSetupFields } from './components/ProjectSetupFields';
@@ -24,6 +25,7 @@ import {
 } from './features/projects/studio-preferences';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
 const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
+const WorkspaceLibraryDialog = lazy(() => import('./components/WorkspaceLibraryDialog'));
 
 type Status = { initialized: boolean; setupEnabled: boolean };
 type Access = { canEdit: boolean; canManage: boolean };
@@ -176,6 +178,8 @@ function App() {
   const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(false);
+  const [showPublicLibrary, setShowPublicLibrary] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [trashProject, setTrashProject] = useState<Project>();
   const [showTrash, setShowTrash] = useState(false);
@@ -185,7 +189,15 @@ function App() {
   const project = projects.find((x) => x.id === projectId);
   const workspaceManager = !!workspace && workspace.role !== 'MEMBER';
   const dialogOpen =
-    projectForm || workspaceForm || showTeam || showJoin || !!editProject || !!trashProject || showTrash;
+    projectForm ||
+    workspaceForm ||
+    showTeam ||
+    showJoin ||
+    !!editProject ||
+    !!trashProject ||
+    showTrash ||
+    showApiSettings ||
+    showPublicLibrary;
   async function refreshMemberships() {
     const available = await api<Workspace[]>('/workspaces');
     setWorkspaces(available);
@@ -208,6 +220,8 @@ function App() {
   }
   function selectWorkspace(id: string) {
     leaveProject();
+    setShowApiSettings(false);
+    setShowPublicLibrary(false);
     if (user) localStorage.setItem(`pullet.workspace.${user.id}`, id);
     setWorkspaceId(id);
   }
@@ -407,6 +421,11 @@ function App() {
             }
             topActions={
               <div className="v2-project-top-actions">
+                {workspace && (
+                  <StudioButton variant="ghost" icon="folder" onClick={() => setShowPublicLibrary(true)}>
+                    公共库
+                  </StudioButton>
+                )}
                 {workspaces.length > 1 && (
                   <WorkspaceMenu
                     workspaces={workspaces}
@@ -441,6 +460,11 @@ function App() {
                     {workspaceManager && (
                       <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTeam(true)}>
                         团队协作
+                      </StudioButton>
+                    )}
+                    {workspaceManager && (
+                      <StudioButton variant="ghost" disabled={busy} onClick={() => setShowApiSettings(true)}>
+                        API 设置
                       </StudioButton>
                     )}
                     {workspaceId && (
@@ -496,10 +520,33 @@ function App() {
                       团队协作
                     </StudioButton>
                   )}
+                  {workspaceManager && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setShowApiSettings(true)}>
+                      API 设置
+                    </StudioButton>
+                  )}
                 </>
               }
             />
           </Suspense>
+        )}
+        {workspace && showPublicLibrary && (
+          <Suspense fallback={<p role="status">正在打开公共库…</p>}>
+            <WorkspaceLibraryDialog
+              key={workspace.id}
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              onClose={() => setShowPublicLibrary(false)}
+            />
+          </Suspense>
+        )}
+        {workspace && workspaceManager && showApiSettings && (
+          <ApiConnectionsDialog
+            key={workspace.id}
+            workspaceId={workspace.id}
+            canCreate={user.instanceAdmin}
+            onClose={() => setShowApiSettings(false)}
+          />
         )}
         {project && showWorkflowCenter && (
           <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>

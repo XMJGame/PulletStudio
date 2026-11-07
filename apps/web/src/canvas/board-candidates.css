@@ -16,6 +16,11 @@
   min-width: 0;
   margin: 0;
 }
+.v2-candidate-previews audio {
+  width: 100%;
+  min-width: 0;
+  margin-block: 12px;
+}
 .v2-candidate-previews[data-comparing='true'] .v2-live-candidate > header small {
   font-size: 10px;
 }

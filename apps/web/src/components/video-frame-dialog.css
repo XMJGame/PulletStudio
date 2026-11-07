@@ -1,0 +1,48 @@
+.video-frame-dialog {
+  width: min(800px, calc(100vw - 24px));
+}
+.video-frame-dialog video,
+.video-frame-dialog .video-frame-still img {
+  display: block;
+  width: 100%;
+  max-height: 42dvh;
+  object-fit: contain;
+  border-radius: var(--r-control);
+  background: #111;
+}
+.video-frame-dialog input[type='range'] {
+  width: 100%;
+  padding: 0;
+  min-height: 32px;
+  accent-color: var(--accent);
+}
+.video-frame-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block: 8px;
+}
+.video-frame-controls span {
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+.video-frame-still {
+  margin: 12px 0;
+}
+.video-frame-still figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  padding-top: 6px;
+}
+.video-frame-dialog.has-frame video {
+  max-height: 22dvh;
+}
+.video-frame-dialog .video-frame-still img {
+  max-height: 26dvh;
+}
+@media (max-width: 760px) {
+  .video-frame-controls span {
+    flex-basis: 100%;
+  }
+}

@@ -1,7 +1,21 @@
 import type { WorkflowInput } from './generation-contract';
 import type { ExposedField } from './workflow-fields';
+import {
+  mediaInputMatchesMetadata,
+  hasExtendedMedia,
+  mediaExecutionReason,
+  supportsReferenceMedia,
+  mediaDisconnectTargets,
+  optionalMediaInputMatchesMetadata,
+} from './workflow-media';
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
+function optionalMediaDeclaration(key: string, metadata: unknown) {
+  const type = ['IMAGE', 'VIDEO', 'AUDIO'].find((type) =>
+    optionalMediaInputMatchesMetadata(key, metadata, type),
+  );
+  return type ? [type] : undefined;
+}
 export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
   if (!Array.isArray(definition)) return false;
   const [type, raw] = definition,
@@ -84,6 +98,14 @@ export async function inspectWorkflow(
       if (incoming.get(target) === 0) ready.push(target);
     }
   }
+  const disconnectTargets = (workflow.mediaSchema?.inputs ?? [])
+    .filter((slot) => slot.onMissing === 'disconnect')
+    .flatMap((slot) =>
+      mediaDisconnectTargets(workflow.graph, slot.node).map((target) => ({
+        ...target,
+        mediaType: slot.mediaType,
+      })),
+    );
   const nodes: DependencyReport['nodes'] = Object.entries(workflow.graph).map(([id, node]) => {
     const issues: Issue[] = [],
       info = definitions.get(node.class_type);
@@ -104,10 +126,34 @@ export async function inspectWorkflow(
       for (const field of workflow.fields ?? [])
         if (field.node === id && !fieldMatchesMetadata(field, required[field.input] ?? optional[field.input]))
           add('FIELD_SCHEMA_MISMATCH', field.input);
+      for (const slot of workflow.mediaSchema?.inputs ?? [])
+        if (
+          slot.node === id &&
+          !mediaInputMatchesMetadata(slot.mediaType, required[slot.input] ?? optional[slot.input])
+        )
+          add('MEDIA_SCHEMA_MISMATCH', slot.input);
+      for (const slot of workflow.mediaSchema?.inputs ?? []) {
+        if (
+          slot.onMissing === 'disconnect' &&
+          slot.node === id &&
+          (info.output_node === true ||
+            !Array.isArray(info.output) ||
+            info.output[0] !== slot.mediaType.toUpperCase())
+        )
+          add('MEDIA_DISCONNECT_INVALID', slot.input);
+      }
+      for (const target of disconnectTargets)
+        if (
+          target.node === id &&
+          !optionalMediaInputMatchesMetadata(target.input, info.input, target.mediaType)
+        )
+          add('MEDIA_DISCONNECT_INVALID', target.input);
+      if (workflow.mediaSchema?.outputs.some((slot) => slot.node === id) && info.output_node !== true)
+        add('MEDIA_OUTPUT_MISMATCH');
       for (const input of Object.keys(required))
         if (!Object.hasOwn(node.inputs, input)) add('REQUIRED_INPUT_MISSING', input);
       for (const [input, value] of Object.entries(node.inputs)) {
-        const declaration = required[input] ?? optional[input];
+        const declaration = required[input] ?? optional[input] ?? optionalMediaDeclaration(input, info.input);
         if (!Array.isArray(declaration)) {
           add('INPUT_UNDECLARED', input, 'unknown');
           continue;
@@ -146,7 +192,11 @@ export async function inspectWorkflow(
             add('LINK_TYPE_MISMATCH', input);
           continue;
         }
-        if ((workflow.image?.node === id && workflow.image.input === input) || limits.image_upload === true)
+        if (
+          (workflow.image?.node === id && workflow.image.input === input) ||
+          limits.image_upload === true ||
+          workflow.mediaSchema?.inputs.some((slot) => slot.node === id && slot.input === input)
+        )
           continue; // Uploaded fixed media is validated separately, not a remote file-existence claim.
         if (Array.isArray(type)) {
           if (!type.some((option) => JSON.stringify(option) === JSON.stringify(value)))
@@ -185,6 +235,6 @@ export async function inspectWorkflow(
       : nodes.some((node) => node.status === 'unverified')
         ? 'unverified'
         : 'compatible',
-    note: '仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。',
+    note: `${hasExtendedMedia(workflow.mediaSchema) && !supportsReferenceMedia(workflow.mediaSchema) ? `${mediaExecutionReason} ` : ''}仅检查当前节点声明、输入类型/连接及枚举选项；不代表权重文件完整、显存充足或真实运行成功。上传媒体由正式媒体流程验证。`,
   };
 }

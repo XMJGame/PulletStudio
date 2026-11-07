@@ -1,8 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
-import { ZipFile } from 'yazl';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
 import {
@@ -30,20 +28,10 @@ import {
   packageLimits,
 } from './media-package-contract';
 
+import { packageExtensions as extensions, verifyZipFiles, streamVerifiedZip } from './verified-zip';
+
 const checksum = (text: string) => createHash('sha256').update(text).digest('hex');
-const extensions: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'audio/wav': 'wav',
-  'audio/mpeg': 'mp3',
-  'audio/ogg': 'ogg',
-  'audio/mp4': 'm4a',
-  'audio/webm': 'webm',
-};
+
 type Row = typeof mediaPackageExports.$inferSelect;
 const metadata = {
   id: mediaPackageExports.id,
@@ -283,19 +271,9 @@ export class MediaPackageService {
     };
   }
   private async verifyFiles(user: CurrentUser, files: PackageFile[], signal?: AbortSignal) {
-    for (const file of files) {
-      if (signal?.aborted) fail(409, 'PACKAGE_DOWNLOAD_ABORTED', '素材包下载已中断');
-      const opened = await this.media.content(user, file.mediaVersionId, false);
-      await new Promise<void>((resolve, reject) => {
-        opened.stream.once('close', resolve);
-        opened.stream.once('error', reject);
-        opened.stream.destroy();
-      });
-      if (opened.sha256 !== file.sha256 || opened.length !== file.byteLength)
-        fail(409, 'PACKAGE_MEDIA_CHANGED', '原件与交付清单不一致');
-    }
-    if (signal?.aborted) fail(409, 'PACKAGE_DOWNLOAD_ABORTED', '素材包下载已中断');
+    return verifyZipFiles(this.media, user, files, signal);
   }
+
   async create(
     user: CurrentUser,
     projectId: string,
@@ -416,73 +394,15 @@ export class MediaPackageService {
     await this.verifyFiles(user, manifest.files, signal);
     this.row(user, id);
     if (signal?.aborted) fail(409, 'PACKAGE_DOWNLOAD_ABORTED', '素材包下载已中断');
-    const zip = new ZipFile(),
-      output = zip.outputStream as Readable;
-    let active: Readable | undefined;
-    let closed = false;
-    zip.on('error', (error) => output.destroy(error));
-    const abort = () => output.destroy();
-    signal?.addEventListener('abort', abort, { once: true });
-    output.once('close', () => {
-      closed = true;
-      active?.destroy();
-      signal?.removeEventListener('abort', abort);
+    const result = await streamVerifiedZip({
+      media: this.media,
+      user,
+      files: manifest.files,
+      manifestJson: row.manifestJson,
+      documents: manifest.documents,
+      signal,
+      authorize: (file) => this.access(user, row.projectId, file),
     });
-    const options = { compress: false, mtime: new Date(2000, 0, 1), mode: 0o100644, forceDosTimestamp: true };
-    zip.addBuffer(Buffer.from(row.manifestJson), 'manifest.json', options);
-    for (const document of manifest.documents ?? []) {
-      const bytes = Buffer.from(document.content, 'utf8');
-      if (bytes.length !== document.byteLength || checksum(document.content) !== document.sha256)
-        fail(409, 'PACKAGE_DOCUMENT_INVALID', '固定交付文档与清单不一致');
-      zip.addBuffer(bytes, document.path, options);
-    }
-    for (const file of manifest.files) {
-      zip.addReadStreamLazy(file.path, { ...options, size: file.byteLength }, (callback) => {
-        void this.media
-          .content(user, file.mediaVersionId, false)
-          .then((source) => {
-            if (closed) {
-              source.stream.destroy();
-              throw new Error('Download closed');
-            }
-            const hash = createHash('sha256');
-            let bytes = 0;
-            const checked = new Transform({
-              transform(chunk: Buffer, _encoding, done) {
-                bytes += chunk.length;
-                hash.update(chunk);
-                done(null, chunk);
-              },
-              flush: (done) => {
-                try {
-                  this.access(user, row.projectId, file);
-                  if (bytes !== file.byteLength || hash.digest('hex') !== file.sha256)
-                    throw new Error('Media integrity changed');
-                  done();
-                } catch (error) {
-                  done(error as Error);
-                }
-              },
-            });
-            active = checked;
-            checked.on('error', (error) => output.destroy(error));
-            source.stream.on('error', (error) => checked.destroy(error));
-            checked.once('close', () => source.stream.destroy());
-            source.stream.pipe(checked);
-            callback(null, checked);
-          })
-          .catch((error) => callback(error, Readable.from([])));
-      });
-    }
-    const length = await new Promise<number>((resolve, reject) => {
-      output.once('error', reject);
-      zip.end(undefined, (size?: number) => {
-        if (size === undefined || size < 0) {
-          output.destroy();
-          reject(new Error('ZIP length unavailable'));
-        } else resolve(size);
-      });
-    });
-    return { stream: output, length, fileName: this.view(row).fileName };
+    return { ...result, fileName: this.view(row).fileName };
   }
 }

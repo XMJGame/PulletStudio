@@ -36,12 +36,26 @@ import { StoryboardExportsController } from './exports/storyboard-exports.contro
 import { LocalStorage } from './storage/local-storage';
 import { MediaProbe } from './assets/media-probe';
 import { MediaService } from './assets/media.service';
+import { VideoFrameService } from './assets/video-frame.service';
+import { ResourceAccessService } from './assets/resource-access.service';
+import { WorkspaceLibraryService } from './assets/workspace-library.service';
+import { WorkspaceLibraryController } from './assets/workspace-library.controller';
+import { WorkspaceLibraryBrowserController } from './assets/workspace-library-browser.controller';
+import { WorkspaceUploadController } from './assets/workspace-upload.controller';
+import { WorkspaceUploadService } from './assets/workspace-upload.service';
+import { WorkspaceEntitiesService } from './assets/workspace-entities.service';
+import {
+  WorkspaceEntitiesController,
+  ProjectEntitiesLibraryController,
+} from './assets/workspace-entities.controller';
 import { MediaController } from './assets/media.controller';
 import { EntitiesService } from './assets/entities.service';
 import { EntitiesController } from './assets/entities.controller';
 import { AssetApprovalService } from './assets/asset-approval.service';
 import { ComfyProvider } from './generation/comfy-provider';
+import { ModelScopeProvider } from './generation/modelscope-provider';
 import { GenerationService } from './generation/generation.service';
+import { GenerationOutputPackageService } from './generation/generation-output-package.service';
 import { GenerationController } from './generation/generation.controller';
 import { GenerationWorker } from './generation/generation-worker';
 import { TakeReviewController } from './assets/take-review.controller';
@@ -53,6 +67,8 @@ import { TimelineController } from './timeline/timeline.controller';
 import { AnimaticRenderer } from './timeline/animatic-renderer';
 import { AnimaticWorker } from './timeline/animatic-worker';
 import { BoardsService } from './boards/boards.service';
+import { LibraryFoldersService } from './boards/library-folders.service';
+import { LibraryFoldersController } from './boards/library-folders.controller';
 import { BoardReferencesService } from './boards/board-references.service';
 import { BoardsController } from './boards/boards.controller';
 import { BoardGenerationController } from './boards/board-generation.controller';
@@ -78,12 +94,18 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     PromptController,
     StoryboardExportsController,
     MediaController,
+    WorkspaceLibraryController,
+    WorkspaceLibraryBrowserController,
+    WorkspaceUploadController,
+    WorkspaceEntitiesController,
+    ProjectEntitiesLibraryController,
     EntitiesController,
     GenerationController,
     TakeReviewController,
     MediaPackageController,
     TimelineController,
     BoardsController,
+    LibraryFoldersController,
     BoardGenerationController,
     WorkflowCatalogController,
     GenerationInstancesController,
@@ -111,10 +133,17 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     LocalStorage,
     MediaProbe,
     MediaService,
+    VideoFrameService,
+    ResourceAccessService,
+    WorkspaceLibraryService,
+    WorkspaceUploadService,
+    WorkspaceEntitiesService,
     EntitiesService,
     AssetApprovalService,
     ComfyProvider,
+    ModelScopeProvider,
     GenerationService,
+    GenerationOutputPackageService,
     GenerationWorker,
     TakeReviewService,
     MediaPackageService,
@@ -122,6 +151,7 @@ import { GenerationInstancesService } from './generation/generation-instances.se
     AnimaticRenderer,
     AnimaticWorker,
     BoardsService,
+    LibraryFoldersService,
     BoardGenerationService,
     BoardReferencesService,
     WorkflowCatalogService,

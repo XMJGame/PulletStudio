@@ -4,6 +4,9 @@ import { kindLabels, statusLabels } from './board-types';
 import { useBoardSources } from './useBoardSources';
 import { StudioIcon } from '../shared/ui/StudioUI';
 import { BoardSourcePreview } from './BoardSourcePreview';
+import { api } from '../api';
+import { LibraryFolderControls, type LibraryFolder } from './LibraryFolderControls';
+import { PublicLibraryPanel, type PublicLibraryFilters } from './PublicLibraryPanel';
 export const boardResourceDrag = 'application/x-pullet-board-resource';
 export function BoardSources({
   projectId,
@@ -25,25 +28,74 @@ export function BoardSources({
   onClose: () => void;
 }) {
   const [kind, setKind] = useState('media');
+  const [publicLibrary, setPublicLibrary] = useState(false);
+  const [publicBusy, setPublicBusy] = useState(false);
+  const [publicFilters, setPublicFilters] = useState<PublicLibraryFilters>({
+    folderId: '',
+    query: '',
+    mediaType: '',
+  });
+  const [collecting, setCollecting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const collectAttempts = useRef(new Map<string, string>());
   const [mediaType, setMediaType] = useState('');
   const [query, setQuery] = useState('');
+  const [folderId, setFolderId] = useState('');
+  const [folders, setFolders] = useState<LibraryFolder[]>([]);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState('');
   const [preview, setPreview] = useState<{ source: BoardSource; scope: string }>();
   const trigger = useRef('');
   const previewPrefix = useId();
-  const path = `/projects/${projectId}/board-sources?kind=${kind}&q=${encodeURIComponent(query)}${kind === 'media' && mediaType ? `&mediaType=${mediaType}` : ''}`;
+  const path = `/projects/${projectId}/board-sources?kind=${kind}&q=${encodeURIComponent(query)}${kind === 'media' && mediaType ? `&mediaType=${mediaType}` : ''}${folderId ? `&folderId=${folderId}` : ''}`;
   const { rows, cursor, loading, error, loadMore, reload } = useBoardSources(path, refresh, report);
   return (
     <aside className="creative-sources" aria-label="正式项目资源">
       <div className="creative-pane-heading">
         <div>
-          <span className="creative-kicker">PROJECT LIBRARY</span>
-          <h3>项目资源库</h3>
+          <span className="creative-kicker">{publicLibrary ? 'SHARED LIBRARY' : 'PROJECT LIBRARY'}</span>
+          <h3>{publicLibrary ? '工作区公共库' : '项目资源库'}</h3>
         </div>
-        <button className="creative-icon-button" aria-label="收起资源库" onClick={onClose}>
+        <button
+          className="creative-icon-button"
+          aria-label="收起资源库"
+          disabled={publicBusy}
+          onClick={onClose}
+        >
           ×
         </button>
       </div>
-      {preview?.scope === path ? (
+      <div className="creative-source-tabs creative-library-scopes" role="group" aria-label="资源库范围">
+        <button aria-pressed={!publicLibrary} disabled={publicBusy} onClick={() => setPublicLibrary(false)}>
+          本项目
+        </button>
+        <button aria-pressed={publicLibrary} disabled={publicBusy} onClick={() => setPublicLibrary(true)}>
+          公共库
+        </button>
+      </div>
+      {notice && (
+        <p role="status" className="field-hint">
+          {notice}
+        </p>
+      )}
+      {publicLibrary ? (
+        <PublicLibraryPanel
+          projectId={projectId}
+          editable={editable}
+          filters={publicFilters}
+          onFiltersChange={setPublicFilters}
+          onBusyChange={setPublicBusy}
+          onImported={(kind) => {
+            setPublicLibrary(false);
+            setFolderId('');
+            setKind(kind === 'entity' ? 'entities' : 'media');
+            setMediaType('');
+            setQuery('');
+            setNotice('已添加到项目资源库');
+            reload();
+          }}
+        />
+      ) : preview?.scope === path ? (
         <BoardSourcePreview
           key={JSON.stringify(preview.source.ref)}
           projectId={projectId}
@@ -51,6 +103,7 @@ export function BoardSources({
           editable={editable}
           add={add}
           report={report}
+          onMediaSaved={reload}
           onBack={() => {
             setPreview(undefined);
             requestAnimationFrame(() => {
@@ -73,6 +126,14 @@ export function BoardSources({
               </button>
             ))}
           </div>
+          <LibraryFolderControls
+            projectId={projectId}
+            editable={editable}
+            value={folderId}
+            onChange={setFolderId}
+            folders={folders}
+            onFolders={setFolders}
+          />
           {kind === 'media' && (
             <div className="creative-media-filters" role="group" aria-label="媒体类型筛选">
               {[
@@ -108,6 +169,7 @@ export function BoardSources({
             </div>
           )}
           {loading && <p role="status">正在读取…</p>}
+          {moveError && <p role="alert">{moveError}</p>}
           {!loading && !error && !rows.length && (
             <div className="creative-library-empty">
               <StudioIcon name={kind === 'media' ? 'image' : 'layers'} size={28} />
@@ -179,6 +241,76 @@ export function BoardSources({
                 >
                   <StudioIcon name="eye" size={16} />
                 </button>
+                {editable && folders.length > 0 && row.ref.kind !== 'shot' && (
+                  <label className="creative-folder-move">
+                    移至文件夹
+                    <select
+                      aria-label={`移动 ${row.value.title} 到文件夹`}
+                      disabled={moving || !row.ready}
+                      value={row.placement?.folderId ?? ''}
+                      onChange={async (event) => {
+                        const target = event.target.value || null;
+                        setMoving(true);
+                        setMoveError('');
+                        try {
+                          await api(`/projects/${projectId}/library-placement`, 'POST', {
+                            ref: row.ref,
+                            folderId: target,
+                            expectedVersion: row.placement?.version ?? 0,
+                          });
+                          reload();
+                        } catch (reason) {
+                          setMoveError(reason instanceof Error ? reason.message : '移动素材失败');
+                          reload();
+                        } finally {
+                          setMoving(false);
+                        }
+                      }}
+                    >
+                      <option value="">未分类</option>
+                      {folders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {editable &&
+                  (row.ref.kind === 'media' || (row.ref.kind === 'entity' && row.value.kind !== 'voice')) && (
+                    <button
+                      className="creative-public-action"
+                      disabled={collecting || !row.ready}
+                      aria-label={`收录 ${row.value.title} 到公共库`}
+                      onClick={async () => {
+                        if (collecting) return;
+                        setCollecting(true);
+                        setMoveError('');
+                        setNotice('');
+                        try {
+                          const attempt = JSON.stringify(row.ref);
+                          if (!collectAttempts.current.has(attempt))
+                            collectAttempts.current.set(attempt, crypto.randomUUID());
+                          await api(
+                            `/projects/${projectId}/public-library/${row.ref.kind === 'entity' ? 'entities' : 'resources'}`,
+                            'POST',
+                            row.ref.kind === 'entity'
+                              ? { revisionId: row.ref.revisionId }
+                              : { mediaVersionId: row.ref.id },
+                            { 'Idempotency-Key': collectAttempts.current.get(attempt)! },
+                          );
+                          setNotice('已收录到工作区公共库');
+                          collectAttempts.current.delete(attempt);
+                        } catch (reason) {
+                          setMoveError(reason instanceof Error ? reason.message : '收录失败');
+                        } finally {
+                          setCollecting(false);
+                        }
+                      }}
+                    >
+                      收录到公共库
+                    </button>
+                  )}
               </div>
             ))}
           </div>

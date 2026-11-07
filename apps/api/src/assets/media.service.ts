@@ -7,11 +7,18 @@ import { DatabaseService } from '../db/database.service';
 import {
   auditEvents,
   generationJobs,
+  generationOutputs,
   mediaAssets,
   mediaUploads,
+  mediaFrameExtractions,
   mediaVersions,
   storageConnections,
   takes,
+  workspaceMediaImports,
+  workspaceNativeImports,
+  workspaceMediaUploads,
+  workspaceEntityImports,
+  workspaceEntityImportMedia,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { ProductionService } from '../production/production.service';
@@ -20,8 +27,14 @@ import { MediaDetails, MediaProbe } from './media-probe';
 import { UploadInput } from './media-contract';
 import { assertSampleAccess } from './entity-references';
 import { takeReviewState } from './take-review-state';
+import { ResourceAccessService } from './resource-access.service';
+import { frameIntent, frameUpload } from './frame-extraction-state';
 type Upload = typeof mediaUploads.$inferSelect;
 type Prepared = { original: { bytes: number; sha256: string }; details: MediaDetails };
+export type ArchivedMedia = Pick<
+  typeof mediaVersions.$inferSelect,
+  'id' | 'storageId' | 'objectKey' | 'fileName' | 'mime' | 'byteLength' | 'sha256' | 'posterJson'
+>;
 export function safeMediaError(error: unknown) {
   if (error instanceof StorageFailure) return { code: error.code, message: error.message };
   if (error instanceof HttpException) {
@@ -49,6 +62,7 @@ export class MediaService {
     private readonly storage: LocalStorage,
     private readonly probe: MediaProbe,
     private readonly config: AppConfig,
+    private readonly resourceAccess: ResourceAccessService,
   ) {}
   private audit(user: CurrentUser, workspaceId: string, action: string, targetId: string) {
     this.database.db
@@ -64,6 +78,37 @@ export class MediaService {
       .run();
   }
   private view(row: typeof mediaVersions.$inferSelect) {
+    const librarySource =
+      row.origin === 'workspace_library'
+        ? (this.database.db
+            .select({ importId: workspaceMediaImports.id, resourceId: workspaceMediaImports.resourceId })
+            .from(workspaceMediaImports)
+            .innerJoin(mediaUploads, eq(mediaUploads.id, workspaceMediaImports.uploadId))
+            .where(eq(mediaUploads.mediaVersionId, row.id))
+            .get() ?? null)
+        : null;
+    const nativeSource =
+      row.origin === 'workspace_library' && !librarySource
+        ? this.database.db
+            .select({ importId: workspaceNativeImports.id, resourceId: workspaceNativeImports.resourceId })
+            .from(workspaceNativeImports)
+            .innerJoin(mediaUploads, eq(mediaUploads.id, workspaceNativeImports.uploadId))
+            .where(eq(mediaUploads.mediaVersionId, row.id))
+            .get()
+        : null;
+    const entitySource =
+      row.origin === 'workspace_library' && !librarySource && !nativeSource
+        ? this.database.db
+            .select({ importId: workspaceEntityImports.id, resourceId: workspaceEntityImports.resourceId })
+            .from(workspaceEntityImportMedia)
+            .innerJoin(
+              workspaceEntityImports,
+              eq(workspaceEntityImports.id, workspaceEntityImportMedia.importId),
+            )
+            .innerJoin(mediaUploads, eq(mediaUploads.id, workspaceEntityImportMedia.uploadId))
+            .where(eq(mediaUploads.mediaVersionId, row.id))
+            .get()
+        : null;
     return {
       id: row.id,
       assetId: row.assetId,
@@ -76,6 +121,9 @@ export class MediaService {
       sha256: row.sha256,
       metadata: JSON.parse(row.metadataJson) as MediaDetails['metadata'],
       origin: row.origin,
+      ...((librarySource ?? nativeSource ?? entitySource)
+        ? { librarySource: librarySource ?? nativeSource ?? entitySource }
+        : {}),
       createdAt: row.createdAt,
       contentUrl: `/api/v1/media-versions/${row.id}/content`,
       downloadUrl: `/api/v1/media-versions/${row.id}/content?download=1`,
@@ -131,8 +179,28 @@ export class MediaService {
     key: string,
     generationJobId?: string,
     animaticJobId?: string,
+    generationOutputId?: string,
+    frameExtractionId?: string,
   ) {
     const project = this.authz.project(user, projectId, 'edit');
+    if (frameExtractionId) {
+      const frame = frameIntent(this.database, this.authz, user, frameExtractionId, projectId);
+      if (
+        generationJobId ||
+        animaticJobId ||
+        generationOutputId ||
+        input.assetId ||
+        input.expectedAssetVersion ||
+        key !== 'frame:' + frame.id ||
+        input.fileName !== `frame-${frame.atMs}ms-${frame.id}.png`
+      )
+        fail(409, 'FRAME_UPLOAD_RESERVED', '提帧必须创建独立图片');
+    }
+    if (generationOutputId) {
+      if (generationJobId || animaticJobId || input.assetId || input.expectedAssetVersion)
+        fail(409, 'GENERATION_UPLOAD_RESERVED', '扩展产物必须创建独立文件');
+      this.outputIntent(user, projectId, generationOutputId, key, input.fileName);
+    }
     if (input.byteLength > this.config.mediaMaxBytes)
       fail(413, 'MEDIA_SIZE_LIMIT', '文件超过当前媒体上传限制');
     const requestHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -148,6 +216,10 @@ export class MediaService {
       )
       .get();
     if (existing) {
+      if (frameUpload(this.database, existing.id)?.id !== frameExtractionId)
+        fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
+      if (this.outputUpload(existing.id)?.output.id !== generationOutputId)
+        fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
       if (
         existing.requestHash !== requestHash ||
         existing.generationJobId !== (generationJobId ?? null) ||
@@ -161,6 +233,8 @@ export class MediaService {
     return this.database.db.transaction(
       () => {
         this.authz.project(user, projectId, 'edit');
+        if (frameExtractionId) frameIntent(this.database, this.authz, user, frameExtractionId, projectId);
+        if (generationOutputId) this.outputIntent(user, projectId, generationOutputId, key, input.fileName);
         const replay = this.database.db
           .select()
           .from(mediaUploads)
@@ -173,6 +247,10 @@ export class MediaService {
           )
           .get();
         if (replay) {
+          if (frameUpload(this.database, replay.id)?.id !== frameExtractionId)
+            fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
+          if (this.outputUpload(replay.id)?.output.id !== generationOutputId)
+            fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
           if (
             replay.requestHash !== requestHash ||
             replay.generationJobId !== (generationJobId ?? null) ||
@@ -217,6 +295,18 @@ export class MediaService {
             state: 'created',
           })
           .run();
+        if (generationOutputId)
+          this.database.db
+            .update(generationOutputs)
+            .set({ uploadId: id })
+            .where(eq(generationOutputs.id, generationOutputId))
+            .run();
+        if (frameExtractionId)
+          this.database.db
+            .update(mediaFrameExtractions)
+            .set({ uploadId: id })
+            .where(eq(mediaFrameExtractions.id, frameExtractionId))
+            .run();
         return this.uploadView(
           this.database.db.select().from(mediaUploads).where(eq(mediaUploads.id, id)).get()!,
         );
@@ -224,10 +314,38 @@ export class MediaService {
       { behavior: 'immediate' },
     );
   }
+  private outputUpload(id: string) {
+    return this.database.db
+      .select({ output: generationOutputs, job: generationJobs })
+      .from(generationOutputs)
+      .innerJoin(generationJobs, eq(generationJobs.id, generationOutputs.jobId))
+      .where(eq(generationOutputs.uploadId, id))
+      .get();
+  }
+  private outputIntent(user: CurrentUser, projectId: string, id: string, key: string, fileName: string) {
+    const row = this.database.db
+      .select({ output: generationOutputs, job: generationJobs })
+      .from(generationOutputs)
+      .innerJoin(generationJobs, eq(generationJobs.id, generationOutputs.jobId))
+      .where(eq(generationOutputs.id, id))
+      .get();
+    if (
+      !row ||
+      row.output.projectId !== projectId ||
+      row.job.projectId !== projectId ||
+      row.job.creatorId !== user.id ||
+      row.job.state !== 'fetching' ||
+      key !== 'generation-output:' + id ||
+      JSON.parse(row.output.descriptorJson).filename !== fileName
+    )
+      fail(403, 'GENERATION_UPLOAD_RESERVED', '扩展产物的任务、权限或状态已变化');
+    return row;
+  }
   private uploadRow(user: CurrentUser, id: string, write = false) {
     const row = this.database.db.select().from(mediaUploads).where(eq(mediaUploads.id, id)).get();
     if (!row) fail(404, 'NOT_FOUND', '上传记录不存在或无权访问');
     this.authz.project(user, row.projectId, write ? 'edit' : 'read');
+    if (write && row.state !== 'complete') this.resourceAccess.pendingImport(user, row.id);
     if (write && row.createdBy !== user.id) this.authz.project(user, row.projectId, 'manage');
     return row;
   }
@@ -316,7 +434,17 @@ export class MediaService {
           .from(mediaUploads)
           .where(and(eq(mediaUploads.state, 'uploading'), gt(mediaUploads.leaseUntil, Date.now())))
           .get()!.n;
-        if (active >= 2) fail(429, 'MEDIA_UPLOAD_BUSY', '当前已有两个媒体任务，请稍后重试');
+        const publicActive = this.database.db
+          .select({ n: count() })
+          .from(workspaceMediaUploads)
+          .where(
+            and(
+              eq(workspaceMediaUploads.state, 'uploading'),
+              gt(workspaceMediaUploads.leaseUntil, Date.now()),
+            ),
+          )
+          .get()!.n;
+        if (active + publicActive >= 2) fail(429, 'MEDIA_UPLOAD_BUSY', '当前已有两个媒体任务，请稍后重试');
         const lease = randomUUID();
         const updated = this.database.db
           .update(mediaUploads)
@@ -343,6 +471,27 @@ export class MediaService {
       () => {
         this.owner(row, lease);
         this.authz.project(user, row.projectId, 'edit');
+        const imported = this.resourceAccess.pendingImport(user, row.id);
+        const frame = frameUpload(this.database, row.id);
+        if (frame) {
+          frameIntent(this.database, this.authz, user, frame.id, row.projectId);
+          if (
+            prepared.original.sha256 !== frame.expectedSha256 ||
+            prepared.details.mediaType !== 'image' ||
+            prepared.details.mime !== 'image/png'
+          )
+            fail(409, 'FRAME_CONTENT_CHANGED', '提帧图片与已确认的预览不一致');
+        }
+        const output = this.outputUpload(row.id);
+        if (output)
+          this.outputIntent(user, row.projectId, output.output.id, row.idempotencyKey, row.fileName);
+        const managedJobId = row.generationJobId ?? output?.job.id;
+        if (
+          imported &&
+          (prepared.original.sha256 !== imported.media.sha256 ||
+            prepared.original.bytes !== imported.media.byteLength)
+        )
+          fail(409, 'PUBLIC_IMPORT_CONTENT_MISMATCH', '导入内容与公共素材版本不一致');
         const existing = this.database.db
             .select()
             .from(mediaAssets)
@@ -359,11 +508,11 @@ export class MediaService {
               workspaceId: row.workspaceId,
               name: row.fileName,
               inLibrary:
-                !row.generationJobId ||
+                !managedJobId ||
                 this.database.db
                   .select({ shotId: generationJobs.shotId })
                   .from(generationJobs)
-                  .where(eq(generationJobs.id, row.generationJobId))
+                  .where(eq(generationJobs.id, managedJobId!))
                   .get()?.shotId != null,
               version: 1,
               createdBy: row.createdBy,
@@ -400,21 +549,28 @@ export class MediaService {
             mime: prepared.details.mime,
             byteLength: prepared.original.bytes,
             sha256: prepared.original.sha256,
-            metadataJson: JSON.stringify(prepared.details.metadata),
+            metadataJson: JSON.stringify({
+              ...prepared.details.metadata,
+              ...(frame ? { derivedFrom: { mediaVersionId: frame.sourceVersionId, atMs: frame.atMs } } : {}),
+            }),
             posterJson: prepared.details.poster
               ? JSON.stringify({ ...prepared.details.poster, key: `${prefix}/poster.jpg` })
               : null,
-            origin: row.generationJobId
-              ? this.database.db
-                  .select({ purpose: generationJobs.purpose })
-                  .from(generationJobs)
-                  .where(eq(generationJobs.id, row.generationJobId))
-                  .get()?.purpose === 'workflow_test'
-                ? 'workflow_test'
-                : 'generation'
-              : row.animaticJobId
-                ? 'animatic'
-                : 'manual',
+            origin: imported
+              ? 'workspace_library'
+              : managedJobId
+                ? this.database.db
+                    .select({ purpose: generationJobs.purpose })
+                    .from(generationJobs)
+                    .where(eq(generationJobs.id, managedJobId!))
+                    .get()?.purpose === 'workflow_test'
+                  ? 'workflow_test'
+                  : 'generation'
+                : frame
+                  ? 'video_frame'
+                  : row.animaticJobId
+                    ? 'animatic'
+                    : 'manual',
             createdBy: row.createdBy,
             createdAt: now,
           })
@@ -465,12 +621,15 @@ export class MediaService {
     generation?: {
       jobId?: string;
       animaticJobId?: string;
-      mediaType: 'image' | 'video';
+      frameId?: string;
+      mediaType: 'image' | 'video' | 'audio';
       signal: AbortSignal;
     },
   ) {
     const requested = this.uploadRow(user, id, true);
-    if (requested.generationJobId !== (generation?.jobId ?? null))
+    if (frameUpload(this.database, id)?.id !== generation?.frameId)
+      fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
+    if ((requested.generationJobId ?? this.outputUpload(id)?.job.id ?? null) !== (generation?.jobId ?? null))
       fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
     if (requested.animaticJobId !== (generation?.animaticJobId ?? null))
       fail(403, 'ANIMATIC_UPLOAD_RESERVED', '此上传由预演任务管理');
@@ -549,8 +708,19 @@ export class MediaService {
       clearInterval(heartbeat);
     }
   }
-  async reconcile(user: CurrentUser, id: string, generationJobId?: string, animaticJobId?: string) {
-    if (this.uploadRow(user, id, true).generationJobId !== (generationJobId ?? null))
+  async reconcile(
+    user: CurrentUser,
+    id: string,
+    generationJobId?: string,
+    animaticJobId?: string,
+    frameId?: string,
+  ) {
+    if (frameUpload(this.database, id)?.id !== frameId)
+      fail(403, 'FRAME_UPLOAD_RESERVED', '提帧上传由原操作管理');
+    if (
+      (this.uploadRow(user, id, true).generationJobId ?? this.outputUpload(id)?.job.id ?? null) !==
+      (generationJobId ?? null)
+    )
       fail(403, 'GENERATION_UPLOAD_RESERVED', '此上传由生成任务管理');
     if (this.uploadRow(user, id, true).animaticJobId !== (animaticJobId ?? null))
       fail(403, 'ANIMATIC_UPLOAD_RESERVED', '此上传由预演任务管理');
@@ -595,6 +765,18 @@ export class MediaService {
               eq(mediaUploads.createdBy, user.id),
               isNull(mediaUploads.generationJobId),
               isNull(mediaUploads.animaticJobId),
+              notExists(
+                this.database.db
+                  .select({ id: mediaFrameExtractions.id })
+                  .from(mediaFrameExtractions)
+                  .where(eq(mediaFrameExtractions.uploadId, mediaUploads.id)),
+              ),
+              notExists(
+                this.database.db
+                  .select({ id: generationOutputs.id })
+                  .from(generationOutputs)
+                  .where(eq(generationOutputs.uploadId, mediaUploads.id)),
+              ),
             ),
           )
           .get()
@@ -609,6 +791,18 @@ export class MediaService {
           eq(mediaUploads.createdBy, user.id),
           isNull(mediaUploads.generationJobId),
           isNull(mediaUploads.animaticJobId),
+          notExists(
+            this.database.db
+              .select({ id: mediaFrameExtractions.id })
+              .from(mediaFrameExtractions)
+              .where(eq(mediaFrameExtractions.uploadId, mediaUploads.id)),
+          ),
+          notExists(
+            this.database.db
+              .select({ id: generationOutputs.id })
+              .from(generationOutputs)
+              .where(eq(generationOutputs.uploadId, mediaUploads.id)),
+          ),
           boundary
             ? or(
                 lt(mediaUploads.createdAt, boundary.createdAt),
@@ -763,8 +957,19 @@ export class MediaService {
   async content(user: CurrentUser, id: string, poster: boolean, rangeHeader?: string) {
     const row = this.database.db.select().from(mediaVersions).where(eq(mediaVersions.id, id)).get();
     if (!row) fail(404, 'NOT_FOUND', '媒体版本不存在或无权访问');
-    this.authz.project(user, row.projectId);
-    assertSampleAccess(this.database, user, row);
+    const authorize = () => {
+      this.authz.project(user, row.projectId);
+      assertSampleAccess(this.database, user, row);
+    };
+    return this.openContent(row, poster, rangeHeader, authorize);
+  }
+  async openContent(
+    row: ArchivedMedia,
+    poster: boolean,
+    rangeHeader: string | undefined,
+    authorize: () => void,
+  ) {
+    authorize();
     if ((await this.storage.ready()) !== row.storageId)
       throw new StorageFailure('STORAGE_CONNECTION_UNAVAILABLE', '此媒体的原存储根尚未恢复');
     const file =
@@ -802,8 +1007,7 @@ export class MediaService {
       range,
     );
     try {
-      this.authz.project(user, row.projectId);
-      assertSampleAccess(this.database, user, row);
+      authorize();
       return {
         stream,
         mime: file.mime,

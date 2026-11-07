@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 import { Dialog } from '../components/Dialog';
+import { VideoFrameButton } from '../components/VideoFrameDialog';
+import type { MediaVersion } from '../media-types';
 import { kindLabels, statusLabels } from './board-types';
 const fields: Record<string, string> = {
   code: '镜头编号',
@@ -98,6 +100,8 @@ export function BoardInspector({
   closeDetail,
   onDismiss,
   onUseImage,
+  onMediaSaved,
+  onPinMedia,
 }: {
   node?: BoardNode;
   value?: BoardResolved;
@@ -110,6 +114,8 @@ export function BoardInspector({
   closeDetail: () => void;
   onDismiss: () => void;
   onUseImage?: () => void;
+  onMediaSaved?: () => void;
+  onPinMedia?: (media: MediaVersion) => Promise<void>;
 }) {
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => setMediaError(false), [node?.id, value?.media?.contentUrl]);
@@ -184,6 +190,9 @@ export function BoardInspector({
                   <a href={value.media.downloadUrl} download>
                     下载固定媒体原件
                   </a>
+                  {editable && value.media.mediaType === 'video' && (
+                    <VideoFrameButton mediaId={value.media.id} onSaved={onMediaSaved} onAdd={onPinMedia} />
+                  )}
                 </div>
               )}
               {mediaError && (

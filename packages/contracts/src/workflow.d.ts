@@ -7,3 +7,32 @@ export type FieldSpec =
   | { type: 'enum'; options: string[] };
 export type ExposedField = FieldSpec & { id: string; label: string; node: string; input: string };
 export type AvailableField = FieldSpec & { id: string; label: string; defaultValue: FieldValue };
+export type WorkflowMediaType = 'image' | 'video' | 'audio';
+export type WorkflowMediaInput = {
+  id: string;
+  label: string;
+  mediaType: WorkflowMediaType;
+  role: 'reference' | 'last_frame' | 'source' | 'mask';
+  node: string;
+  input: string;
+  required: boolean;
+  onMissing: 'error' | 'empty' | 'disconnect';
+};
+export type WorkflowMediaOutput = {
+  id: string;
+  label: string;
+  mediaType: WorkflowMediaType;
+  role: 'preview' | 'intermediate';
+  node: string;
+  field: string;
+  multiple: boolean;
+};
+export type WorkflowMediaSchema = {
+  version: 'studio.workflow-media.v1';
+  inputs: WorkflowMediaInput[];
+  outputs: WorkflowMediaOutput[];
+};
+export type WorkflowMediaSummary = {
+  inputs: Omit<WorkflowMediaInput, 'node' | 'input'>[];
+  outputs: Omit<WorkflowMediaOutput, 'node' | 'field'>[];
+};

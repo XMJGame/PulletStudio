@@ -9,6 +9,7 @@ export type MediaVersion = {
   byteLength: number;
   sha256: string;
   origin: string;
+  librarySource?: { importId: string; resourceId: string };
   metadata: {
     width: number | null;
     height: number | null;
@@ -18,6 +19,8 @@ export type MediaVersion = {
     audioCodecs: string[];
     sampleRate: number | null;
     channels: number | null;
+    frameRate?: string | null;
+    derivedFrom?: { mediaVersionId: string; atMs: number };
   };
   contentUrl: string;
   downloadUrl: string;

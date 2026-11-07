@@ -4,6 +4,7 @@ import { Dialog } from '../components/Dialog';
 import { describeParameters } from '../components/GenerationParameters';
 import { GenerationDialog, generationStates, type GenerationJob } from '../components/GenerationDialog';
 import type { GenerationConfig, Workflow } from './workflow-types';
+import { GenerationOutputPicker, selectedGenerationOutput } from '../components/GenerationOutputPicker';
 
 type ReleaseEvent = {
   id: string;
@@ -17,14 +18,19 @@ type ReleaseEvent = {
 };
 type ReleaseHistory = { items: ReleaseEvent[]; nextCursor: number | null };
 
-function EvidencePreview({ job }: { job: GenerationJob }) {
+function EvidencePreview({ job: original }: { job: GenerationJob }) {
+  const [output, setOutput] = useState('');
+  const job = selectedGenerationOutput(original, output);
   if (!job.result) return null;
   const { contentUrl, mediaType } = job.result;
   return (
     <details>
       <summary>预览试跑结果</summary>
+      <GenerationOutputPicker job={job} onChange={setOutput} />
       {mediaType === 'image' ? (
         <img src={contentUrl} alt="试跑结果" loading="lazy" />
+      ) : mediaType === 'audio' ? (
+        <audio aria-label="音频试跑结果" src={contentUrl} controls preload="metadata" />
       ) : (
         <video src={contentUrl} controls preload="none" playsInline />
       )}
@@ -144,7 +150,8 @@ export function WorkflowReleaseDialog({
           <section aria-label="提示词试跑">
             <h3>直接试跑</h3>
             <p className="field-hint">粘贴提示词验证当前工作流，结果仅保留为试跑证据。</p>
-            <button disabled={busy} onClick={() => setFreeTrial(true)}>
+            {current?.executable === false && <p role="status">{current.executionBlocker}</p>}
+            <button disabled={busy || current?.executable === false} onClick={() => setFreeTrial(true)}>
               粘贴提示词试跑
             </button>
           </section>

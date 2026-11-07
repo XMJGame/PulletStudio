@@ -198,12 +198,24 @@ export default function WorkflowCenter({
                     {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
                   </p>
                   <span className="v2-workflow-status">
-                    {item.releaseState === 'published'
-                      ? '已发布'
-                      : item.releaseState === 'draft'
-                        ? '待审核发布'
-                        : '兼容配置'}
+                    {item.executable === false
+                      ? '媒体声明已保存 · 执行未接通'
+                      : item.releaseState === 'published'
+                        ? '已发布'
+                        : item.releaseState === 'draft'
+                          ? '待审核发布'
+                          : '兼容配置'}
                   </span>
+                  {item.executable === false && <p className="field-hint">{item.executionBlocker}</p>}
+                  {item.executable && !!item.mediaSchema?.inputs.length && (
+                    <p className="field-hint">参考素材可在画布节点、自由生成与试跑中选择。</p>
+                  )}
+                  {(!!item.mediaSchema?.inputs.length || !!item.mediaSchema?.outputs.length) && (
+                    <p className="field-hint">
+                      扩展输入 {item.mediaSchema?.inputs.length ?? 0} 个 · 扩展输出{' '}
+                      {item.mediaSchema?.outputs.length ?? 0} 个
+                    </p>
+                  )}
                   <p className="field-hint v2-workflow-metadata">
                     {[
                       ...item.parameters.map((parameter) => parameterLabels[parameter.key]),

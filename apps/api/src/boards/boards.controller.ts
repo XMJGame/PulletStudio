@@ -86,9 +86,11 @@ export class BoardsController {
           cursor: uuid.optional(),
           q: z.string().max(80).optional(),
           mediaType: z.enum(['image', 'video', 'audio']).optional(),
+          folderId: z.union([uuid, z.literal('root')]).optional(),
         })
         .strict()
-        .refine((value) => !value.mediaType || value.kind === 'media', '媒体类型仅用于媒体列表'),
+        .refine((value) => !value.mediaType || value.kind === 'media', '媒体类型仅用于媒体列表')
+        .refine((value) => !value.folderId || value.kind !== 'shots', '文件夹仅用于项目资源库'),
       query,
     );
     return this.references.sources(
@@ -98,6 +100,7 @@ export class BoardsController {
       input.cursor,
       input.q,
       input.mediaType,
+      input.folderId,
     );
   }
   @Post('projects/:id/board-references/resolve') resolve(

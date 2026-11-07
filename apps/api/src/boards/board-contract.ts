@@ -33,7 +33,13 @@ const node = z.discriminatedUnion('type', [
         .strict(),
     })
     .strict(),
-  z.object({ ...base, type: z.literal('result'), data: z.object({ jobId: z.uuid() }).strict() }).strict(),
+  z
+    .object({
+      ...base,
+      type: z.literal('result'),
+      data: z.object({ jobId: z.uuid(), outputId: z.uuid().optional() }).strict(),
+    })
+    .strict(),
   z
     .object({
       ...base,
@@ -86,8 +92,10 @@ export const boardLayout = z
             source: z.uuid(),
             target: z.uuid(),
             kind: z.enum(['annotation', 'input_binding']).optional(),
-            sourcePort: z.enum(['text', 'image']).optional(),
-            targetPort: z.enum(['prompt', 'first_frame']).optional(),
+            sourcePort: z.enum(['text', 'image', 'video', 'audio']).optional(),
+            targetPort: z
+              .union([z.enum(['prompt', 'first_frame']), z.templateLiteral(['reference:', z.uuid()])])
+              .optional(),
           })
           .strict(),
       )
@@ -99,7 +107,8 @@ export const boardLayout = z
     const invalid = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (ids.size !== layout.nodes.length) invalid('节点标识不能重复');
     for (const n of layout.nodes)
-      if (n.type === 'result' && n.id !== n.data.jobId) invalid('结果节点使用任务标识，不能重复加入同一结果');
+      if (n.type === 'result' && n.id !== (n.data.outputId ?? n.data.jobId))
+        invalid('结果节点使用任务或产物标识，不能重复加入同一结果');
     for (const n of layout.nodes)
       if (n.parentId && (n.type === 'group' || ids.get(n.parentId)?.type !== 'group'))
         invalid('分组须引用本画布的一级分组');
@@ -126,8 +135,10 @@ export const boardLayout = z
         if (
           edge.targetPort === 'prompt'
             ? edge.sourcePort !== 'text' || source?.type !== 'note'
-            : edge.targetPort !== 'first_frame' ||
-              edge.sourcePort !== 'image' ||
+            : !edge.targetPort ||
+              (edge.targetPort === 'first_frame'
+                ? edge.sourcePort !== 'image'
+                : !edge.sourcePort || edge.sourcePort === 'text') ||
               !(
                 source?.type === 'result' ||
                 (source?.type === 'reference' && source.data.ref.kind === 'media')

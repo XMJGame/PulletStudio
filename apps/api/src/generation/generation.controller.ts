@@ -1,7 +1,24 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+import { Response } from 'express';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { parse, StudioRequest } from '../common/http';
+import { fail, parse, StudioRequest } from '../common/http';
+import { safeMediaError } from '../assets/media.service';
+import { saveOutputsInput, packageSelection } from './generation-output-batch';
+import { GenerationOutputPackageService } from './generation-output-package.service';
 import {
   connectionInput,
   connectionUpdate,
@@ -18,10 +35,30 @@ const uuid = z.uuid();
 @ApiCookieAuth()
 @Controller('api/v1')
 export class GenerationController {
-  constructor(private readonly generation: GenerationService) {}
+  constructor(
+    private readonly generation: GenerationService,
+    private readonly outputPackages: GenerationOutputPackageService,
+  ) {}
+  @Get('workspaces/:id/modelscope-generation')
+  modelScopeStatus(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.modelScopeStatus(req.user, parse(uuid, id));
+  }
+  @Post('workspaces/:id/modelscope-generation')
+  configureModelScope(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    const { token } = parse(z.object({ token: z.string().regex(/^[\x21-\x7e]{1,8192}$/u) }).strict(), body);
+    return this.generation.configureModelScope(req.user, parse(uuid, id), token);
+  }
+  @Post('projects/:id/modelscope-generation')
+  projectModelScope(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.projectModelScope(req.user, parse(uuid, id));
+  }
   @Get('projects/:id/generation-config')
-  config(@Req() req: StudioRequest, @Param('id') id: string) {
-    return this.generation.config(req.user, parse(uuid, id));
+  config(@Req() req: StudioRequest, @Param('id') id: string, @Query('workflowId') workflowId?: string) {
+    return this.generation.config(
+      req.user,
+      parse(uuid, id),
+      workflowId === undefined ? undefined : parse(uuid, workflowId),
+    );
   }
   @Get('projects/:id/generation-jobs')
   projectJobs(
@@ -67,15 +104,57 @@ export class GenerationController {
     );
   }
   @Post('generation-jobs/:id/save-to-library')
-  saveCandidate(@Req() req: StudioRequest, @Param('id') id: string) {
-    return this.generation.saveCandidate(req.user, parse(uuid, id));
+  saveCandidate(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    const input = parse(z.object({ outputId: uuid.optional() }).strict(), body ?? {});
+    return this.generation.saveCandidate(req.user, parse(uuid, id), input.outputId);
   }
-  @Get('projects/:id/generation-images')
-  images(@Req() req: StudioRequest, @Param('id') id: string, @Query('cursor') cursor?: string) {
+  @Post('generation-jobs/:id/save-outputs-to-library')
+  saveOutputs(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.generation.saveCandidates(req.user, parse(uuid, id), parse(saveOutputsInput, body).outputIds);
+  }
+  @Get('generation-jobs/:id/output-package/preview')
+  outputPreview(@Req() req: StudioRequest, @Param('id') id: string, @Query('outputIds') ids: unknown) {
+    return this.outputPackages.preview(req.user, parse(uuid, id), parse(packageSelection, ids));
+  }
+  @Get('generation-jobs/:id/output-package')
+  async outputFile(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('outputIds') ids: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const selected = parse(packageSelection, ids),
+      jobId = parse(uuid, id);
+    const abort = new AbortController(),
+      stop = () => abort.abort();
+    response.once('close', stop);
+    response.once('finish', () => response.off('close', stop));
+    try {
+      const file = await this.outputPackages.file(req.user, jobId, selected, abort.signal);
+      response.setHeader('Cache-Control', 'no-store');
+      return new StreamableFile(file.stream, {
+        type: 'application/zip',
+        disposition: `attachment; filename="${file.fileName}"`,
+        length: file.length,
+      });
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      const failure = safeMediaError(error);
+      fail(409, failure.code, failure.message);
+    }
+  }
+  @Get(['projects/:id/generation-images', 'projects/:id/generation-reference-media'])
+  images(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('cursor') cursor?: string,
+    @Query('type') type?: string,
+  ) {
     return this.generation.images(
       req.user,
       parse(uuid, id),
       cursor === undefined ? undefined : parse(uuid, cursor),
+      type === undefined ? undefined : parse(z.enum(['image', 'video', 'audio']), type),
     );
   }
   @Post('projects/:id/generation-connections')

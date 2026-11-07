@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
+  BoardInputPort,
   BoardLayout,
   BoardNode,
   BoardResolved,
@@ -10,11 +11,23 @@ import { GenerationJob } from '../components/GenerationDialog';
 import { BoardCandidates } from './BoardCandidates';
 import { parameterLabels } from '../components/GenerationParameters';
 import { CreativeParameters } from '../workflows/CreativeParameters';
-import { GenerationConfig, capabilityLabels } from '../workflows/workflow-types';
+import {
+  GenerationConfig,
+  capabilityLabels,
+  referenceMediaLabels,
+  type Workflow,
+  workflowEngine,
+  workflowOutputType,
+  matchesGenerationType,
+  type GenerationEngine,
+  type GenerationOutputFilter,
+} from '../workflows/workflow-types';
 import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import { PromptLibraryPicker } from '../prompts/PromptLibraryPicker';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import '../features/canvas/studio-live-composer.css';
+import { GenerationTypePicker } from '../workflows/GenerationTypePicker';
+import type { MediaVersion } from '../media-types';
 
 export function BoardExecutionPanel({
   board,
@@ -29,6 +42,7 @@ export function BoardExecutionPanel({
   onPromptLibrary,
   onApplyPrompt,
   onSavedToLibrary,
+  onPinMedia,
   update,
   bind,
   onResult,
@@ -48,8 +62,9 @@ export function BoardExecutionPanel({
   onPromptLibrary: (draft?: PromptDraft) => void;
   onApplyPrompt: (revision: LibraryRevision) => void;
   onSavedToLibrary: () => void;
-  update: (node: BoardNode) => void;
-  bind: (port: 'prompt' | 'first_frame', source: string) => void;
+  onPinMedia?: (media: MediaVersion) => Promise<void>;
+  update: (node: BoardNode, clearFirstFrame?: boolean) => void;
+  bind: (port: BoardInputPort, source: string) => void;
   onResult: (job: GenerationJob) => void;
   onOpenTasks: () => void;
   onDismiss: () => void;
@@ -60,6 +75,19 @@ export function BoardExecutionPanel({
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
+  const [pinned, setPinned] = useState<Workflow>();
+  const [choice, setChoice] = useState<{
+    workflowId?: string;
+    engine: GenerationEngine;
+    output: GenerationOutputFilter;
+  }>();
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto'),
     [instance, setInstance] = useState(''),
     [instances, setInstances] = useState<{ id: string; name: string; available: boolean }[]>([]);
@@ -68,8 +96,62 @@ export function BoardExecutionPanel({
     candidates = useRef<HTMLElement>(null),
     attemptKey = `pullet.board.run.${userId}.${board.id}.${node.id}`,
     settings = node.data.generation ?? {},
-    workflow = config?.workflows.find((w) => w.id === settings.workflowId),
+    listed = config?.workflows.find((w) => w.id === settings.workflowId),
+    workflow = listed ?? (pinned?.id === settings.workflowId ? pinned : undefined),
+    selection = choice?.workflowId === settings.workflowId ? choice : undefined,
+    engine = selection?.engine ?? workflowEngine(workflow),
+    output = selection?.output ?? workflowOutputType(workflow) ?? 'all',
+    apiImage = workflow?.provider === 'modelscope',
+    poolConfigured = !!config?.poolConfigured && engine !== 'api',
     path = `/boards/${board.id}/nodes/${node.id}/generation-jobs`;
+  const workflows = [
+    ...(config?.workflows ?? []),
+    ...(pinned && !config?.workflows.some((w) => w.id === pinned.id) ? [pinned] : []),
+  ];
+  const visibleWorkflows = workflows.filter((w) => !w.archived && matchesGenerationType(w, engine, output));
+  function selectWorkflow(id: string) {
+    const next = workflows.find((w) => w.id === id);
+    setChoice({
+      workflowId: id || undefined,
+      engine: next ? workflowEngine(next) : engine,
+      output: workflowOutputType(next) ?? output,
+    });
+    update(
+      { ...node, data: { ...node.data, generation: id ? { workflowId: id } : {} } },
+      next?.capability !== 'video.image_to_video',
+    );
+  }
+  function selectOutput(next: GenerationOutputFilter) {
+    const clear = workflow
+      ? !matchesGenerationType(workflow, engine, next)
+      : Boolean(firstFrame && next !== 'all' && next !== 'video');
+    setChoice({ workflowId: clear ? undefined : settings.workflowId, engine, output: next });
+    if (clear) update({ ...node, data: { ...node.data, generation: {} } }, true);
+  }
+  async function selectEngine(next: GenerationEngine) {
+    if (next === 'comfyui') {
+      setChoice({ engine: next, output });
+      update({ ...node, data: { ...node.data, generation: {} } }, true);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { id } = await api<{ id: string }>(`/projects/${board.projectId}/modelscope-generation`, 'POST');
+      const value = await api<GenerationConfig>(
+        `/projects/${board.projectId}/generation-config?workflowId=${id}`,
+      );
+      if (!alive.current) return;
+      if (!value.pinnedWorkflow) throw new Error('API 模型配置暂不可用，请重试。');
+      setPinned(value.pinnedWorkflow);
+      setChoice({ workflowId: id, engine: next, output: 'image' });
+      update({ ...node, data: { ...node.data, generation: { workflowId: id } } }, true);
+    } catch (reason) {
+      if (alive.current) report(reason);
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
   function report(reason: unknown) {
     setError(reason instanceof Error ? reason.message : '无法读取生成任务');
     if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
@@ -132,10 +214,26 @@ export function BoardExecutionPanel({
     };
   }, [path, board.projectId]);
   useEffect(() => {
+    if (!config || listed || !settings.workflowId) return;
+    let active = true;
+    void api<GenerationConfig>(
+      `/projects/${board.projectId}/generation-config?workflowId=${settings.workflowId}`,
+    )
+      .then((value) => {
+        if (active) setPinned(value.pinnedWorkflow);
+      })
+      .catch((reason) => {
+        if (active) report(reason);
+      });
+    return () => {
+      active = false;
+    };
+  }, [config, listed, settings.workflowId, board.projectId]);
+  useEffect(() => {
     let active = true;
     setInstances([]);
     setInstance('');
-    if (config?.poolConfigured && settings.workflowId)
+    if (poolConfigured && workflow && settings.workflowId)
       void api<{ items: { id: string; name: string; available: boolean }[] }>(
         `/generation-workflows/${settings.workflowId}/routing-options?context=exploration`,
       )
@@ -148,8 +246,8 @@ export function BoardExecutionPanel({
     return () => {
       active = false;
     };
-  }, [config?.poolConfigured, settings.workflowId]);
-  const source = (port: string) =>
+  }, [poolConfigured, workflow, settings.workflowId]);
+  const source = (port: BoardInputPort) =>
     layout.edges.find((e) => e.kind === 'input_binding' && e.target === node.id && e.targetPort === port)
       ?.source ?? '';
   const firstFrame = source('first_frame');
@@ -157,15 +255,37 @@ export function BoardExecutionPanel({
   const text = prompt?.text?.trim();
   const needsFrame = workflow?.capability === 'video.image_to_video';
   const frame = resolved[firstFrame];
+  const referenceNodes = layout.nodes.filter(
+    (n) =>
+      (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
+      resolved[n.id]?.media &&
+      resolved[n.id]?.status !== 'unavailable',
+  );
+  const imageNodes = referenceNodes.filter((n) => resolved[n.id]?.media?.mediaType === 'image');
+  const referenceSlots = workflow?.executable === true ? (workflow.mediaSchema?.inputs ?? []) : [];
+  const missingSlot = referenceSlots.find((slot) => {
+    const selected = source(`reference:${slot.id}`);
+    return (
+      (slot.required || selected) &&
+      !referenceNodes.some(
+        (item) => item.id === selected && resolved[item.id]?.media?.mediaType === slot.mediaType,
+      )
+    );
+  });
   let blocked = '';
   if (!config) blocked = error ? '工作流暂不可用。' : '正在读取工作流与权限…';
   else if (!editable || !config.canEdit) blocked = '此节点为只读。';
-  else if (!workflow || workflow.archived || (!workflow.enabled && !config.poolConfigured))
+  else if (workflow?.executable === false)
+    blocked = workflow.executionBlocker ?? '此工作流的媒体执行尚未接通。';
+  else if (!workflow || workflow.archived || (!workflow.enabled && !poolConfigured))
     blocked = '选择一个可用工作流。';
   else if (needsFrame && frame?.media?.mediaType !== 'image') blocked = '图生视频需要选择一张首帧。';
-  else if (!needsFrame && firstFrame) blocked = '当前工作流仅使用文字，请移除首帧。';
+  else if (!needsFrame && firstFrame) blocked = '当前工作流没有首帧槽位，请移除首帧。';
+  else if (missingSlot)
+    blocked = `请选择参考${referenceMediaLabels[missingSlot.mediaType]}：${missingSlot.label}`;
   else if (!text) blocked = '填写提示词或连接文本便签。';
-  else if (config.poolConfigured && mode === 'manual' && !instance) blocked = '选择一台可用实例。';
+  else if (apiImage && prompt?.prompt?.negativePrompt?.trim()) blocked = '当前 API 模型仅支持正向提示词。';
+  else if (poolConfigured && mode === 'manual' && !instance) blocked = '选择一台可用实例。';
   else if (dirty && !save) blocked = '填写画布名称后才能保存并生成。';
   const fieldOverrides = Object.fromEntries(
     Object.entries(settings.fieldValues ?? {}).map(([id, value]) => [
@@ -212,26 +332,35 @@ export function BoardExecutionPanel({
           </p>
         )}
         <fieldset className="plain-fieldset" disabled={!editable || busy || !config?.canEdit}>
+          <GenerationTypePicker
+            engine={engine}
+            output={output}
+            onEngine={(next) => void selectEngine(next)}
+            onOutput={selectOutput}
+            empty={Boolean(config && !visibleWorkflows.length && !workflow)}
+          />
           <label>
-            节点工作流
+            {engine === 'api' ? 'API 模型' : '节点工作流'}
             <select
               aria-label="节点工作流"
               value={settings.workflowId ?? ''}
-              onChange={(e) =>
-                update({ ...node, data: { generation: { workflowId: e.target.value || undefined } } })
-              }
+              onChange={(e) => selectWorkflow(e.target.value)}
             >
-              <option value="">选择已保存工作流</option>
-              {settings.workflowId && (!workflow || workflow.archived) && (
-                <option value={settings.workflowId}>固定工作流不可用</option>
+              <option value="">{engine === 'api' ? '选择 API 模型' : '选择已保存工作流'}</option>
+              {settings.workflowId && !visibleWorkflows.some((w) => w.id === settings.workflowId) && (
+                <option value={settings.workflowId}>
+                  {workflow && !workflow.archived
+                    ? `${workflow.name} · 固定 v${workflow.revision ?? 1}`
+                    : '固定工作流不可用'}
+                </option>
               )}
-              {config?.workflows
-                .filter((w) => !w.archived)
-                .map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name} · v{w.revision ?? 1} · {capabilityLabels[w.capability]}
-                  </option>
-                ))}
+              {visibleWorkflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} · {config?.workflows.some((item) => item.id === w.id) ? 'v' : '固定 v'}
+                  {w.revision ?? 1} · {capabilityLabels[w.capability]}
+                  {!w.enabled ? ' · 连接停用' : ''}
+                </option>
+              ))}
             </select>
           </label>
           {(needsFrame || firstFrame) && (
@@ -263,20 +392,55 @@ export function BoardExecutionPanel({
                   {firstFrame && frame?.media?.mediaType !== 'image' && (
                     <option value={firstFrame}>当前首帧不可用</option>
                   )}
-                  {layout.nodes
-                    .filter(
-                      (n) =>
-                        (n.type === 'result' || (n.type === 'reference' && n.data.ref?.kind === 'media')) &&
-                        resolved[n.id]?.media?.mediaType === 'image',
-                    )
-                    .map((n) => (
-                      <option key={n.id} value={n.id}>
-                        {resolved[n.id]?.title}
-                      </option>
-                    ))}
+                  {imageNodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {resolved[n.id]?.title}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
+          )}
+          {referenceSlots.length > 0 && (
+            <section className="v2-live-reference-slots" aria-label="节点参考素材">
+              <strong>参考素材</strong>
+              <p className="field-hint">按工作流槽位选择已加入画布的同类型素材。</p>
+              {referenceSlots.map((slot, index) => {
+                const port = `reference:${slot.id}` as const;
+                const selected = source(port);
+                const candidates = referenceNodes.filter(
+                  (item) => resolved[item.id]?.media?.mediaType === slot.mediaType,
+                );
+                const media = candidates.some((item) => item.id === selected)
+                  ? resolved[selected]?.media
+                  : undefined;
+                const poster =
+                  media?.posterUrl ?? (slot.mediaType === 'image' ? media?.contentUrl : undefined);
+                const label = referenceMediaLabels[slot.mediaType];
+                return (
+                  <div className="creative-frame-chip" key={slot.id}>
+                    {poster && <img src={poster} alt="" loading="lazy" />}
+                    <label>
+                      {index + 1} · {slot.label}
+                      {!slot.required && ' · 可选'}
+                      <select
+                        aria-label={`节点参考${label} ${index + 1}：${slot.label}`}
+                        value={selected}
+                        onChange={(event) => bind(port, event.target.value)}
+                      >
+                        <option value="">{slot.required ? `选择画布${label}` : `不使用参考${label}`}</option>
+                        {selected && !media && <option value={selected}>当前{label}不可用</option>}
+                        {candidates.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {resolved[item.id]?.title} · v{resolved[item.id]?.version ?? 1}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                );
+              })}
+            </section>
           )}
           <div className="v2-live-prompt">
             <label>
@@ -286,7 +450,11 @@ export function BoardExecutionPanel({
                 rows={3}
                 maxLength={16000}
                 value={prompt?.text ?? ''}
-                placeholder="描述画面、动作或镜头如何变化…"
+                placeholder={
+                  workflow?.capability === 'audio.music'
+                    ? '描述音乐风格、节奏、乐器与氛围…'
+                    : '描述画面、动作或镜头如何变化…'
+                }
                 onChange={(event) =>
                   onPromptChange({
                     positivePrompt: event.target.value,
@@ -429,7 +597,7 @@ export function BoardExecutionPanel({
                 });
               }}
             />
-            {config?.poolConfigured && editable && (
+            {poolConfigured && editable && (
               <div>
                 <label>
                   节点调度
@@ -472,6 +640,18 @@ export function BoardExecutionPanel({
               editable={editable}
               busy={busy}
               onResult={onResult}
+              onMediaSaved={onSavedToLibrary}
+              onPinMedia={onPinMedia}
+              onLibrarySaved={(saved) => {
+                setJobs(
+                  (value) =>
+                    value && {
+                      ...value,
+                      items: value.items.map((item) => (item.id === saved.id ? saved : item)),
+                    },
+                );
+                onSavedToLibrary();
+              }}
               onReuse={(job) => {
                 if (!editable || !job.prompt) return;
                 onPromptChange({ ...job.prompt, promptLibraryRevisionId: job.promptLibrary?.revisionId });
@@ -480,7 +660,9 @@ export function BoardExecutionPanel({
                 if (!editable || busy) return;
                 setBusy(true);
                 setError('');
-                void api<GenerationJob>(`/generation-jobs/${job.id}/save-to-library`, 'POST', {})
+                void api<GenerationJob>(`/generation-jobs/${job.id}/save-to-library`, 'POST', {
+                  outputId: job.selectedOutputId,
+                })
                   .then((saved) => {
                     setJobs(
                       (value) =>
@@ -553,7 +735,7 @@ export function BoardExecutionPanel({
                 const body = {
                     expectedRevision: revision,
                     confirmed: true,
-                    ...(config?.poolConfigured
+                    ...(poolConfigured
                       ? { routing: mode === 'auto' ? { mode } : { mode, connectionId: instance } }
                       : {}),
                   },

@@ -820,6 +820,63 @@ export const mediaAssets = sqliteTable(
     check('media_asset_version_positive', sql`${t.version} > 0`),
   ],
 );
+export const libraryFolders = sqliteTable(
+  'library_folders',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('library_folder_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('library_folder_name').on(t.projectId, t.nameKey),
+    uniqueIndex('library_folder_creation').on(t.projectId, t.createdBy, t.creationKey),
+    check('library_folder_version', sql`${t.version} > 0`),
+  ],
+);
+export const libraryPlacements = sqliteTable(
+  'library_placements',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    mediaAssetId: text('media_asset_id'),
+    entityId: text('entity_id'),
+    folderId: text('folder_id'),
+    version: integer('version').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.mediaAssetId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaAssets.id, mediaAssets.projectId, mediaAssets.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.entityId, t.projectId, t.workspaceId],
+      foreignColumns: [assetEntities.id, assetEntities.projectId, assetEntities.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.projectId, t.workspaceId],
+      foreignColumns: [libraryFolders.id, libraryFolders.projectId, libraryFolders.workspaceId],
+    }),
+    uniqueIndex('library_placement_media').on(t.mediaAssetId),
+    uniqueIndex('library_placement_entity').on(t.entityId),
+    index('library_placement_folder').on(t.projectId, t.folderId),
+    check('library_placement_target', sql`(${t.mediaAssetId} IS NOT NULL) <> (${t.entityId} IS NOT NULL)`),
+    check('library_placement_version', sql`${t.version} > 0`),
+  ],
+);
 export const mediaVersions = sqliteTable(
   'media_versions',
   {
@@ -902,6 +959,242 @@ export const mediaUploads = sqliteTable(
     uniqueIndex('media_upload_idempotency').on(t.projectId, t.createdBy, t.idempotencyKey),
     index('media_upload_page').on(t.projectId, t.createdAt, t.id),
     index('media_upload_lease').on(t.state, t.leaseUntil),
+  ],
+);
+export const mediaFrameExtractions = sqliteTable(
+  'media_frame_extractions',
+  {
+    id: text('id').primaryKey(),
+    sourceVersionId: text('source_version_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    requestKey: text('request_key').notNull(),
+    atMs: integer('at_ms').notNull(),
+    expectedSha256: text('expected_sha256').notNull(),
+    uploadId: text('upload_id')
+      .unique()
+      .references(() => mediaUploads.id),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceVersionId, t.projectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    uniqueIndex('media_frame_request').on(t.projectId, t.createdBy, t.requestKey),
+    check('media_frame_time', sql`${t.atMs}>=0 AND ${t.atMs}<86400000`),
+  ],
+);
+export const workspaceMediaFolders = sqliteTable(
+  'workspace_media_folders',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_folder_scope').on(t.id, t.workspaceId),
+    uniqueIndex('workspace_folder_name').on(t.workspaceId, t.nameKey),
+    uniqueIndex('workspace_folder_creation').on(t.workspaceId, t.createdBy, t.creationKey),
+    check('workspace_folder_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaResources = sqliteTable(
+  'workspace_media_resources',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    sourceMediaVersionId: text('source_media_version_id').notNull(),
+    sourceProjectId: text('source_project_id').notNull(),
+    folderId: text('folder_id'),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+    creationKey: text('creation_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceMediaVersionId, t.sourceProjectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.workspaceId],
+      foreignColumns: [workspaceMediaFolders.id, workspaceMediaFolders.workspaceId],
+    }),
+    uniqueIndex('workspace_resource_scope').on(t.id, t.workspaceId),
+    uniqueIndex('workspace_resource_creation').on(t.workspaceId, t.createdBy, t.creationKey),
+    uniqueIndex('workspace_resource_active_source')
+      .on(t.workspaceId, t.sourceMediaVersionId)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('workspace_resource_page').on(t.workspaceId, t.folderId, t.id),
+    check('workspace_resource_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaImports = sqliteTable(
+  'workspace_media_imports',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    uploadId: text('upload_id')
+      .notNull()
+      .unique()
+      .references(() => mediaUploads.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.resourceId, t.workspaceId],
+      foreignColumns: [workspaceMediaResources.id, workspaceMediaResources.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('workspace_media_import_key').on(t.projectId, t.createdBy, t.creationKey),
+  ],
+);
+export const workspaceMediaFiles = sqliteTable(
+  'workspace_media_files',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    objectKey: text('object_key').notNull().unique(),
+    fileName: text('file_name').notNull(),
+    mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),
+    mime: text('mime').notNull(),
+    byteLength: integer('byte_length').notNull(),
+    sha256: text('sha256').notNull(),
+    metadataJson: text('metadata_json').notNull(),
+    posterJson: text('poster_json'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_file_scope').on(t.id, t.workspaceId),
+    check('workspace_file_size', sql`${t.byteLength}>0`),
+  ],
+);
+export const workspaceNativeResources = sqliteTable(
+  'workspace_native_resources',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    fileId: text('file_id').notNull().unique(),
+    folderId: text('folder_id'),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.fileId, t.workspaceId],
+      foreignColumns: [workspaceMediaFiles.id, workspaceMediaFiles.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.workspaceId],
+      foreignColumns: [workspaceMediaFolders.id, workspaceMediaFolders.workspaceId],
+    }),
+    uniqueIndex('workspace_native_scope').on(t.id, t.workspaceId),
+    index('workspace_native_page').on(t.workspaceId, t.folderId, t.id),
+    check('workspace_native_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceMediaUploads = sqliteTable(
+  'workspace_media_uploads',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    fileId: text('file_id').notNull().unique(),
+    resourceId: text('resource_id').notNull().unique(),
+    folderId: text('folder_id'),
+    storageId: text('storage_id')
+      .notNull()
+      .references(() => storageConnections.id),
+    fileName: text('file_name').notNull(),
+    declaredMime: text('declared_mime').notNull(),
+    expectedBytes: integer('expected_bytes').notNull(),
+    receivedBytes: integer('received_bytes').notNull().default(0),
+    state: text('state', { enum: mediaUploadStates }).notNull().default('created'),
+    leaseOwner: text('lease_owner'),
+    leaseUntil: integer('lease_until'),
+    preparedJson: text('prepared_json'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+  },
+  (t) => [
+    uniqueIndex('workspace_upload_key').on(t.workspaceId, t.createdBy, t.idempotencyKey),
+    index('workspace_upload_lease').on(t.state, t.leaseUntil),
+    index('workspace_upload_page').on(t.workspaceId, t.createdBy, t.id),
+    check('workspace_upload_size', sql`${t.expectedBytes}>0`),
+  ],
+);
+export const workspaceNativeImports = sqliteTable(
+  'workspace_native_imports',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    uploadId: text('upload_id')
+      .notNull()
+      .unique()
+      .references(() => mediaUploads.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.resourceId, t.workspaceId],
+      foreignColumns: [workspaceNativeResources.id, workspaceNativeResources.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('workspace_native_import_key').on(t.projectId, t.createdBy, t.creationKey),
   ],
 );
 export const takes = sqliteTable(
@@ -1100,6 +1393,120 @@ export const entityMediaBindings = sqliteTable(
     index('entity_media_lookup').on(t.mediaVersionId, t.role),
   ],
 );
+export const workspaceEntityResources = sqliteTable(
+  'workspace_entity_resources',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    sourceProjectId: text('source_project_id').notNull(),
+    sourceEntityId: text('source_entity_id').notNull(),
+    sourceRevisionId: text('source_revision_id').notNull(),
+    folderId: text('folder_id'),
+    version: integer('version').notNull().default(1),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+    creationKey: text('creation_key').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceEntityId, t.sourceProjectId, t.workspaceId],
+      foreignColumns: [assetEntities.id, assetEntities.projectId, assetEntities.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.sourceRevisionId, t.sourceProjectId, t.workspaceId],
+      foreignColumns: [
+        assetEntityRevisions.id,
+        assetEntityRevisions.projectId,
+        assetEntityRevisions.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.folderId, t.workspaceId],
+      foreignColumns: [workspaceMediaFolders.id, workspaceMediaFolders.workspaceId],
+    }),
+    uniqueIndex('workspace_entity_scope').on(t.id, t.workspaceId),
+    uniqueIndex('workspace_entity_creation').on(t.workspaceId, t.createdBy, t.creationKey),
+    uniqueIndex('workspace_entity_active_source')
+      .on(t.workspaceId, t.sourceRevisionId)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('workspace_entity_page').on(t.workspaceId, t.folderId, t.id),
+    check('workspace_entity_version', sql`${t.version}>0`),
+  ],
+);
+export const workspaceEntityImports = sqliteTable(
+  'workspace_entity_imports',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    creationKey: text('creation_key').notNull(),
+    createdAt: text('created_at').notNull(),
+    entityId: text('entity_id'),
+    revisionId: text('revision_id'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.resourceId, t.workspaceId],
+      foreignColumns: [workspaceEntityResources.id, workspaceEntityResources.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.entityId, t.projectId, t.workspaceId],
+      foreignColumns: [assetEntities.id, assetEntities.projectId, assetEntities.workspaceId],
+    }),
+    foreignKey({
+      columns: [t.revisionId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        assetEntityRevisions.id,
+        assetEntityRevisions.projectId,
+        assetEntityRevisions.workspaceId,
+      ],
+    }),
+    uniqueIndex('workspace_entity_import_scope').on(t.id, t.projectId, t.workspaceId),
+    uniqueIndex('workspace_entity_import_key').on(t.projectId, t.createdBy, t.creationKey),
+    check('workspace_entity_import_result', sql`(${t.entityId} IS NULL)=(${t.revisionId} IS NULL)`),
+  ],
+);
+export const workspaceEntityImportMedia = sqliteTable(
+  'workspace_entity_import_media',
+  {
+    id: text('id').primaryKey(),
+    importId: text('import_id').notNull(),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    sourceMediaVersionId: text('source_media_version_id').notNull(),
+    sourceProjectId: text('source_project_id').notNull(),
+    uploadId: text('upload_id')
+      .notNull()
+      .unique()
+      .references(() => mediaUploads.id),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.importId, t.projectId, t.workspaceId],
+      foreignColumns: [
+        workspaceEntityImports.id,
+        workspaceEntityImports.projectId,
+        workspaceEntityImports.workspaceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.sourceMediaVersionId, t.sourceProjectId, t.workspaceId],
+      foreignColumns: [mediaVersions.id, mediaVersions.projectId, mediaVersions.workspaceId],
+    }),
+    uniqueIndex('workspace_entity_import_image').on(t.importId, t.sourceMediaVersionId),
+  ],
+);
 export const assetRevisionDecisions = sqliteTable(
   'asset_revision_decisions',
   {
@@ -1170,6 +1577,9 @@ export const generationConnections = sqliteTable(
       .references(() => workspaces.id),
     name: text('name').notNull(),
     baseUrl: text('base_url').notNull(),
+    provider: text('provider', { enum: ['comfyui', 'modelscope'] })
+      .notNull()
+      .default('comfyui'),
     trustedPrivate: integer('trusted_private', { mode: 'boolean' }).notNull(),
     encryptedSecret: text('encrypted_secret'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
@@ -1182,6 +1592,9 @@ export const generationConnections = sqliteTable(
   },
   (t) => [
     uniqueIndex('generation_connection_scope').on(t.id, t.workspaceId),
+    uniqueIndex('generation_modelscope_workspace')
+      .on(t.workspaceId)
+      .where(sql`${t.provider} = 'modelscope'`),
     uniqueIndex('generation_pool_endpoint')
       .on(t.workspaceId, t.baseUrl)
       .where(sql`${t.poolEnabled} = 1`),
@@ -1262,7 +1675,7 @@ export const generationWorkflows = sqliteTable(
     connectionId: text('connection_id').notNull(),
     name: text('name').notNull(),
     capability: text('capability', {
-      enum: ['image.text_to_image', 'video.text_to_video', 'video.image_to_video'],
+      enum: ['image.text_to_image', 'video.text_to_video', 'video.image_to_video', 'audio.music'],
     }).notNull(),
     definitionJson: text('definition_json').notNull(),
     createdBy: text('created_by')
@@ -1484,6 +1897,42 @@ export const generationJobRoutes = sqliteTable(
     }),
     index('generation_job_route_instance').on(t.connectionId),
     check('generation_job_route_mode', sql`${t.mode} IN ('auto','manual')`),
+  ],
+);
+
+export const generationOutputs = sqliteTable(
+  'generation_outputs',
+  {
+    id: text('id').primaryKey(),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => generationJobs.id),
+    projectId: text('project_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    slotId: text('slot_id').notNull(),
+    position: integer('position').notNull(),
+    primaryIndex: integer('primary_index'),
+    label: text('label').notNull(),
+    role: text('role', { enum: ['preview', 'intermediate'] }).notNull(),
+    mediaType: text('media_type', { enum: ['image', 'video', 'audio'] }).notNull(),
+    descriptorJson: text('descriptor_json').notNull(),
+    uploadId: text('upload_id')
+      .unique()
+      .references(() => mediaUploads.id),
+    mediaVersionId: text('media_version_id')
+      .unique()
+      .references(() => mediaVersions.id),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.workspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }),
+    uniqueIndex('generation_output_slot').on(t.jobId, t.slotId, t.position),
+    index('generation_output_job').on(t.jobId),
+    check('generation_output_position', sql`${t.position}>=0 AND ${t.position}<8`),
+    check('generation_output_type', sql`${t.mediaType} IN ('image','video','audio')`),
+    check('generation_output_role', sql`${t.role} IN ('preview','intermediate')`),
   ],
 );
 

@@ -50,4 +50,5 @@ export type Entity = {
   revision: EntityRevision;
   canEdit: boolean;
   canReview: boolean;
+  librarySource?: { importId: string; resourceId: string; importedRevisionId: string };
 };

@@ -1,6 +1,9 @@
 import type { Node } from '@xyflow/react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
-export type CanvasNode = Node<{ domain: BoardNode; value?: BoardResolved }, 'boardNode'>;
+export type CanvasNode = Node<
+  { domain: BoardNode; value?: BoardResolved; hasReferenceInputs?: boolean },
+  'boardNode'
+>;
 export const statusLabels: Record<BoardResolved['status'], string> = {
   current: '当前固定版本',
   stale: '已有新版本，仍用旧引用',

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { fail } from '../common/http';
+import { workflowMediaSchema, validateMediaTargets, assertMediaExecutable } from './workflow-media';
 import {
   exposedField,
   fieldValuesInput,
@@ -70,7 +71,7 @@ export const workflowInput = z
   .object({
     name,
     connectionId: z.uuid(),
-    capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video']),
+    capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video', 'audio.music']),
     graph: z.record(
       nodeId,
       z
@@ -90,9 +91,12 @@ export const workflowInput = z
     image: target.optional(),
     parameters: z.array(parameter).max(3).optional(),
     fields: z.array(exposedField).max(20).optional(),
+    mediaSchema: workflowMediaSchema.optional(),
     fieldSchemaVersion: z.literal('studio.workflow-fields.v1').optional(),
     reviewRequired: z.literal(true).optional(),
-    output: z.object({ node: nodeId, field: slot }).strict(),
+    output: z
+      .object({ node: nodeId, field: slot, batch: z.object({ id: z.uuid() }).strict().optional() })
+      .strict(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -109,6 +113,15 @@ export const workflowInput = z
     if (value.positive.node === value.negative?.node && value.positive.input === value.negative.input)
       issue('正向和负向提示词必须绑定不同输入');
     if (!Object.hasOwn(value.graph, value.output.node)) issue('输出节点不存在');
+    if (
+      value.output.batch &&
+      [
+        ...(value.fields ?? []),
+        ...(value.mediaSchema?.inputs ?? []),
+        ...(value.mediaSchema?.outputs ?? []),
+      ].some((item) => item.id === value.output.batch!.id)
+    )
+      issue('批量主输出标识必须独立');
     if (value.capability === 'video.image_to_video') {
       const image = value.image;
       const inputs = image && value.graph[image.node]?.inputs;
@@ -141,6 +154,14 @@ export const workflowInput = z
       if (binding.key === 'durationSeconds' && value.capability === 'image.text_to_image')
         issue('图片工作流不支持视频时长');
     }
+    validateMediaTargets(
+      value.mediaSchema,
+      value.graph,
+      occupied,
+      value.output,
+      (value.fields ?? []).map((field) => field.id),
+      issue,
+    );
     validateFieldTargets(value.fields ?? [], value.graph, occupied, issue);
   });
 const routingInput = z.discriminatedUnion('mode', [
@@ -162,7 +183,13 @@ export const createJobInput = z
 export const reconcileInput = z.object({ remoteId: z.uuid().optional() }).strict();
 export type WorkflowInput = z.infer<typeof workflowInput>;
 export type CreateJobInput = z.infer<typeof createJobInput>;
+const referenceVersions = z
+  .record(z.uuid(), z.uuid())
+  .refine((value) => Object.keys(value).length <= 32)
+  .optional();
 export const createProjectJobInput = createJobInput.omit({ promptId: true, canvasShotVersion: true }).extend({
+  referenceImageVersions: referenceVersions,
+  referenceMediaVersions: referenceVersions,
   promptLibraryRevisionId: z.uuid().optional(),
   positivePrompt: z.string().trim().min(1).max(16000),
   negativePrompt: z.string().max(16000).default(''),
@@ -171,11 +198,34 @@ export const createProjectJobInput = createJobInput.omit({ promptId: true, canva
 });
 export type CreateProjectJobInput = z.infer<typeof createProjectJobInput>;
 export const referenceImageLimit = 16 * 1024 * 1024;
+export const referenceImagesTotalLimit = 64 * 1024 * 1024;
 export const referenceImageExtensions: Readonly<Record<string, string>> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
 };
+export const referenceMediaFormats = {
+  image: { limit: referenceImageLimit, extensions: referenceImageExtensions },
+  video: {
+    limit: 32 * 1024 * 1024,
+    extensions: { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' },
+  },
+  audio: {
+    limit: 32 * 1024 * 1024,
+    extensions: {
+      'audio/wav': 'wav',
+      'audio/mpeg': 'mp3',
+      'audio/ogg': 'ogg',
+      'audio/mp4': 'm4a',
+      'audio/webm': 'webm',
+    },
+  },
+} satisfies Record<string, { limit: number; extensions: Readonly<Record<string, string>> }>;
+export type ReferenceMediaType = keyof typeof referenceMediaFormats;
+export function referenceMediaExtension(type: ReferenceMediaType, mime: string) {
+  const extensions: Readonly<Record<string, string>> = referenceMediaFormats[type].extensions;
+  return Object.hasOwn(extensions, mime) ? extensions[mime] : undefined;
+}
 export const resultDescriptor = z.object({
   filename: z
     .string()
@@ -185,7 +235,7 @@ export const resultDescriptor = z.object({
       (v) =>
         v === v.trim() &&
         !/[\\/:%<>"|?*\x00-\x1f\x7f]/u.test(v) &&
-        /\.(png|jpe?g|webp|mp4|webm|mov)$/iu.test(v),
+        /\.(png|jpe?g|webp|mp4|webm|mov|wav|mp3|ogg|opus|m4a)$/iu.test(v),
     ),
   subfolder: z
     .string()
@@ -231,10 +281,14 @@ export function renderWorkflow(
   negative: string,
   parameters: ParameterValues = {},
   fields: FieldValues = {},
+  projectReferences = false,
 ) {
+  assertMediaExecutable(workflow.mediaSchema, projectReferences);
   if (negative && !workflow.negative)
     fail(409, 'WORKFLOW_NEGATIVE_UNBOUND', '此提示词包含负向词，请选择配置了负向绑定的工作流');
   const graph = structuredClone(workflow.graph);
+  if (projectReferences)
+    for (const slot of workflow.mediaSchema?.inputs ?? []) graph[slot.node].inputs[slot.input] = '';
   graph[workflow.positive.node].inputs[workflow.positive.input] = positive;
   if (workflow.negative) graph[workflow.negative.node].inputs[workflow.negative.input] = negative;
   const resolved = resolveParameters(workflow, parameters);
