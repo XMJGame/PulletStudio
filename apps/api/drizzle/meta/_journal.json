@@ -351,6 +351,13 @@
       "when": 1794015000000,
       "tag": "0049_public_entities",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1794016800000,
+      "tag": "0050_optional_media_audio_worker",
+      "breakpoints": true
     }
   ]
 }

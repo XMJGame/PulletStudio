@@ -1,5 +1,7 @@
 # ComfyUI 单镜头生成
 
+当前项目与画布入口已支持图片/视频/音频参考及单份音频主输出；可选媒体必须通过专用加载器和下游可省略检查。音频结果可试听、下载、入库及继续引用，试跑证据独立保存。配置和实际限制见[工作流中心](WORKFLOW-CENTER.md#扩展媒体声明l3-b1)与[B4 合同](modules/WORKFLOW-OPTIONAL-MEDIA-AUDIO-B4.md)。下文镜头流程保留为历史后台兼容说明。
+
 > 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
 
 > 2026-11-06 产品 V2 优先：[当前方向](PRODUCT-V2.md)、[ADR-011](ADR-011-asset-led-creation.md)、[自由创作](LIGHT-CREATION.md)。资产/画布/工作流/通用生成是主线；已解除 Shot、完整卡、编译提示词和正式发布对自由创作的强制前置。下文旧镜头/剧本合同作为兼容参考，不再驱动新增核心需求。实际顺序唯一来源为 [IMPLEMENTATION-STATUS](IMPLEMENTATION-STATUS.md)。

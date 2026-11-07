@@ -56,7 +56,7 @@ export type GenerationJob = {
   } | null;
   parameterValues: ParameterValues;
   result: {
-    mediaType: 'image' | 'video';
+    mediaType: 'image' | 'video' | 'audio';
     contentUrl: string;
     posterUrl?: string | null;
     metadata: {
@@ -81,6 +81,7 @@ type InstanceOption = {
 };
 const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
+  'audio.music': '音频生成',
   'video.text_to_video': '文字生视频',
   'video.image_to_video': '图生视频',
 };
@@ -96,7 +97,7 @@ export const generationStates: Record<string, string> = {
   canceled: '已取消',
   needs_reconciliation: '需要核对',
 };
-const errors: Record<string, string> = {
+export const generationErrors: Record<string, string> = {
   SUBMISSION_UNCERTAIN: '未确认远端是否收到任务。请先查远端历史。',
   COMFY_REQUEST_REJECTED: 'ComfyUI 拒绝工作流。请核对工作流、节点和输入。',
   MODELSCOPE_ACCOUNT_BINDING_REQUIRED: 'ModelScope 要求当前账号先绑定阿里云，未创建远端任务。',
@@ -120,7 +121,8 @@ const errors: Record<string, string> = {
   REFERENCE_IMAGE_INVALID: '参考图片无法读取或校验，请核对项目素材。',
   REFERENCE_MEDIA_INVALID: '参考素材的类型、格式、大小或文件校验未通过。',
   COMFY_MEDIA_UPLOAD_INVALID: 'ComfyUI 返回的参考素材路径不符合预期，任务未提交。',
-  WORKFLOW_MEDIA_DISCONNECT_INVALID: '当前节点声明不允许省略此参考图，请管理员检查工作流。',
+  WORKFLOW_MEDIA_DISCONNECT_INVALID: '当前节点声明不允许省略此参考素材，请管理员检查工作流。',
+  GENERATION_OUTPUT_INVALID: '实际产物类型与工作流不符，未登记为成功结果。请核对主输出。',
   VOICE_SAMPLE_RESTRICTED: '当前账号无权读取该声音样本，请选择已获授权的素材。',
   COMFY_IMAGE_UPLOAD_INVALID: 'ComfyUI 返回的首帧路径不符合预期，任务未提交。',
   WORKFLOW_FIELD_BINDING_INVALID: '工作流的创作参数与当前节点声明不匹配，请管理员核对配置。',
@@ -664,7 +666,11 @@ export function GenerationDialog({
                         setPositivePrompt(event.target.value);
                         resetRequest();
                       }}
-                      placeholder="描述你想生成的画面、动作与氛围"
+                      placeholder={
+                        selectedWorkflow?.capability === 'audio.music'
+                          ? '描述音乐风格、节奏、乐器与氛围'
+                          : '描述你想生成的画面、动作与氛围'
+                      }
                     />
                   </label>
                   <details>
@@ -781,6 +787,8 @@ export function GenerationDialog({
                     alt="生成候选"
                     loading="lazy"
                   />
+                ) : job.result.mediaType === 'audio' ? (
+                  <audio aria-label="生成音频候选" src={job.result.contentUrl} controls preload="metadata" />
                 ) : (
                   <video
                     className="candidate-preview"
@@ -900,7 +908,7 @@ export function GenerationDialog({
               )}
               {job.errorCode && (
                 <p className="field-hint">
-                  {errors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
+                  {generationErrors[job.errorCode] ?? '任务遇到问题，请核对输入、连接或文件归档。'}
                 </p>
               )}
               {job.mediaVersionId && (

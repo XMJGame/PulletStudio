@@ -25,6 +25,8 @@ function EvidencePreview({ job }: { job: GenerationJob }) {
       <summary>预览试跑结果</summary>
       {mediaType === 'image' ? (
         <img src={contentUrl} alt="试跑结果" loading="lazy" />
+      ) : mediaType === 'audio' ? (
+        <audio aria-label="音频试跑结果" src={contentUrl} controls preload="metadata" />
       ) : (
         <video src={contentUrl} controls preload="none" playsInline />
       )}

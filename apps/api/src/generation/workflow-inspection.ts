@@ -5,11 +5,17 @@ import {
   hasExtendedMedia,
   mediaExecutionReason,
   supportsReferenceMedia,
-  imageDisconnectTargets,
-  optionalImageInputMatchesMetadata,
+  mediaDisconnectTargets,
+  optionalMediaInputMatchesMetadata,
 } from './workflow-media';
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
+function optionalMediaDeclaration(key: string, metadata: unknown) {
+  const type = ['IMAGE', 'VIDEO', 'AUDIO'].find((type) =>
+    optionalMediaInputMatchesMetadata(key, metadata, type),
+  );
+  return type ? [type] : undefined;
+}
 export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
   if (!Array.isArray(definition)) return false;
   const [type, raw] = definition,
@@ -94,7 +100,12 @@ export async function inspectWorkflow(
   }
   const disconnectTargets = (workflow.mediaSchema?.inputs ?? [])
     .filter((slot) => slot.onMissing === 'disconnect')
-    .flatMap((slot) => imageDisconnectTargets(workflow.graph, slot.node));
+    .flatMap((slot) =>
+      mediaDisconnectTargets(workflow.graph, slot.node).map((target) => ({
+        ...target,
+        mediaType: slot.mediaType,
+      })),
+    );
   const nodes: DependencyReport['nodes'] = Object.entries(workflow.graph).map(([id, node]) => {
     const issues: Issue[] = [],
       info = definitions.get(node.class_type);
@@ -122,21 +133,27 @@ export async function inspectWorkflow(
         )
           add('MEDIA_SCHEMA_MISMATCH', slot.input);
       for (const slot of workflow.mediaSchema?.inputs ?? []) {
-        if (slot.onMissing === 'disconnect' && slot.node === id && info.output_node === true)
+        if (
+          slot.onMissing === 'disconnect' &&
+          slot.node === id &&
+          (info.output_node === true ||
+            !Array.isArray(info.output) ||
+            info.output[0] !== slot.mediaType.toUpperCase())
+        )
           add('MEDIA_DISCONNECT_INVALID', slot.input);
       }
       for (const target of disconnectTargets)
-        if (target.node === id && !optionalImageInputMatchesMetadata(target.input, info.input))
+        if (
+          target.node === id &&
+          !optionalMediaInputMatchesMetadata(target.input, info.input, target.mediaType)
+        )
           add('MEDIA_DISCONNECT_INVALID', target.input);
       if (workflow.mediaSchema?.outputs.some((slot) => slot.node === id) && info.output_node !== true)
         add('MEDIA_OUTPUT_MISMATCH');
       for (const input of Object.keys(required))
         if (!Object.hasOwn(node.inputs, input)) add('REQUIRED_INPUT_MISSING', input);
       for (const [input, value] of Object.entries(node.inputs)) {
-        const declaration =
-          required[input] ??
-          optional[input] ??
-          (optionalImageInputMatchesMetadata(input, info.input) ? ['IMAGE'] : undefined);
+        const declaration = required[input] ?? optional[input] ?? optionalMediaDeclaration(input, info.input);
         if (!Array.isArray(declaration)) {
           add('INPUT_UNDECLARED', input, 'unknown');
           continue;

@@ -409,7 +409,11 @@ export function BoardExecutionPanel({
                 rows={3}
                 maxLength={16000}
                 value={prompt?.text ?? ''}
-                placeholder="描述画面、动作或镜头如何变化…"
+                placeholder={
+                  workflow?.capability === 'audio.music'
+                    ? '描述音乐风格、节奏、乐器与氛围…'
+                    : '描述画面、动作或镜头如何变化…'
+                }
                 onChange={(event) =>
                   onPromptChange({
                     positivePrompt: event.target.value,

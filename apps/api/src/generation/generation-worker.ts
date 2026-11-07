@@ -12,7 +12,7 @@ import { GenerationError } from './comfy-provider';
 import { modelScopeImage, modelScopeResult } from './modelscope-provider';
 import { GenerationService, GenerationSnapshot, Job } from './generation.service';
 import { resultDescriptor, WorkflowInput, type ReferenceMediaType } from './generation-contract';
-import { imageDisconnectTargets, supportsReferenceMedia } from './workflow-media';
+import { mediaDisconnectTargets, supportsReferenceMedia } from './workflow-media';
 import { checkReservedInstance, instanceLoad, jobRoute, type JobRoute } from './generation-routing';
 
 const leaseMs = 45_000;
@@ -98,7 +98,7 @@ export class GenerationWorker {
         return this.database.db
           .update(generationJobs)
           .set({
-            leaseId,
+            leaseId: leaseId + (snapshot.optionalReferenceMedia || snapshot.audioOutput ? ':b4' : ''),
             leaseUntil: now + leaseMs,
             state: row.state === 'queued' ? 'preparing' : row.state,
             updatedAt,
@@ -313,9 +313,13 @@ export class GenerationWorker {
               slot.id !== references[index].slotId || slot.mediaType !== references[index].mediaType,
           ) ||
           slots.some((slot) => slot.mediaType !== 'image') !== Boolean(snapshot.referenceMedia) ||
+          slots.some((slot) => slot.mediaType !== 'image' && slot.onMissing === 'disconnect') !==
+            Boolean(snapshot.optionalReferenceMedia) ||
           slots.some((slot) => slot.required && !referencesBySlot.has(slot.id)) ||
           slots.some((slot) => slot.onMissing === 'disconnect') !== Boolean(snapshot.optionalReferenceImages))
       )
+        throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
+      if ((definition.capability === 'audio.music') !== Boolean(snapshot.audioOutput))
         throw new GenerationError('WORKFLOW_MEDIA_UNSUPPORTED');
       if (route)
         this.database.db.transaction(() => this.checkInputs(user, job, connection.id, snapshot, route));
@@ -342,7 +346,7 @@ export class GenerationWorker {
       for (const slot of slots) {
         const image = referencesBySlot.get(slot.id);
         if (!image) {
-          for (const target of imageDisconnectTargets(snapshot.graph, slot.node))
+          for (const target of mediaDisconnectTargets(snapshot.graph, slot.node))
             delete snapshot.graph[target.node].inputs[target.input];
           delete snapshot.graph[slot.node];
           continue;
@@ -415,7 +419,12 @@ export class GenerationWorker {
     if (job.state !== 'fetching') return;
     const storedResult = JSON.parse(job.resultJson!);
     const result = apiImage ? modelScopeResult.parse(storedResult) : resultDescriptor.parse(storedResult);
-    const mediaType = workflow.capability === 'image.text_to_image' ? 'image' : 'video';
+    const mediaType =
+      workflow.capability === 'image.text_to_image'
+        ? 'image'
+        : workflow.capability === 'audio.music'
+          ? 'audio'
+          : 'video';
     const reserved = this.database.db
       .select({ id: mediaUploads.id })
       .from(mediaUploads)

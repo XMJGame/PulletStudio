@@ -66,6 +66,8 @@ export type GenerationSnapshot = {
     GenerationSnapshot['image']
   >)[];
   optionalReferenceImages?: true;
+  optionalReferenceMedia?: true;
+  audioOutput?: true;
   parameterValues?: ParameterValues;
   fieldValues?: FieldValues;
   prompt?: { positivePrompt: string; negativePrompt: string; source: string };
@@ -844,6 +846,8 @@ export class GenerationService {
         const projectReferences = !shot;
         assertMediaExecutable(definition.mediaSchema, projectReferences);
         const slots = definition.mediaSchema?.inputs ?? [];
+        if (shot && definition.capability === 'audio.music')
+          fail(409, 'WORKFLOW_MEDIA_UNSUPPORTED', '音频生成请使用项目创作或画布入口。');
         if (Object.keys(supplied).some((id) => !slots.some((slot) => slot.id === id)))
           fail(400, 'REFERENCE_SLOT_UNKNOWN', '此工作流没有所选参考槽位');
         const mixed = slots.some((slot) => slot.mediaType !== 'image');
@@ -969,6 +973,10 @@ export class GenerationService {
               ...(slots.some((slot) => slot.onMissing === 'disconnect')
                 ? { optionalReferenceImages: true }
                 : {}),
+              ...(slots.some((slot) => slot.mediaType !== 'image' && slot.onMissing === 'disconnect')
+                ? { optionalReferenceMedia: true }
+                : {}),
+              ...(definition.capability === 'audio.music' ? { audioOutput: true } : {}),
               parameterValues,
               fieldValues,
               ...(!shot ? { prompt: { ...rendered, source: input.source ?? '' } } : {}),

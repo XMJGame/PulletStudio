@@ -9,6 +9,7 @@ import {
   fixtureMediaSchema,
   fixtureReferenceImages,
   fixtureRequiredMedia,
+  fixtureOptionalMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
@@ -561,6 +562,81 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-dark.png', animations: 'disabled' });
 });
+
+test('maps optional video audio controls and previews audio trial evidence', async ({ page }) => {
+  const mp3 = await readFile(resolve('test-results/workflow-fixtures/sound.mp3'));
+  const audioRemote = await startComfyMock({ 'sound.mp3': mp3 });
+  try {
+    const value = await project('Audio workflow controls');
+    const connection = await api('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Audio workflow fixture',
+      baseUrl: audioRemote.baseUrl,
+      trustedPrivate: true,
+    });
+    const fixture = fixtureOptionalMedia(connection.id, true);
+    await open(page, value);
+    const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    await dialog.getByLabel('工作流名称', { exact: true }).fill('Audio study');
+    await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+    await dialog.getByLabel('生成方式', { exact: true }).selectOption('audio.music');
+    await dialog.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
+      name: 'audio-api.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(fixture.graph)),
+    });
+    await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
+    await dialog.getByLabel('输出节点', { exact: true }).fill(fixture.output.node);
+    await dialog.getByLabel('历史输出字段', { exact: true }).fill('audio');
+    await dialog.getByText('扩展媒体声明', { exact: true }).click();
+    for (const [index, slot] of fixture.mediaSchema.inputs.entries()) {
+      const n = index + 1;
+      await dialog.getByRole('button', { name: '添加媒体输入', exact: true }).click();
+      await dialog.getByLabel('媒体输入' + n + '名称', { exact: true }).fill(slot.label);
+      await dialog.getByLabel('媒体输入' + n + '类型', { exact: true }).selectOption(slot.mediaType);
+      await dialog.getByLabel('媒体输入' + n + '节点', { exact: true }).selectOption(slot.node);
+      await dialog.getByLabel('媒体输入' + n + '字段', { exact: true }).selectOption(slot.input);
+      await dialog.getByLabel('媒体输入' + n + '缺失处理', { exact: true }).selectOption('disconnect');
+    }
+    await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('绑定节点已验证并保存');
+    const workflow = (await api('GET', '/projects/' + value.id + '/generation-config')).workflows[0];
+    expect(workflow.executable).toBe(true);
+    expect(workflow.capability).toBe('audio.music');
+    expect(
+      workflow.mediaSchema.inputs.map((slot: any) => [slot.mediaType, slot.required, slot.onMissing]),
+    ).toEqual([
+      ['video', false, 'disconnect'],
+      ['audio', false, 'disconnect'],
+    ]);
+    await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+    await expect(dialog.getByLabel('媒体输入2缺失处理', { exact: true })).toHaveValue('disconnect');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dialog.getByLabel('媒体输入2缺失处理', { exact: true }).scrollIntoViewIfNeeded();
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b4-workflow-audio-mobile.png', animations: 'disabled' });
+    await dialog.getByRole('button', { name: '工作流列表', exact: true }).click();
+    await dialog.getByRole('button', { name: '试跑与发布', exact: true }).click();
+    const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
+    await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
+    const trial = page.getByRole('dialog', { name: '工作流试跑', exact: true });
+    await trial.getByLabel('正向提示词', { exact: true }).fill('Soft instrumental music');
+    await trial.getByRole('button', { name: '加入试跑队列', exact: true }).click();
+    await expect(trial.getByText('试跑证据已归档', { exact: true })).toBeVisible({ timeout: 15000 });
+    const player = trial.getByLabel('生成音频候选', { exact: true });
+    await expect(player).toBeVisible();
+    await expect
+      .poll(() => player.evaluate((el: HTMLAudioElement) => el.readyState))
+      .toBeGreaterThanOrEqual(2);
+    await trial.getByRole('button', { name: '关闭', exact: true }).click();
+    await release.getByText('预览试跑结果', { exact: true }).click();
+    await expect(release.getByLabel('音频试跑结果', { exact: true })).toBeVisible();
+    expect(audioRemote.mock.submissions).toHaveLength(1);
+    expect(audioRemote.mock.uploads).toHaveLength(0);
+  } finally {
+    await audioRemote.close();
+  }
+});
+
 test('media declarations edit fixed slots and outputs while unsupported execution stays blocked', async ({
   page,
 }) => {

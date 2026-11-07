@@ -45,7 +45,7 @@ export const workflowMediaSchema = z
 type Target = { node: string; input: string };
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
-export function imageDisconnectTargets(graph: Graph, source: string) {
+export function mediaDisconnectTargets(graph: Graph, source: string) {
   return Object.entries(graph).flatMap(([node, item]) =>
     Object.entries(item.inputs).flatMap(([input, value]) =>
       Array.isArray(value) && value.length === 2 && value[0] === source && Number.isInteger(value[1])
@@ -61,12 +61,12 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-export function optionalImageInputMatchesMetadata(key: string, metadata: unknown) {
+export function optionalMediaInputMatchesMetadata(key: string, metadata: unknown, mediaType: string) {
   const { optional, required } = record(metadata);
   const available = record(optional);
   if (Object.hasOwn(record(required), key)) return false;
   const direct = available[key];
-  if (Array.isArray(direct)) return direct[0] === 'IMAGE';
+  if (Array.isArray(direct)) return direct[0] === mediaType.toUpperCase();
   const [group, member, extra] = key.split('.');
   if (!member || extra) return false;
   const declared = available[group];
@@ -75,7 +75,8 @@ export function optionalImageInputMatchesMetadata(key: string, metadata: unknown
   if (template.min !== 0) return false;
   const inputs = record(template.input);
   const choices = [...Object.values(record(inputs.required)), ...Object.values(record(inputs.optional))];
-  if (choices.length !== 1 || !Array.isArray(choices[0]) || choices[0][0] !== 'IMAGE') return false;
+  if (choices.length !== 1 || !Array.isArray(choices[0]) || choices[0][0] !== mediaType.toUpperCase())
+    return false;
   if (Array.isArray(template.names)) return template.names.includes(member);
   if (typeof template.prefix !== 'string' || !member.startsWith(template.prefix)) return false;
   const suffix = member.slice(template.prefix.length);
@@ -117,12 +118,12 @@ export function validateMediaTargets(
     if (slot.required !== (slot.onMissing === 'error')) issue('媒体是否必填须与缺失策略一致');
     if (slot.onMissing === 'disconnect') {
       const loader = Object.hasOwn(graph, slot.node) ? graph[slot.node] : undefined;
-      const downstream = imageDisconnectTargets(graph, slot.node);
+      const downstream = mediaDisconnectTargets(graph, slot.node);
       if (
-        slot.mediaType !== 'image' ||
         slot.role !== 'reference' ||
-        slot.input !== 'image' ||
-        loader?.class_type !== 'LoadImage' ||
+        slot.input !== { image: 'image', video: 'file', audio: 'audio' }[slot.mediaType] ||
+        loader?.class_type !==
+          { image: 'LoadImage', video: 'LoadVideo', audio: 'LoadAudio' }[slot.mediaType] ||
         Object.keys(loader.inputs).length !== 1 ||
         primary.node === slot.node ||
         schema.outputs.some((item) => item.node === slot.node) ||
@@ -131,7 +132,7 @@ export function validateMediaTargets(
         occupied.some((target) => target.node === slot.node && target.input !== slot.input) ||
         schema.inputs.some((item) => item.id !== slot.id && item.node === slot.node)
       )
-        issue('可选参考图须使用专用 LoadImage，且所有下游连接须为可断开的图片输入');
+        issue('可选参考素材须使用对应的专用加载器，且所有下游连接须为可断开的同类型输入');
     }
     if (['last_frame', 'mask'].includes(slot.role) && slot.mediaType !== 'image')
       issue('尾帧与遮罩用途需要图片');
@@ -164,9 +165,7 @@ export function supportsReferenceMedia(schema?: WorkflowMediaSchema) {
   return Boolean(
     schema?.inputs.length &&
     !schema.outputs.length &&
-    schema.inputs.every(
-      (slot) => slot.required || (slot.mediaType === 'image' && slot.onMissing === 'disconnect'),
-    ),
+    schema.inputs.every((slot) => slot.required || slot.onMissing === 'disconnect'),
   );
 }
 export function assertMediaExecutable(schema?: WorkflowMediaSchema, projectReferences = false) {

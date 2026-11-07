@@ -60,6 +60,14 @@ export async function startComfyMock(files) {
         },
         VideoOutput: { output_node: true },
         SaveVideo: { output_node: true },
+        AudioOutput: {
+          output_node: true,
+          input: {
+            required: { conditioning: ['CONDITIONING'] },
+            optional: { video_reference: ['VIDEO'], audio_reference: ['AUDIO'] },
+          },
+          output: [],
+        },
         LoadImage: {
           input: { required: { image: [[], { image_upload: true }] } },
           output_node: false,
@@ -130,7 +138,12 @@ export async function startComfyMock(files) {
       const node = Object.entries(data.prompt).find(
         ([, value]) => value.class_type.endsWith('Output') || value.class_type === 'SaveVideo',
       );
-      const file = node[1].class_type === 'ImageOutput' ? 'image.png' : 'clip.mp4';
+      const file =
+        node[1].class_type === 'ImageOutput'
+          ? 'image.png'
+          : node[1].class_type === 'AudioOutput'
+            ? 'sound.mp3'
+            : 'clip.mp4';
       const result = {
         type: 'output',
         subfolder: 'studio',
@@ -141,7 +154,11 @@ export async function startComfyMock(files) {
         status: { completed: true, status_str: 'success' },
         outputs: {
           [node[0]]: {
-            [file.endsWith('png') || node[1].class_type === 'SaveVideo' ? 'images' : 'videos']: [result],
+            [file.endsWith('png') || node[1].class_type === 'SaveVideo'
+              ? 'images'
+              : file.endsWith('mp3')
+                ? 'audio'
+                : 'videos']: [result],
           },
         },
       });
@@ -293,6 +310,22 @@ export function fixtureRequiredMedia(connectionId) {
     audio_reference: ['8', 0],
   });
   delete workflow.graph['9'];
+  return workflow;
+}
+
+export function fixtureOptionalMedia(connectionId, audioOutput = false) {
+  const workflow = fixtureRequiredMedia(connectionId);
+  workflow.name = audioOutput ? 'Audio with optional references' : 'Optional video and audio';
+  workflow.mediaSchema.inputs.shift();
+  delete workflow.graph['6'];
+  delete workflow.graph[workflow.output.node].inputs['references.image_0'];
+  for (const slot of workflow.mediaSchema.inputs)
+    Object.assign(slot, { role: 'reference', required: false, onMissing: 'disconnect' });
+  if (audioOutput) {
+    workflow.capability = 'audio.music';
+    workflow.graph[workflow.output.node].class_type = 'AudioOutput';
+    workflow.output.field = 'audio';
+  }
   return workflow;
 }
 

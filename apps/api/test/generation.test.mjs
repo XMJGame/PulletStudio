@@ -17,6 +17,7 @@ import {
   fixtureReferenceImages,
   fixtureOptionalImages,
   fixtureRequiredMedia,
+  fixtureOptionalMedia,
 } from '../../../tests/fixtures/comfy-mock.mjs';
 const execute = promisify(execFile);
 
@@ -91,6 +92,7 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
     remote = await startComfyMock({
       'image.png': fixtures['image.png'].bytes,
       'clip.mp4': fixtures['clip.mp4'].bytes,
+      'sound.mp3': fixtures['sound.mp3'].bytes,
     });
     await start();
     const setup = (
@@ -1201,6 +1203,242 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
         await tick();
         assert.equal((await read(queuedBeforeProtection.data.id)).errorCode, 'VOICE_SAMPLE_RESTRICTED');
         assert.equal(remote.mock.uploads.length, uploadsBefore);
+      },
+    );
+
+    await t.test(
+      'optional video and audio detach independently with fixed snapshots and worker guards',
+      async () => {
+        const path = '/projects/' + project.id;
+        const definition = fixtureOptionalMedia(connectionId);
+        const saved = await owner('POST', path + '/generation-workflows', definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const [video, audio] = definition.mediaSchema.inputs;
+        const videoVersion = (await owner('GET', path + '/generation-reference-media?type=video')).data
+          .items[0];
+        const audioVersion = (await owner('GET', path + '/generation-reference-media?type=audio')).data
+          .items[0];
+        const submit = (refs, key = randomUUID()) =>
+          owner(
+            'POST',
+            path + '/generation-jobs',
+            {
+              workflowId: saved.data.id,
+              positivePrompt: 'A quiet station',
+              confirmed: true,
+              referenceMediaVersions: refs,
+            },
+            { 'Idempotency-Key': key },
+          );
+        let uploaded = remote.mock.uploads.length;
+        for (const refs of [
+          {},
+          { [video.id]: videoVersion.id },
+          { [audio.id]: audioVersion.id },
+          { [video.id]: videoVersion.id, [audio.id]: audioVersion.id },
+        ]) {
+          const key = randomUUID();
+          const queued = await submit(refs, key);
+          assert.equal(queued.status, 201, JSON.stringify(queued.data));
+          assert.equal((await submit(refs, key)).data.id, queued.data.id);
+          assert.throws(
+            () =>
+              db()
+                .prepare(
+                  "UPDATE generation_jobs SET lease_id='free:media-v1:disconnect:multimodal:legacy' WHERE id=?",
+                )
+                .run(queued.data.id),
+            /optional media and audio output require updated generation worker/,
+          );
+          const original = JSON.parse(
+            db().prepare('SELECT snapshot_json FROM generation_jobs WHERE id=?').get(queued.data.id)
+              .snapshot_json,
+          );
+          assert.equal(original.optionalReferenceMedia, true);
+          for (let i = 0; i < 3; i++) await tick();
+          assert.equal((await read(queued.data.id)).state, 'completed');
+          const graph = remote.mock.submissions.at(-1).prompt;
+          for (const slot of [video, audio]) {
+            const field = slot.mediaType + '_reference';
+            assert.deepEqual(
+              graph[definition.output.node].inputs[field],
+              refs[slot.id] ? [slot.node, 0] : undefined,
+            );
+            assert.equal(Boolean(graph[slot.node]), Boolean(refs[slot.id]));
+            assert.deepEqual(original.graph[definition.output.node].inputs[field], [slot.node, 0]);
+          }
+          uploaded += Object.keys(refs).length;
+          assert.equal(remote.mock.uploads.length, uploaded);
+        }
+        const readback = (await owner('GET', '/generation-workflows/' + saved.data.id + '/definition')).data;
+        assert.deepEqual(readback.definition.graph, definition.graph);
+      },
+    );
+    await t.test(
+      'optional media rejects ambiguous loaders and changed downstream declarations before uploads',
+      async () => {
+        const path = '/projects/' + project.id + '/generation-workflows';
+        const definition = fixtureOptionalMedia(connectionId);
+        const [video, audio] = definition.mediaSchema.inputs;
+        for (const mutate of [
+          (w) => (w.graph[audio.node].inputs.extra = 'not dedicated'),
+          (w) => (w.graph[audio.node].class_type = 'Custom Input'),
+          (w) => (w.graph[w.output.node].inputs.audio_reference = [audio.node, 1]),
+          (w) => w.mediaSchema.inputs.push({ ...w.mediaSchema.inputs[0], id: randomUUID() }),
+        ]) {
+          const invalid = structuredClone(definition);
+          mutate(invalid);
+          assert.equal((await owner('POST', path, invalid)).status, 400);
+        }
+        const overrides = remote.mock.objectInfoOverrides;
+        try {
+          for (const declarations of [
+            { required: { audio_reference: ['AUDIO'] } },
+            { optional: { audio_reference: ['VIDEO'], video_reference: ['VIDEO'] } },
+          ]) {
+            remote.mock.objectInfoOverrides = { ImageOutput: { output_node: true, input: declarations } };
+            assert.equal(
+              (await owner('POST', path, definition)).data.code,
+              'WORKFLOW_MEDIA_DISCONNECT_INVALID',
+            );
+          }
+          remote.mock.objectInfoOverrides = overrides;
+          const saved = await owner('POST', path, definition);
+          const queued = await owner(
+            'POST',
+            '/projects/' + project.id + '/generation-jobs',
+            {
+              workflowId: saved.data.id,
+              positivePrompt: 'No optional files',
+              confirmed: true,
+            },
+            { 'Idempotency-Key': randomUUID() },
+          );
+          assert.equal(queued.status, 201, JSON.stringify(queued.data));
+          remote.mock.objectInfoOverrides = {
+            ImageOutput: { output_node: true, input: { required: { audio_reference: ['AUDIO'] } } },
+          };
+          const before = [remote.mock.uploads.length, remote.mock.submissions.length];
+          await tick();
+          assert.equal((await read(queued.data.id)).errorCode, 'WORKFLOW_MEDIA_DISCONNECT_INVALID');
+          assert.deepEqual([remote.mock.uploads.length, remote.mock.submissions.length], before);
+          const report = await owner('POST', '/generation-workflows/' + saved.data.id + '/inspection', {});
+          assert.ok(JSON.stringify(report.data).includes('MEDIA_DISCONNECT_INVALID'));
+        } finally {
+          remote.mock.objectInfoOverrides = overrides;
+        }
+      },
+    );
+    await t.test(
+      'audio main output archives real MP3 once and keeps trials outside the media library',
+      async () => {
+        const path = '/projects/' + project.id;
+        const definition = fixtureOptionalMedia(connectionId, true);
+        const saved = await owner('POST', path + '/generation-workflows', definition);
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        assert.equal((await queue(saved.data.id)).data.code, 'WORKFLOW_MEDIA_UNSUPPORTED');
+        const submit = (endpoint = 'generation-jobs', key = randomUUID(), actor = owner) =>
+          actor(
+            'POST',
+            path + '/' + endpoint,
+            {
+              workflowId: saved.data.id,
+              positivePrompt: 'Gentle instrumental',
+              confirmed: true,
+            },
+            { 'Idempotency-Key': key },
+          );
+        assert.equal((await submit('generation-jobs', randomUUID(), viewer)).status, 403);
+        const key = randomUUID();
+        const queued = await submit('generation-jobs', key);
+        assert.equal(queued.status, 201, JSON.stringify(queued.data));
+        assert.throws(
+          () =>
+            db().prepare("UPDATE generation_jobs SET lease_id='free:legacy' WHERE id=?").run(queued.data.id),
+          /updated generation worker/,
+        );
+        const before = remote.mock.submissions.length;
+        remote.mock.mode = 'lost';
+        await tick();
+        assert.equal((await read(queued.data.id)).state, 'needs_reconciliation');
+        assert.equal(remote.mock.submissions.length, before + 1);
+        remote.mock.mode = 'normal';
+        assert.equal((await control(queued.data.id, 'reconcile')).status, 201);
+        for (let i = 0; i < 3; i++) await tick();
+        const done = await read(queued.data.id);
+        assert.equal(done.state, 'completed', JSON.stringify(done));
+        assert.equal(done.result.mediaType, 'audio');
+        assert.equal(done.result.metadata.width, null);
+        assert.ok(done.result.metadata.durationMs > 0);
+        assert.deepEqual(
+          (await owner('GET', done.result.contentUrl.replace('/api/v1', ''))).data,
+          fixtures['sound.mp3'].bytes,
+        );
+        assert.equal((await submit('generation-jobs', key)).data.mediaVersionId, done.mediaVersionId);
+        assert.equal(
+          db().prepare('SELECT count(*) n FROM media_uploads WHERE generation_job_id=?').get(done.id).n,
+          1,
+        );
+        assert.equal(
+          (await owner('POST', '/generation-jobs/' + done.id + '/save-to-library', {})).data.inLibrary,
+          true,
+        );
+        const trial = await submit('workflow-trials');
+        assert.equal(trial.status, 201, JSON.stringify(trial.data));
+        for (let i = 0; i < 3; i++) await tick();
+        const evidence = await read(trial.data.id);
+        assert.equal(evidence.state, 'test_completed');
+        assert.equal(evidence.result.mediaType, 'audio');
+        assert.notEqual(
+          (await owner('POST', '/generation-jobs/' + trial.data.id + '/save-to-library', {})).status,
+          201,
+        );
+        assert.ok(
+          !(await owner('GET', path + '/generation-reference-media?type=audio')).data.items.some(
+            (v) => v.id === evidence.mediaVersionId,
+          ),
+        );
+        assert.equal(remote.mock.submissions.length, before + 2);
+
+        const plain = fixtureWorkflow(connectionId);
+        plain.capability = 'audio.music';
+        plain.name = 'Text to audio';
+        plain.graph[plain.output.node].class_type = 'AudioOutput';
+        plain.output.field = 'audio';
+        const pure = await owner('POST', path + '/generation-workflows', plain);
+        assert.equal(pure.status, 201, JSON.stringify(pure.data));
+        const pureJob = await owner(
+          'POST',
+          path + '/generation-jobs',
+          {
+            workflowId: pure.data.id,
+            positivePrompt: 'Piano',
+            confirmed: true,
+          },
+          { 'Idempotency-Key': randomUUID() },
+        );
+        assert.equal(pureJob.status, 201, JSON.stringify(pureJob.data));
+        for (let i = 0; i < 3; i++) await tick();
+        assert.equal((await read(pureJob.data.id)).state, 'completed');
+        assert.equal((await read(pureJob.data.id)).result.mediaType, 'audio');
+        const mismatch = await submit();
+        await tick();
+        const remoteId = (await read(mismatch.data.id)).remoteId;
+        const record = remote.mock.history.get(remoteId);
+        record.outputs[definition.output.node].audio[0].filename = 'image.png';
+        await tick();
+        await tick();
+        const failed = await read(mismatch.data.id);
+        assert.notEqual(failed.state, 'completed');
+        assert.equal(failed.mediaVersionId, null);
+        assert.equal(
+          db()
+            .prepare(
+              'SELECT count(*) n FROM media_versions WHERE id IN (SELECT media_version_id FROM media_uploads WHERE generation_job_id=?)',
+            )
+            .get(failed.id).n,
+          0,
+        );
       },
     );
     await t.test('changed approvals prevent submission and removal revokes job reads', async () => {

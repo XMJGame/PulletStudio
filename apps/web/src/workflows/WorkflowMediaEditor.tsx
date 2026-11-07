@@ -41,8 +41,7 @@ export function WorkflowMediaEditor({
     <details className="workflow-media-editor" open={Boolean(schema.inputs.length || schema.outputs.length)}>
       <summary>扩展媒体声明</summary>
       <p className="field-hint">
-        必填图片、视频、音频和通过检查的可选参考图可直接生成。可选参考图留空时断开专用 LoadImage
-        的下游连接。可选视频、可选音频和扩展输出当前仅支持配置。
+        图片、视频和音频均可作为参考素材。可选槽位留空时断开专用加载器的可省略连接；不自动删除必填的解码或转换链。扩展输出当前仅支持配置。
       </p>
       <div className="workflow-media-toolbar">
         <StudioButton
@@ -115,9 +114,6 @@ export function WorkflowMediaEditor({
                     mediaType: e.target.value as WorkflowMediaInput['mediaType'],
                     ...(e.target.value !== 'image' && ['last_frame', 'mask'].includes(slot.role)
                       ? { role: 'reference' }
-                      : {}),
-                    ...(e.target.value !== 'image' && slot.onMissing === 'disconnect'
-                      ? { required: true, onMissing: 'error' }
                       : {}),
                   })
                 }
@@ -211,9 +207,7 @@ export function WorkflowMediaEditor({
               >
                 <option value="required">必填，缺失时报错</option>
                 <option value="optional">旧版空值声明 · 仅配置</option>
-                {slot.mediaType === 'image' && slot.role === 'reference' && (
-                  <option value="disconnect">可选，留空时断开</option>
-                )}
+                {slot.role === 'reference' && <option value="disconnect">可选，留空时断开</option>}
               </select>
             </label>
           </div>

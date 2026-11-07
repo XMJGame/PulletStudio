@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { BoardLayout } from '../../../../packages/contracts/src/board';
 import type { CursorPage } from '../api';
-import { generationStates, type GenerationJob } from '../components/GenerationDialog';
+import { generationStates, generationErrors, type GenerationJob } from '../components/GenerationDialog';
 import { StudioButton, StudioIcon } from '../shared/ui/StudioUI';
 import './board-candidates.css';
 
@@ -136,9 +136,7 @@ export function BoardCandidates({
         </header>
         {job.errorCode && (
           <p role="status">
-            {job.errorCode === 'MODELSCOPE_ACCOUNT_BINDING_REQUIRED'
-              ? 'ModelScope 要求当前账号先绑定阿里云，未创建远端任务。'
-              : '生成遇到问题，请在任务与候选中查看并处理。'}
+            {generationErrors[job.errorCode] ?? '生成遇到问题，请检查工作流、参考素材或实例连接。'}
           </p>
         )}
         {job.result && (
@@ -245,6 +243,14 @@ function CandidatePreview({ job, secondary }: { job: GenerationJob; secondary: b
       src={job.result.contentUrl}
       alt={secondary ? '对照生成结果' : '节点生成结果'}
       loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  ) : job.result.mediaType === 'audio' ? (
+    <audio
+      src={job.result.contentUrl}
+      aria-label={secondary ? '对照生成音频' : '节点生成音频'}
+      controls
+      preload="metadata"
       onError={() => setFailed(true)}
     />
   ) : (

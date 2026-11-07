@@ -71,7 +71,7 @@ export const workflowInput = z
   .object({
     name,
     connectionId: z.uuid(),
-    capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video']),
+    capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video', 'audio.music']),
     graph: z.record(
       nodeId,
       z
@@ -224,7 +224,7 @@ export const resultDescriptor = z.object({
       (v) =>
         v === v.trim() &&
         !/[\\/:%<>"|?*\x00-\x1f\x7f]/u.test(v) &&
-        /\.(png|jpe?g|webp|mp4|webm|mov)$/iu.test(v),
+        /\.(png|jpe?g|webp|mp4|webm|mov|wav|mp3|ogg|opus|m4a)$/iu.test(v),
     ),
   subfolder: z
     .string()

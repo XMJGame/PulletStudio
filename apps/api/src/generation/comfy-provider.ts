@@ -16,9 +16,9 @@ import {
 } from './generation-contract';
 import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
 import {
-  imageDisconnectTargets,
+  mediaDisconnectTargets,
   mediaInputMatchesMetadata,
-  optionalImageInputMatchesMetadata,
+  optionalMediaInputMatchesMetadata,
 } from './workflow-media';
 
 export class GenerationError extends Error {
@@ -192,11 +192,16 @@ export class ComfyProvider {
             )
               throw new GenerationError('WORKFLOW_MEDIA_BINDING_INVALID');
             if (slot.onMissing === 'disconnect') {
-              if (info.output_node === true) throw new GenerationError('WORKFLOW_MEDIA_DISCONNECT_INVALID');
+              if (
+                info.output_node === true ||
+                !Array.isArray(info.output) ||
+                info.output[0] !== slot.mediaType.toUpperCase()
+              )
+                throw new GenerationError('WORKFLOW_MEDIA_DISCONNECT_INVALID');
               await Promise.all(
-                imageDisconnectTargets(workflow.graph, slot.node).map(async (target) => {
+                mediaDisconnectTargets(workflow.graph, slot.node).map(async (target) => {
                   const downstream = await node(target.node, signal);
-                  if (!optionalImageInputMatchesMetadata(target.input, downstream.input))
+                  if (!optionalMediaInputMatchesMetadata(target.input, downstream.input, slot.mediaType))
                     throw new GenerationError('WORKFLOW_MEDIA_DISCONNECT_INVALID');
                 }),
               );

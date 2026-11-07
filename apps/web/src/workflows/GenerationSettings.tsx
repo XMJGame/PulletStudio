@@ -266,6 +266,7 @@ export function GenerationSettings({
                   onChange={(event) => setCapability(event.target.value)}
                 >
                   <option value="image.text_to_image">文字生图</option>
+                  <option value="audio.music">音频生成</option>
                   <option value="video.text_to_video">文字生视频</option>
                   <option value="video.image_to_video">图生视频</option>
                 </select>

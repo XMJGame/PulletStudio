@@ -10,6 +10,7 @@ import {
   fixtureReferenceImages,
   fixtureOptionalImages,
   fixtureRequiredMedia,
+  fixtureOptionalMedia,
 } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
@@ -2445,6 +2446,92 @@ test('canvas binds typed image video and audio inputs in one generation', async 
     ).toEqual(['image', 'video', 'audio']);
     await page.screenshot({ path: 'test-results/board-reference-media.png', animations: 'disabled' });
     await expect(panel.getByRole('button', { name: '存入素材库', exact: true })).toBeVisible();
+  } finally {
+    await remote.close();
+  }
+});
+
+test('canvas previews audio output and reuses it through optional media slots', async ({ page }) => {
+  const remote = await startComfyMock({ 'sound.mp3': fixtures['sound.mp3'].bytes });
+  try {
+    const value = await project('Audio canvas');
+    const video = await uploadMedia(value.id, 'clip.mp4');
+    const connection = await call('POST', '/projects/' + value.id + '/generation-connections', {
+      name: 'Audio fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureOptionalMedia(connection.id, true);
+    const workflow = await call('POST', '/projects/' + value.id + '/generation-workflows', definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'Sound study');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('Soft piano in a quiet station');
+    const optionalVideo = panel.getByLabel('节点参考视频 1：Motion reference', { exact: true });
+    const optionalAudio = panel.getByLabel('节点参考音频 2：Sound reference', { exact: true });
+    await expect(optionalVideo).toHaveValue('');
+    await expect(optionalAudio).toHaveValue('');
+    await expect(panel.getByText('1 · Motion reference · 可选')).toBeVisible();
+    await expect(panel.getByText('2 · Sound reference · 可选')).toBeVisible();
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', '/projects/' + value.id + '/generation-jobs');
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const first = (await history()).items[0];
+    expect(first.result.mediaType).toBe('audio');
+    const preview = panel.getByLabel('节点生成音频', { exact: true });
+    await expect(preview).toBeVisible();
+    await expect
+      .poll(() => preview.evaluate((el: HTMLAudioElement) => el.readyState))
+      .toBeGreaterThanOrEqual(2);
+    await preview.evaluate((el: HTMLAudioElement) => el.play());
+    await expect.poll(() => preview.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThan(0);
+    await preview.evaluate((el: HTMLAudioElement) => el.pause());
+    expect(await (await owner.get(first.result.contentUrl)).body()).toEqual(fixtures['sound.mp3'].bytes);
+    expect(remote.mock.uploads).toHaveLength(0);
+    expect(remote.mock.submissions[0].prompt['7']).toBeUndefined();
+    expect(remote.mock.submissions[0].prompt['8']).toBeUndefined();
+    await panel.getByRole('button', { name: '存入素材库', exact: true }).click();
+    await expect(panel.getByText('已存入素材库', { exact: true })).toBeVisible();
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await save(page);
+    let board = await call('GET', '/boards/' + boardId);
+    const result = board.layout.nodes.find((n: any) => n.type === 'result');
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    expect(result.data.jobId).toBe(first.id);
+    await page.locator('.react-flow__node[data-id="' + result.id + '"]').click();
+    await expect(page.locator('.creative-inspector audio')).toBeVisible();
+    await page.getByRole('button', { name: '添加 clip.mp4', exact: true }).click();
+    await save(page);
+    board = await call('GET', '/boards/' + boardId);
+    const videoNode = board.layout.nodes.find((n: any) => n.data.ref?.id === video.id);
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await optionalVideo.selectOption(videoNode.id);
+    await optionalAudio.selectOption(result.id);
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect
+      .poll(async () => (await history()).items.filter((j: any) => j.state === 'completed').length)
+      .toBe(2);
+    expect(remote.mock.uploads.map((x: any) => x.mime)).toEqual(['video/mp4', 'audio/mpeg']);
+    expect(remote.mock.uploads[1].bytes).toEqual(fixtures['sound.mp3'].bytes);
+    const latest = (await history()).items[0];
+    expect(latest.referenceMedia.map((x: any) => x.mediaType)).toEqual(['video', 'audio']);
+    const saved = await call('GET', '/boards/' + boardId);
+    expect(
+      saved.layout.edges
+        .filter((e: any) => e.targetPort?.startsWith('reference:'))
+        .map((e: any) => e.sourcePort),
+    ).toEqual(['video', 'audio']);
+    await page.screenshot({ path: 'test-results/b4-audio-canvas-desktop.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await preview.scrollIntoViewIfNeeded();
+    await expect(preview).toBeInViewport();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b4-audio-canvas-mobile.png', animations: 'disabled' });
+    await page.reload();
+    await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
+    await expect(optionalAudio).toHaveValue(result.id);
   } finally {
     await remote.close();
   }

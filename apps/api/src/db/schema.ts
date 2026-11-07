@@ -1649,7 +1649,7 @@ export const generationWorkflows = sqliteTable(
     connectionId: text('connection_id').notNull(),
     name: text('name').notNull(),
     capability: text('capability', {
-      enum: ['image.text_to_image', 'video.text_to_video', 'video.image_to_video'],
+      enum: ['image.text_to_image', 'video.text_to_video', 'video.image_to_video', 'audio.music'],
     }).notNull(),
     definitionJson: text('definition_json').notNull(),
     createdBy: text('created_by')

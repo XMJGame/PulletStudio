@@ -44,6 +44,7 @@ export type GenerationConfig = {
 };
 export const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
+  'audio.music': '音频生成',
   'video.text_to_video': '文字生视频',
   'video.image_to_video': '图生视频',
 };

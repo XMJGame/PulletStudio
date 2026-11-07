@@ -530,7 +530,7 @@ export class MediaService {
     generation?: {
       jobId?: string;
       animaticJobId?: string;
-      mediaType: 'image' | 'video';
+      mediaType: 'image' | 'video' | 'audio';
       signal: AbortSignal;
     },
   ) {
