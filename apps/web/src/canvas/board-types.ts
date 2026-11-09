@@ -1,7 +1,7 @@
 import type { Node } from '@xyflow/react';
 import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 export type CanvasNode = Node<
-  { domain: BoardNode; value?: BoardResolved; hasReferenceInputs?: boolean },
+  { domain: BoardNode; value?: BoardResolved; hasReferenceInputs?: boolean; childCount?: number },
   'boardNode'
 >;
 export const statusLabels: Record<BoardResolved['status'], string> = {

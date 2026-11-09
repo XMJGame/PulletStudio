@@ -8,18 +8,21 @@ export function BoardItemTools({
   editable,
   onRemove,
   onUseImage,
+  onDetach,
 }: {
   children: ReactNode;
   value?: BoardResolved;
   editable: boolean;
   onRemove: () => void;
   onUseImage?: () => void;
+  onDetach?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)}>{value?.media ? '预览与详情' : '更多设置'}</button>
       {onUseImage && <button onClick={onUseImage}>以此图生成</button>}
+      {editable && onDetach && <button onClick={onDetach}>移出分组</button>}
       {value?.media && (
         <a href={value.media.downloadUrl} download>
           下载原件

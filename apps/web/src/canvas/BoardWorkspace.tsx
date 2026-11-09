@@ -19,6 +19,7 @@ import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-typ
 import type { MediaVersion } from '../media-types';
 import type { Workflow } from '../workflows/workflow-types';
 import { BoardSurface } from './BoardSurface';
+import { groupedResults } from './result-group';
 import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
 import { mediaFileAccept } from '../media-upload';
@@ -350,6 +351,19 @@ export default function BoardWorkspace({
         };
       });
   }
+  function detachResult(node: BoardNode) {
+    if (!editable || !node.parentId || !layout) return;
+    const parent = layout.nodes.find((item) => item.id === node.parentId);
+    if (parent)
+      update({
+        ...node,
+        parentId: undefined,
+        position: {
+          x: clamp(node.position.x + parent.position.x, -50000, 50000),
+          y: clamp(node.position.y + parent.position.y, -50000, 50000),
+        },
+      });
+  }
   function remove(ids: string[]) {
     if (!editable) return;
     setLayout((value) => {
@@ -638,7 +652,15 @@ export default function BoardWorkspace({
           height: node.type === 'group' && node.data.collapsed ? 120 : node.height,
         },
         zIndex: node.type === 'group' ? -1 : 1,
-        data: { domain: node, value: resolved[node.id], hasReferenceInputs: referenceTargets.has(node.id) },
+        data: {
+          domain: node,
+          value: resolved[node.id],
+          hasReferenceInputs: referenceTargets.has(node.id),
+          childCount:
+            node.type === 'group'
+              ? layout.nodes.filter((item) => item.parentId === node.id).length
+              : undefined,
+        },
       }));
   }, [layout, resolved, selected]);
   const flowEdges = useMemo(
@@ -687,13 +709,26 @@ export default function BoardWorkspace({
           nodes: value.nodes.map((node) => {
             const change = changes.find((item) => item.type === 'position' && item.id === node.id);
             return change?.type === 'position' && change.position
-              ? {
-                  ...node,
-                  position: {
-                    x: clamp(change.position.x, -50000, 50000),
-                    y: clamp(change.position.y, -50000, 50000),
-                  },
-                }
+              ? (() => {
+                  const parent = value.nodes.find((item) => item.id === node.parentId);
+                  const pos = change.position!;
+                  const outside =
+                    node.type === 'result' &&
+                    parent &&
+                    change.dragging === false &&
+                    (pos.x + node.width < 0 ||
+                      pos.y + node.height < 0 ||
+                      pos.x > parent.width ||
+                      pos.y > parent.height);
+                  return {
+                    ...node,
+                    ...(outside ? { parentId: undefined } : {}),
+                    position: {
+                      x: clamp(pos.x + (outside ? parent!.position.x : 0), -50000, 50000),
+                      y: clamp(pos.y + (outside ? parent!.position.y : 0), -50000, 50000),
+                    },
+                  };
+                })()
               : node;
           }),
         },
@@ -886,8 +921,24 @@ export default function BoardWorkspace({
         : edges,
     });
   }
-  function addResult(job: GenerationJob) {
+  function addResult(job: GenerationJob, grouped = false) {
     if (!editable || !layout) return;
+    if (grouped) {
+      try {
+        const next = groupedResults(layout, job);
+        setLayout(next.layout);
+        setSelected(next.selected);
+        setMessage(
+          next.added
+            ? `已将 ${next.added} 份产物加入结果组，请保存画布。`
+            : '这些产物已在画布中，未重复添加。',
+        );
+        setError('');
+      } catch (reason) {
+        report(reason);
+      }
+      return;
+    }
     const resultId = job.selectedOutputId ?? job.id;
     const existing = layout.nodes.find((n) => n.type === 'result' && n.id === resultId);
     if (existing) {
@@ -1393,6 +1444,9 @@ export default function BoardWorkspace({
                           key={node.id}
                           value={resolved[node.id]}
                           editable={editable}
+                          onDetach={
+                            node.type === 'result' && node.parentId ? () => detachResult(node) : undefined
+                          }
                           onRemove={() => remove([node.id])}
                           onUseImage={
                             editable && resolved[node.id]?.media?.mediaType === 'image'

@@ -35,7 +35,9 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
     return (
       <div className="creative-group-card">
         <strong>{domain.data.label}</strong>
-        <small>{domain.data.collapsed ? '已折叠' : '创作分组'}</small>
+        <small>
+          {data.childCount ?? 0} 项{domain.data.collapsed ? ' · 已折叠' : ''}
+        </small>
       </div>
     );
   return (

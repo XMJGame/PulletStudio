@@ -27,7 +27,7 @@ export function BoardCandidates({
   layout: BoardLayout;
   editable: boolean;
   busy: boolean;
-  onResult: (job: GenerationJob) => void;
+  onResult: (job: GenerationJob, grouped?: boolean) => void;
   onArchive: (job: GenerationJob) => void;
   onReuse: (job: GenerationJob) => void;
   onMore: () => void;
@@ -69,6 +69,18 @@ export function BoardCandidates({
       <div className="v2-candidate-heading">
         <h4>任务与候选</h4>
         <div className="v2-live-inline">
+          {editable && current?.state === 'completed' && !!current.outputs?.length && (
+            <StudioButton
+              icon="layers"
+              disabled={busy}
+              onClick={() => {
+                const original = jobs.items.find((item) => item.id === current.id);
+                if (original) onResult(original, true);
+              }}
+            >
+              整组加入画布
+            </StudioButton>
+          )}
           {current && !current.shotId && current.state === 'completed' && !!current.outputs?.length && (
             <StudioButton variant="ghost" disabled={busy} onClick={() => setBatch(current)}>
               批量处理产物

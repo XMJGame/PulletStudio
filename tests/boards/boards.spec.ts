@@ -3997,3 +3997,97 @@ test('media connections match unique slots and require explicit choices for ambi
     await remote.close();
   }
 });
+
+test('one task adds a persistent result group and detaching or dissolving preserves fixed outputs', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'sound.mp3': fixtures['sound.mp3'].bytes,
+  });
+  try {
+    const value = await project('Grouped task results');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Grouped fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureExtendedOutputs(connection.id),
+    );
+    await open(page, value);
+    const id = await createBoard(page, 'Result collection');
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('A scene with multiple deliverables');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    const history = () => call('GET', `/projects/${value.id}/generation-jobs`);
+    await expect.poll(async () => (await history()).items[0]?.state).toBe('completed');
+    const job = (await history()).items[0];
+    await panel.getByLabel('选择生成产物', { exact: true }).selectOption(job.outputs[1].id);
+    await panel.getByRole('button', { name: '整组加入画布', exact: true }).click();
+    await save(page);
+    let board = await call('GET', `/boards/${id}`);
+    const group = board.layout.nodes.find((n: any) => n.type === 'group');
+    const results = board.layout.nodes.filter((n: any) => n.type === 'result');
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
+    expect(results.map((n: any) => n.id)).toEqual([job.id, ...job.outputs.map((o: any) => o.id)]);
+    expect(results.every((n: any) => n.parentId === group.id)).toBe(true);
+    expect(results.map((n: any) => board.resolved[n.id].media.mediaType)).toEqual([
+      'video',
+      'image',
+      'image',
+      'audio',
+    ]);
+    await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
+    await panel.getByRole('button', { name: '整组加入画布', exact: true }).click();
+    await expect(page.getByRole('button', { name: '保存画布', exact: true })).toBeDisabled();
+    expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(board.layout.nodes.length);
+    await page.reload();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    const child = page.locator(`.react-flow__node[data-id="${results[1].id}"]`);
+    await child.locator('strong').click();
+    await page.getByRole('button', { name: '移出分组', exact: true }).click();
+    await save(page);
+    board = await call('GET', `/boards/${id}`);
+    const detached = board.layout.nodes.find((n: any) => n.id === results[1].id);
+    expect(detached.parentId).toBeUndefined();
+    expect(detached.position.x).toBe(group.position.x + results[1].position.x);
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.screenshot({ path: 'test-results/b16-result-group-desktop.png' });
+    const draggable = page.locator(`.react-flow__node[data-id="${results[2].id}"]`).locator('strong');
+    await draggable.click({ trial: true });
+    const dragBox = (await draggable.boundingBox())!;
+    await page.mouse.move(dragBox.x + 20, dragBox.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(100, 850, { steps: 20 });
+    await page.mouse.up();
+    await save(page);
+    board = await call('GET', `/boards/${id}`);
+    expect(board.layout.nodes.find((n: any) => n.id === results[2].id).parentId).toBeUndefined();
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b16-result-group-mobile.png' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator(`.react-flow__node[data-id="${group.id}"]`).locator('strong').first().click();
+    await page.getByRole('button', { name: '删除', exact: true }).click();
+    await save(page);
+    board = await call('GET', `/boards/${id}`);
+    expect(board.layout.nodes.filter((n: any) => n.type === 'result')).toHaveLength(4);
+    expect(board.layout.nodes.some((n: any) => n.parentId)).toBe(false);
+    expect((await history()).items[0].mediaVersionId).toBe(job.mediaVersionId);
+    expect((await history()).items[0].outputs.map((o: any) => o.mediaVersionId)).toEqual(
+      job.outputs.map((o: any) => o.mediaVersionId),
+    );
+  } finally {
+    await remote.close();
+  }
+});

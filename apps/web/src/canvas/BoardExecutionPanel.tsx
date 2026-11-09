@@ -66,7 +66,7 @@ export function BoardExecutionPanel({
   onPinMedia?: (media: MediaVersion) => Promise<void>;
   update: (node: BoardNode, clearFirstFrame?: boolean) => void;
   bind: (port: BoardInputPort, source: string) => void;
-  onResult: (job: GenerationJob) => void;
+  onResult: (job: GenerationJob, grouped?: boolean) => void;
   onOpenTasks: () => void;
   onDismiss: () => void;
   onWorkflow: (nodeId: string, workflow: Workflow) => void;
