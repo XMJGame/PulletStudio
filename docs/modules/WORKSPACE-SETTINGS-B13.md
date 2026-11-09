@@ -16,3 +16,4 @@
 - 工作流首轮 20 项及 2 个失败场景定向恢复：`b13-workflows-full.log`、`b13-workflow-recovery.log`、`b13-workflow-navigation.log`。联调修复进入工作流时刷新新增全局实例、导航帮助函数等待画布真正打开；测试期间不再改动 Vite 源码。
 - 画布首轮 36 项及手机公共库完整场景定向恢复：`b13-boards-full.log`、`b13-board-mobile-recovery.log`。修复新增设置按钮后的多工作区手机顶部栏超宽，保留原溢出断言。
 - 最终构建、类型、格式：`b13-build-final.log`、`b13-typecheck-final.log`、`b13-format-final.log`。上述运行日志与截图位于忽略目录，不包含在程序 ZIP 中。真实 GPU/Provider 验收独立安排。
+- 交付：B13 程序来源 `93a31b7`，10049 份文件校验通过；原 B12 70 张表、2 份媒体及加密配置复制校验一致，启动后无表内容变化，账号保持初始化，API 就绪。B12 保留回退，原工程库仍 42 条迁移。运行地址 http://127.0.0.1:5188；数据校验收据在忽略目录 `data/e2e/b13-profile-receipt.json`，不对外打包。
