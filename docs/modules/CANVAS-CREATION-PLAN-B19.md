@@ -57,8 +57,10 @@
 
 - 已完成：截图与本地归档研究、代码复用点核对、产品规则和阶段计划。
 - B19：分类工具栏/右键动作、创作目标保存、ComfyUI 去除重复类型筛选、API 保留类型与切换保护已实现；画布全量 43 项、工作流相关 7 项、后端全量 288 项及构建/类型/格式通过。创作目标从实际执行合同中明确排除，旧节点缺省兼容。
-- 未开始：B20–B23 代码；B19 程序包交付复核待完成，运行版本暂为 B18。
+- 未开始：B20–B23 代码。B19 已完成体验包交付复核，当前运行 B19。
 
 ## B19 验收证据
 
-忽略目录日志：`b19-boards-full-final.log`（43 项）、`b19-workflows-targeted.log`（7 项）、`b19-api-full-final.log`（288 项）、`b19-api-contract-final.log`、`b19-build-final.log`、`b19-typecheck-final.log`、`b19-format-check.log`。分类创建截图为 `test-results/b19-creation-desktop.png` 与 `b19-creation-mobile-dark.png`；调整右键创建的截图落点后，`b19-creation-final.log` 再次通过。首轮完整回归的失败证据保留于 `b19-boards-first-run.log`：新 UI 提示字段误入严格执行合同及重复分组入口，分别改用执行字段白名单与统一工具栏入口后，重新全量通过。没有数据库迁移或真实外部模型请求，运行用户数据尚未修改。
+忽略目录日志：`b19-boards-full-final.log`（43 项）、`b19-workflows-targeted.log`（7 项）、`b19-api-full-final.log`（288 项）、`b19-api-contract-final.log`、`b19-build-final.log`、`b19-typecheck-final.log`、`b19-format-check.log`。分类创建截图为 `test-results/b19-creation-desktop.png` 与 `b19-creation-mobile-dark.png`；调整右键创建的截图落点后，`b19-creation-final.log` 再次通过。首轮完整回归的失败证据保留于 `b19-boards-first-run.log`：新 UI 提示字段误入严格执行合同及重复分组入口，分别改用执行字段白名单与统一工具栏入口后，重新全量通过。没有数据库迁移或真实外部模型请求。交付时将 B18 用户空间完整复制到 B19，原有记录保持一致。
+
+B19 程序包来源 `3b4e7dd`，10049 份程序文件逐项校验通过，ZIP 不含用户数据。复制 B18 后 70 张表、12 份媒体和加密配置一致，启动后表内容没有变化；Web/API 就绪，原工程库仍 42 条迁移。交付证据为忽略目录 `b19-package.log`、`b19-profile-receipt.json`、`b19-delivery-report.json`。
