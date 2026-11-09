@@ -21,7 +21,7 @@
 
 | 领域 | 使用/API与限制 | 开工合同及代码入口 |
 |---|---|---|
-| 分类创作体验（分阶段实施） | [分类创建与引擎规则](CREATIVE-CANVAS.md#分类创建与生成引擎)、[映射配置与预览](WORKFLOW-CENTER.md#配置分区与表单预览) | [B19–B23 计划](modules/CANVAS-CREATION-PLAN-B19.md)；B19–B21 已完成，含[主动入库](modules/CANVAS-MANUAL-LIBRARY-B21A.md)、单口连接及组内产物选择；B22 网格素材选择器待实施 |
+| 分类创作体验（分阶段实施） | [分类创建与引擎规则](CREATIVE-CANVAS.md#分类创建与生成引擎)、[映射配置与预览](WORKFLOW-CENTER.md#配置分区与表单预览) | [B19–B23 计划](modules/CANVAS-CREATION-PLAN-B19.md)；B19–B22 已完成，含[主动入库](modules/CANVAS-MANUAL-LIBRARY-B21A.md)、单口连接、组内产物选择及网格选择器；B23 联合验收待实施 |
 | 全局设置 / ComfyUI / API | [左侧导航、右侧配置及权限](WORKFLOW-CENTER.md) | [B13 合同](modules/WORKSPACE-SETTINGS-B13.md)；实例在工作区共用，工作流保留项目归属；覆盖 B12 旧入口 |
 | 节点就地操作与右键创建 | [就地操作](CREATIVE-CANVAS.md#就地操作) | [B14 合同](modules/CANVAS-INLINE-B14.md)；直接编辑文字、主动打开素材详情、节点删除与原件保留 |
 | 素材输入连接 | [按类型匹配](CREATIVE-CANVAS.md#按素材类型连接生成输入) | [B15 合同](modules/CANVAS-INPUT-CONNECTIONS-B15.md)；唯一空槽自动连接，多槽选择，不覆盖已有来源 |

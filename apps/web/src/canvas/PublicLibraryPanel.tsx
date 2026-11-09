@@ -32,18 +32,20 @@ export function PublicLibraryPanel({
   filters,
   onFiltersChange,
   onBusyChange,
+  pickerMode = false,
 }: ({ projectId: string; workspaceId?: never } | { workspaceId: string; projectId?: never }) & {
   editable: boolean;
   onImported: (kind?: 'media' | 'entity') => void;
   filters: PublicLibraryFilters;
   onFiltersChange: (value: PublicLibraryFilters) => void;
   onBusyChange?: (busy: boolean) => void;
+  pickerMode?: boolean;
 }) {
   const [folders, setFolders] = useState<LibraryFolder[]>([]),
     [folderId, setFolderId] = useState(filters.folderId);
   const [query, setQuery] = useState(filters.query),
     [mediaType, setMediaType] = useState(filters.mediaType);
-  const [category, setCategory] = useState(filters.category ?? 'media');
+  const [category, setCategory] = useState(pickerMode ? 'media' : (filters.category ?? 'media'));
   const [entityFilters, setEntityFilters] = useState<PublicEntityFilters>(
     filters.entityFilters ?? { folderId: '', query: '', kind: '' },
   );
@@ -214,22 +216,24 @@ export function PublicLibraryPanel({
     );
   return (
     <section aria-label="工作区公共媒体库" className="creative-public-library" aria-busy={busy}>
-      <div className="creative-public-categories" role="group" aria-label="公共库内容">
-        <button
-          aria-pressed={category === 'media'}
-          disabled={busy || folderBusy || uploadBusy || entityBusy}
-          onClick={() => setCategory('media')}
-        >
-          媒体素材
-        </button>
-        <button
-          aria-pressed={category === 'entities'}
-          disabled={busy || folderBusy || uploadBusy || entityBusy}
-          onClick={() => setCategory('entities')}
-        >
-          角色与场景
-        </button>
-      </div>
+      {!pickerMode && (
+        <div className="creative-public-categories" role="group" aria-label="公共库内容">
+          <button
+            aria-pressed={category === 'media'}
+            disabled={busy || folderBusy || uploadBusy || entityBusy}
+            onClick={() => setCategory('media')}
+          >
+            媒体素材
+          </button>
+          <button
+            aria-pressed={category === 'entities'}
+            disabled={busy || folderBusy || uploadBusy || entityBusy}
+            onClick={() => setCategory('entities')}
+          >
+            角色与场景
+          </button>
+        </div>
+      )}
       {category === 'entities' && (
         <PublicEntityLibrary
           base={base}
@@ -247,7 +251,7 @@ export function PublicLibraryPanel({
             ? '工作区成员共享。添加到项目后，可用于画布与生成。'
             : '整理团队共用的参考素材。进入项目后，可从资源库添加并用于创作。'}
         </p>
-        {(workspaceId ?? value.workspaceId) && (
+        {!pickerMode && (workspaceId ?? value.workspaceId) && (
           <PublicLibraryUpload
             workspaceId={(workspaceId ?? value.workspaceId)!}
             folderId={folderId}
@@ -259,7 +263,7 @@ export function PublicLibraryPanel({
           <LibraryFolderControls
             projectId={projectId ?? ''}
             apiPath={`${base}/library-folders`}
-            editable={value.canManageFolders}
+            editable={!pickerMode && value.canManageFolders}
             folders={folders}
             onFolders={setFolders}
             value={folderId}
@@ -351,7 +355,7 @@ export function PublicLibraryPanel({
                   {row.inProject ? '已在本项目' : '添加到项目'}
                 </button>
               )}
-              {row.canManage && (
+              {!pickerMode && row.canManage && (
                 <>
                   {folders.length > 0 && (
                     <select

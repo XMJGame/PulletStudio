@@ -39,14 +39,16 @@ async function expectReadable(element: Locator) {
   expect(ratio, 'normal text contrast including hover and warning surfaces').toBeGreaterThanOrEqual(4.5);
 }
 async function call(method: string, path: string, data?: unknown, actor = owner) {
-  const me = await actor.get('/api/v1/auth/me');
-  const session = await me.json();
+  const csrf =
+    (await actor.storageState()).cookies.find(
+      (cookie) => cookie.name === 'studio_csrf' && cookie.domain === '127.0.0.1' && cookie.path === '/',
+    )?.value ?? '';
   const result = await actor.fetch(`/api/v1${path}`, {
     method,
     data,
     headers: {
       'X-Studio-Request': '1',
-      'X-CSRF-Token': session.csrfToken ?? '',
+      'X-CSRF-Token': csrf,
       'Idempotency-Key': randomUUID(),
     },
   });
@@ -87,18 +89,21 @@ test.afterAll(async () => owner?.dispose());
 async function project(title: string) {
   return call('POST', '/projects', { workspaceId: setup.workspace.id, title });
 }
-async function uploadMedia(projectId: string, name: string) {
+async function uploadMedia(projectId: string, name: string, fileName = name) {
   const intent = await call('POST', `/projects/${projectId}/media-uploads`, {
-    fileName: name,
+    fileName,
     byteLength: fixtures[name].bytes.length,
   });
-  const session = await (await owner.get('/api/v1/auth/me')).json();
+  const csrf =
+    (await owner.storageState()).cookies.find(
+      (cookie) => cookie.name === 'studio_csrf' && cookie.domain === '127.0.0.1' && cookie.path === '/',
+    )?.value ?? '';
   const result = await owner.put(`/api/v1/media-uploads/${intent.id}/content`, {
     data: fixtures[name].bytes,
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Studio-Request': '1',
-      'X-CSRF-Token': session.csrfToken,
+      'X-CSRF-Token': csrf,
     },
   });
   expect(result.ok(), await result.text()).toBeTruthy();
@@ -677,6 +682,174 @@ test('public library collects, organizes and imports media across projects with 
   );
   const bytes = await owner.get(`/api/v1/media-versions/${media.items[0].latest.id}/content`);
   expect(await bytes.body()).toEqual(fixtures['image.png'].bytes);
+});
+
+test('media grid preserves selections through search pagination preview and recoverable atomic insertion', async ({
+  page,
+}) => {
+  const value = await project('Grid selection');
+  const images = [];
+  for (let index = 0; index < 23; index++)
+    images.push(await uploadMedia(value.id, 'image.png', `grid-${String(index).padStart(2, '0')}.png`));
+  const video = await uploadMedia(value.id, 'clip.mp4');
+  const audio = await uploadMedia(value.id, 'sound.wav');
+  const folder = await call('POST', `/projects/${value.id}/library-folders`, { name: 'Chosen references' });
+  await call('POST', `/projects/${value.id}/library-placement`, {
+    ref: { kind: 'media', id: images[0].id },
+    folderId: folder.id,
+    expectedVersion: 0,
+  });
+  await open(page, value);
+  const id = await createBoard(page, 'Grid canvas');
+  await page.getByRole('button', { name: '选择素材', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '选择素材', exact: true });
+  const grid = dialog.getByRole('group', { name: '项目素材网格' });
+  await expect(grid.locator('article')).toHaveCount(20);
+  await dialog.getByLabel('网格搜索素材').fill('grid-00');
+  await dialog.getByRole('button', { name: '选择素材 grid-00.png', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  await page.getByRole('button', { name: '选择素材', exact: true }).click();
+  await dialog.getByLabel('网格搜索素材').fill('grid-00');
+  await dialog.getByRole('button', { name: '选择素材 grid-00.png', exact: true }).click();
+  await dialog.getByRole('button', { name: '预览素材 grid-00.png', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: '网格素材预览' }).getByRole('img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByLabel('网格搜索素材')).toBeVisible();
+  await dialog.getByLabel('网格搜索素材').fill('');
+  await expect(grid.locator('article')).toHaveCount(20);
+  await dialog.getByRole('button', { name: '加载更多素材', exact: true }).click();
+  await expect(grid.locator('article')).toHaveCount(25);
+  await dialog.getByRole('button', { name: '选择素材 clip.mp4', exact: true }).click();
+  await dialog.getByRole('combobox', { name: '资源文件夹', exact: true }).selectOption(folder.id);
+  await expect(grid.locator('article')).toHaveCount(1);
+  await expect(dialog.getByRole('status').filter({ hasText: '已选 2 份素材' })).toBeVisible();
+  await dialog.getByRole('combobox', { name: '资源文件夹', exact: true }).selectOption('');
+  await dialog
+    .getByRole('group', { name: '网格媒体类型' })
+    .getByRole('button', { name: '音频', exact: true })
+    .click();
+  await expect(grid.locator('article')).toHaveCount(1);
+  await dialog.getByRole('button', { name: '选择素材 sound.wav', exact: true }).click();
+  await expect(dialog.getByRole('status').filter({ hasText: '已选 3 份素材' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/b22-grid-desktop.png' });
+  let verification = 0;
+  await page.route(`**/projects/${value.id}/board-references/resolve`, async (route) => {
+    if (route.request().method() === 'POST' && verification++ === 0) {
+      return route.fulfill({
+        status: 503,
+        json: { message: 'Selection verification temporarily unavailable' },
+      });
+    }
+    if (verification === 2) {
+      const response = await route.fetch();
+      const json = await response.json();
+      json[Object.keys(json)[0]] = { status: 'unavailable', title: '素材暂不可读' };
+      return route.fulfill({ response, json });
+    }
+    return route.continue();
+  });
+  await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Selection verification temporarily unavailable');
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  await expect(dialog.getByRole('status').filter({ hasText: '已选 3 份素材' })).toBeVisible();
+  await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('部分素材已失效或无权读取');
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  await expect(dialog.getByRole('status').filter({ hasText: '已选 3 份素材' })).toBeVisible();
+  await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await save(page);
+  const selected = await call('GET', `/boards/${id}`);
+  expect(selected.layout.nodes.map((node: any) => node.data.ref.id)).toEqual([
+    images[0].id,
+    video.id,
+    audio.id,
+  ]);
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.getByRole('button', { name: '选择素材', exact: true }).click();
+  await dialog.getByLabel('网格搜索素材').fill('grid-00');
+  await dialog.getByRole('button', { name: '选择素材 grid-00.png', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/b22-grid-mobile.png' });
+  await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(3);
+});
+
+test('media grid imports public resources explicitly with response recovery and remains readonly for viewers', async ({
+  page,
+  browser,
+}) => {
+  const source = await project('Grid public source');
+  const media = await uploadMedia(source.id, 'image.png', 'shared-grid.png');
+  const collected = await call('POST', `/projects/${source.id}/public-library/resources`, {
+    mediaVersionId: media.id,
+  });
+  const target = await project('Grid public target');
+  await open(page, target);
+  const id = await createBoard(page, 'Public choices');
+  await page.getByRole('button', { name: '选择素材', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '选择素材', exact: true });
+  await dialog
+    .getByRole('group', { name: '素材选择范围' })
+    .getByRole('button', { name: '公共库', exact: true })
+    .click();
+  const common = dialog.getByRole('region', { name: '工作区公共媒体库' });
+  await common.getByPlaceholder('搜索公共素材').fill('shared-grid');
+  await expect(
+    common.getByRole('button', { name: '预览公共素材 shared-grid.png', exact: true }),
+  ).toBeVisible();
+  let lost = false;
+  await page.route(`**/public-library/resources/${collected.id}/import`, async (route) => {
+    if (!lost) {
+      lost = true;
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
+  });
+  await common.getByRole('button', { name: '添加公共素材 shared-grid.png 到本项目', exact: true }).click();
+  await expect(common.getByRole('alert')).toBeVisible();
+  expect((await call('GET', `/projects/${target.id}/media-assets`)).items).toHaveLength(1);
+  await common.getByRole('button', { name: '添加公共素材 shared-grid.png 到本项目', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '选择素材 shared-grid.png', exact: true })).toBeVisible();
+  expect((await call('GET', `/projects/${target.id}/media-assets`)).items).toHaveLength(1);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  expect((await call('GET', `/projects/${target.id}/media-assets`)).items).toHaveLength(1);
+  await page.getByRole('button', { name: '选择素材', exact: true }).click();
+  await dialog.getByRole('button', { name: '选择素材 shared-grid.png', exact: true }).click();
+  await dialog.getByRole('button', { name: '加入画布', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await save(page);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(1);
+  const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  try {
+    const invite = await call('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+      email: `grid-viewer-${randomUUID()}@board.test`,
+    });
+    const response = await actor.post('/api/v1/invitations/accept', {
+      data: { token: invite.token, name: 'Grid viewer', password: 'Studio8!' },
+      headers: { 'X-Studio-Request': '1' },
+    });
+    expect(response.ok()).toBeTruthy();
+    const joined = await response.json();
+    await call('POST', `/projects/${target.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+    const readonly = await context.newPage();
+    await open(readonly, target, actor, joined.user.id);
+    await readonly.getByRole('button', { name: '选择素材', exact: true }).click();
+    const view = readonly.getByRole('dialog', { name: '选择素材', exact: true });
+    await expect(view.getByRole('button', { name: '选择素材 shared-grid.png', exact: true })).toBeDisabled();
+    await expect(view.getByRole('button', { name: '加入画布', exact: true })).toHaveCount(0);
+    await call('DELETE', `/projects/${target.id}/members/${joined.user.id}`, { expectedRole: 'VIEWER' });
+    await view.getByLabel('网格搜索素材').fill('shared');
+    await expect(view).toHaveCount(0);
+  } finally {
+    await context.close();
+    await actor.dispose();
+  }
 });
 
 test('resource library resizes persistently and folders organize without changing canvas references', async ({

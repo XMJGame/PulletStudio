@@ -22,6 +22,8 @@ import { BoardSurface } from './BoardSurface';
 import { creationActions, isCreationTarget, type CanvasCreation } from './creation-actions';
 import { groupedResults } from './result-group';
 import { GroupOutputPicker } from './GroupOutputPicker';
+import { MediaLibraryPicker } from './MediaLibraryPicker';
+import { addLibraryMedia } from './add-library-media';
 import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
 import { mediaFileAccept } from '../media-upload';
@@ -123,6 +125,8 @@ export default function BoardWorkspace({
   const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft; target?: string }>();
   const [showSources, setShowSources] = useState(() => window.innerWidth > 760);
   const [mediaLibrary, setMediaLibrary] = useState(false);
+  const [mediaPicker, setMediaPicker] = useState(false);
+  useEffect(() => setMediaPicker(false), [base?.id]);
   const [entityLibrary, setEntityLibrary] = useState(false);
   const [fileImport, setFileImport] = useState<{ files: File[]; position?: BoardNode['position'] }>();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -522,6 +526,51 @@ export default function BoardWorkspace({
   function create(kind: CanvasCreation, at?: BoardNode['position']) {
     if (isCreationTarget(kind)) add('generation', undefined, { generation: { creationTarget: kind } }, at);
     else add(kind, undefined, undefined, at);
+  }
+  async function addPickedMedia(sources: BoardSource[]) {
+    if (!editable || !layout || !base) throw new Error('当前画布不可编辑。');
+    const boardId = base.id;
+    const references = sources.map((source) => ({ nodeId: crypto.randomUUID(), ref: source.ref }));
+    let values: Record<string, BoardResolved>;
+    try {
+      values = await api<Record<string, BoardResolved>>(
+        `/projects/${projectId}/board-references/resolve`,
+        'POST',
+        { references },
+      );
+    } catch (reason) {
+      if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
+      throw reason;
+    }
+    if (
+      !current.current.canEdit ||
+      current.current.base?.id !== boardId ||
+      JSON.stringify(current.current.layout) !== JSON.stringify(layout)
+    )
+      throw new Error('画布或权限已变化，选择已保留，请确认后重试。');
+    const verified = sources.map((source, index) => ({
+      ...source,
+      value: values[references[index].nodeId],
+      ready:
+        !!values[references[index].nodeId]?.media &&
+        values[references[index].nodeId]?.status !== 'unavailable',
+    }));
+    if (verified.some((source) => !source.ready))
+      throw new Error('部分素材已失效或无权读取，未添加任何节点，请调整选择。');
+    const next = addLibraryMedia(
+      layout,
+      resolved,
+      verified,
+      document.querySelector('.creative-surface')?.clientWidth ?? 800,
+    );
+    setLayout(next.layout);
+    setResolved((old) => ({ ...old, ...next.resolved }));
+    setSelected(next.selected);
+    setMediaPicker(false);
+    setError('');
+    setMessage(
+      next.added ? `已加入 ${next.added} 份素材，请保存画布。` : '所选素材已在画布中，已定位原节点。',
+    );
   }
   function applyLibraryRevision(revision: LibraryRevision, target?: string) {
     if (revision.projectId !== projectId || !current.current.canEdit)
@@ -1267,6 +1316,11 @@ export default function BoardWorkspace({
             >
               <summary>更多操作</summary>
               <div>
+                {base && (
+                  <StudioButton variant="ghost" onClick={() => setMediaPicker(true)}>
+                    选择素材
+                  </StudioButton>
+                )}
                 <StudioButton variant="ghost" onClick={() => setMediaLibrary(true)}>
                   打开素材库
                 </StudioButton>
@@ -1525,10 +1579,10 @@ export default function BoardWorkspace({
               <StudioButton
                 variant="ghost"
                 icon="folder"
-                aria-label="打开资源库"
-                title="资源库"
-                aria-pressed={showSources}
-                onClick={() => setShowSources((value) => !value)}
+                aria-label="选择素材"
+                title="选择素材"
+                aria-pressed={mediaPicker}
+                onClick={() => setMediaPicker(true)}
               />
               {base.canEdit && (
                 <>
@@ -1691,6 +1745,19 @@ export default function BoardWorkspace({
             onPin: editable ? pinCandidate : undefined,
           }}
           onClose={() => setFreeGeneration(false)}
+        />
+      )}
+      {mediaPicker && base && !denied && (
+        <MediaLibraryPicker
+          projectId={projectId}
+          editable={editable}
+          report={report}
+          onClose={() => setMediaPicker(false)}
+          onAdd={addPickedMedia}
+          onLibraryChanged={() => {
+            setRefresh((value) => value + 1);
+            void refreshReferences();
+          }}
         />
       )}
       {mediaLibrary && !denied && (
