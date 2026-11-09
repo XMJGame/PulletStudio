@@ -28,6 +28,7 @@ const glyphs = {
   audio: 'M9 18V5l11-2v13M9 9l11-2M9 18a3 3 0 1 1-3-3c1.7 0 3 1.3 3 3Zm11-2a3 3 0 1 1-3-3c1.7 0 3 1.3 3 3Z',
   fit: 'M9 4H4v5m11-5h5v5m0 6v5h-5m-6 0H4v-5',
   minus: 'M5 12h14',
+  trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
   book: 'M5 4h5v16H5zm5 0h5v16h-5zm5 1 3-1 4 15-3 1z',
   download: 'M12 4v12m-4-4 4 4 4-4M4 18v2h16v-2',
   dots: 'M5 12h.01m7 0h.01m7 0h.01',

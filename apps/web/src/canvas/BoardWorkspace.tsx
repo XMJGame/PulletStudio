@@ -18,6 +18,7 @@ import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
 import { BoardSurface } from './BoardSurface';
+import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
 import { mediaFileAccept } from '../media-upload';
 import { BoardExecutionPanel } from './BoardExecutionPanel';
@@ -757,6 +758,47 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
+  const inlineNode =
+    node &&
+    (node.type === 'note' ||
+      node.type === 'brief' ||
+      ((node.type === 'result' || (node.type === 'reference' && node.data.ref?.kind === 'media')) &&
+        !!resolved[node.id]?.media));
+  const inspector =
+    node && layout ? (
+      <BoardInspector
+        inlineEditing={!!inlineNode}
+        node={node}
+        value={node && resolved[node.id]}
+        onMediaSaved={() => setRefresh((value) => value + 1)}
+        onPinMedia={pinCandidate}
+        nodes={layout.nodes}
+        editable={editable}
+        update={update}
+        onDismiss={() => setSelected([])}
+        onUseImage={
+          editable &&
+          (node.type === 'result' || node.data.ref?.kind === 'media') &&
+          resolved[node.id]?.media?.mediaType === 'image'
+            ? () => add('generation', undefined, undefined, undefined, node)
+            : undefined
+        }
+        remove={() => node && remove([node.id])}
+        detail={detail}
+        closeDetail={() => setDetail(undefined)}
+        onDetail={() => {
+          if (!node?.data.ref) return;
+          void api<Record<string, BoardResolved>>(`/projects/${projectId}/board-references/resolve`, 'POST', {
+            references: [{ nodeId: node.id, ref: node.data.ref }],
+          })
+            .then((values) => {
+              setResolved((current) => ({ ...current, ...values }));
+              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
+            })
+            .catch(report);
+        }}
+      />
+    ) : undefined;
   function bindInput(target: string, port: BoardInputPort, source: string) {
     if (!editable || !layout) return;
     const sourcePort = port === 'prompt' ? 'text' : resolved[source]?.media?.mediaType;
@@ -1282,6 +1324,30 @@ export default function BoardWorkspace({
               )}
             </nav>
             <BoardSurface
+              onUpdate={update}
+              onCreate={(type, at) => add(type, undefined, undefined, at)}
+              toolbar={
+                node && inlineNode && selected.length === 1
+                  ? {
+                      nodeId: node.id,
+                      content: (
+                        <BoardItemTools
+                          key={node.id}
+                          value={resolved[node.id]}
+                          editable={editable}
+                          onRemove={() => remove([node.id])}
+                          onUseImage={
+                            editable && resolved[node.id]?.media?.mediaType === 'image'
+                              ? () => add('generation', undefined, undefined, undefined, node)
+                              : undefined
+                          }
+                        >
+                          {inspector}
+                        </BoardItemTools>
+                      ),
+                    }
+                  : undefined
+              }
               onPreviewStart={() => setSelected([])}
               nodes={flowNodes}
               edges={flowEdges}
@@ -1313,7 +1379,7 @@ export default function BoardWorkspace({
                   );
               }}
               overlay={
-                node ? (
+                node && !inlineNode ? (
                   <div
                     className={`creative-context ${node.type === 'generation' ? 'creative-context-composer' : ''}`}
                   >
@@ -1348,39 +1414,7 @@ export default function BoardWorkspace({
                         />
                       </BoardExecutionPanel>
                     ) : (
-                      <BoardInspector
-                        node={node}
-                        value={node && resolved[node.id]}
-                        onMediaSaved={() => setRefresh((value) => value + 1)}
-                        onPinMedia={pinCandidate}
-                        nodes={layout.nodes}
-                        editable={editable}
-                        update={update}
-                        onDismiss={() => setSelected([])}
-                        onUseImage={
-                          editable &&
-                          (node.type === 'result' || node.data.ref?.kind === 'media') &&
-                          resolved[node.id]?.media?.mediaType === 'image'
-                            ? () => add('generation', undefined, undefined, undefined, node)
-                            : undefined
-                        }
-                        remove={() => node && remove([node.id])}
-                        detail={detail}
-                        closeDetail={() => setDetail(undefined)}
-                        onDetail={() => {
-                          if (!node?.data.ref) return;
-                          void api<Record<string, BoardResolved>>(
-                            `/projects/${projectId}/board-references/resolve`,
-                            'POST',
-                            { references: [{ nodeId: node.id, ref: node.data.ref }] },
-                          )
-                            .then((values) => {
-                              setResolved((current) => ({ ...current, ...values }));
-                              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
-                            })
-                            .catch(report);
-                        }}
-                      />
+                      inspector
                     )}
                   </div>
                 ) : layout.nodes.length ? undefined : (

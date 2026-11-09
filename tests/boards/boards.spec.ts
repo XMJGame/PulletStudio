@@ -1136,10 +1136,9 @@ test('asset previews pin historical revisions and individual reference media', a
   await preview.getByRole('button', { name: '添加此资产版本', exact: true }).click();
   await preview.getByRole('button', { name: '添加此参考素材', exact: true }).click();
   await expect(preview.getByRole('status')).toContainText('已添加参考素材');
-  const inspector = page.getByRole('complementary', { name: '画布检查器' });
-  const actionBounds = await inspector.getByRole('button', { name: '以此图生成', exact: true }).boundingBox();
-  const titleBounds = await inspector.locator(':scope > strong').boundingBox();
-  expect(actionBounds!.y + actionBounds!.height).toBeLessThanOrEqual(titleBounds!.y);
+  await expect(page.getByRole('complementary', { name: '画布检查器' })).toHaveCount(0);
+  const toolbar = page.getByLabel('节点工具条');
+  await expect(toolbar.getByRole('button', { name: '以此图生成', exact: true })).toBeInViewport();
   await save(page);
   const saved = await call('GET', `/boards/${id}`);
   expect(saved.layout.nodes.map((node: any) => node.data.ref)).toEqual([
@@ -1966,6 +1965,7 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
     .toBeGreaterThan(0);
   await page.getByRole('button', { name: '媒体', exact: true }).click();
   await page.getByRole('button', { name: '添加 clip.mp4', exact: true }).click();
+  await page.getByRole('button', { name: '预览与详情', exact: true }).click();
   const video = page.locator('.creative-inspector video');
   await expect(video).toBeVisible();
   await video.evaluate(async (element: HTMLVideoElement) => {
@@ -1975,12 +1975,15 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await expect
     .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
     .toBeGreaterThan(0);
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
   await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+  await page.getByRole('button', { name: '预览与详情', exact: true }).click();
   await expect
     .poll(() =>
       page.locator('.creative-inspector img').evaluate((element: HTMLImageElement) => element.naturalWidth),
     )
     .toBe(96);
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
   const text = page.getByRole('textbox', { name: '画布文字内容', exact: true });
   await text.fill('Keep the blue hour');
@@ -2198,9 +2201,9 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   const moved = await call('GET', `/boards/${id}`);
   expect(moved.layout.edges).toHaveLength(1);
   expect(moved.layout.nodes[0].position.y).toBeGreaterThan(0);
-  await first.click();
+  await first.locator('strong').click();
   await page.keyboard.down('Shift');
-  await second.click();
+  await second.locator('strong').click();
   await page.keyboard.up('Shift');
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(2);
   await page.keyboard.press('Delete');
@@ -2211,8 +2214,10 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   await page.getByLabel('分组名称').fill('Visual group');
   await page.getByRole('button', { name: '添加便签', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Grouped note');
+  await page.getByRole('button', { name: '更多设置', exact: true }).click();
   await page.getByText('布局设置', { exact: true }).click();
   await page.getByLabel('所属分组').selectOption({ label: 'Visual group' });
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
   await page.locator('.creative-group-card').click();
   await page.getByLabel('折叠分组').check();
   await expect(nodes).toHaveCount(1);
@@ -2239,7 +2244,9 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   );
   await page.getByRole('button', { name: '媒体', exact: true }).click();
   await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+  await page.getByRole('button', { name: '预览与详情', exact: true }).click();
   await expect(page.locator('.creative-inspector')).toContainText('媒体无法读取或播放');
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
   await save(page);
   expect(
     (await call('GET', `/boards/${id}`)).layout.nodes.find((node: any) => node.type === 'reference').data.ref
@@ -2353,6 +2360,7 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${job.id}"]`).click();
+    await page.getByRole('button', { name: '预览与详情', exact: true }).click();
     await expect(page.locator('.creative-inspector video')).toBeVisible();
     await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.locator(`.react-flow__node[data-id="${gen.id}"]`).click();
@@ -3224,6 +3232,7 @@ test('video frame progress scrubbing previews reviewed pixels and recovers savin
     await page.locator('.react-flow__node[data-id="' + resultNode.id + '"]').click();
     const inspector = page.getByRole('complementary', { name: '画布检查器' });
     await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.getByRole('button', { name: '预览与详情', exact: true }).click();
     await inspector.getByRole('button', { name: '提取视频画面', exact: true }).click();
     await expect(slider).toBeEnabled();
     await page.setViewportSize({ width: 390, height: 844 });
@@ -3448,7 +3457,9 @@ test('canvas previews audio output and reuses it through optional media slots', 
     const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
     expect(result.data.jobId).toBe(first.id);
     await page.locator('.react-flow__node[data-id="' + result.id + '"]').click();
+    await page.getByRole('button', { name: '预览与详情', exact: true }).click();
     await expect(page.locator('.creative-inspector audio')).toBeVisible();
+    await page.getByRole('button', { name: '返回画布', exact: true }).click();
     await page.getByRole('button', { name: '添加 clip.mp4', exact: true }).click();
     await save(page);
     board = await call('GET', '/boards/' + boardId);
@@ -3833,4 +3844,87 @@ test('three canvases share project assets and an I2V result without shots or com
   } finally {
     await remote.close();
   }
+});
+
+test('inline items and context creation preserve coordinates drafts and fixed media without a side inspector', async ({
+  page,
+}) => {
+  const value = await project('Inline creation');
+  await open(page, value);
+  const id = await createBoard(page, 'Inline canvas');
+  const surface = page.getByLabel('正式画布工作区', { exact: true });
+  await surface.focus();
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: '创建画布节点' });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  const pane = page.locator('.react-flow__pane');
+  const box = (await pane.boundingBox())!;
+  await pane.click({ button: 'right', position: { x: 120, y: 130 } });
+  await menu.getByRole('menuitem', { name: '便签节点', exact: true }).click();
+  const editor = page.getByLabel('画布文字内容', { exact: true });
+  await editor.fill('Editable on the canvas');
+  await editor.press('End');
+  await editor.press('Backspace');
+  await expect(editor).toHaveValue('Editable on the canva');
+  await expect(page.getByRole('complementary', { name: '画布检查器' })).toHaveCount(0);
+  await expect(page.getByLabel('节点工具条')).toBeVisible();
+  await save(page);
+  const stored = await call('GET', `/boards/${id}`);
+  expect(stored.layout.nodes[0].data.text).toBe('Editable on the canva');
+  expect(stored.layout.nodes[0].position.x).toBeCloseTo(
+    (120 - stored.layout.viewport.x) / stored.layout.viewport.zoom,
+    0,
+  );
+  expect(stored.layout.nodes[0].position.y).toBeCloseTo(
+    (130 - stored.layout.viewport.y) / stored.layout.viewport.zoom,
+    0,
+  );
+  await page.screenshot({ path: 'test-results/b14-inline-desktop.png' });
+  await page.reload();
+  await expect(page.getByLabel('便签内容', { exact: true })).toHaveValue('Editable on the canva');
+  await page.getByLabel('便签内容', { exact: true }).click();
+  await page.getByRole('button', { name: '更多设置', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '节点详情与设置', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('画布文字内容', { exact: true }).fill('Phone edit');
+  await save(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/b14-inline-mobile.png' });
+});
+
+test('context import keeps the drop position and deleting its node preserves the original media', async ({
+  page,
+}) => {
+  const value = await project('Context media');
+  await open(page, value);
+  const id = await createBoard(page, 'Context import');
+  await page.locator('.react-flow__pane').click({ button: 'right', position: { x: 450, y: 200 } });
+  const menu = page.getByRole('menu', { name: '创建画布节点' });
+  await menu
+    .getByLabel('在此处导入素材')
+    .setInputFiles({ name: 'context.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
+  await expect(page.getByText('素材已导入并加入画布，请保存画布。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: '画布检查器' })).toHaveCount(0);
+  await save(page);
+  const board = await call('GET', `/boards/${id}`);
+  expect(board.layout.nodes).toHaveLength(1);
+  expect(board.layout.nodes[0].position.x).toBeCloseTo(
+    (450 - board.layout.viewport.x) / board.layout.viewport.zoom,
+    0,
+  );
+  await page.getByRole('button', { name: '预览与详情', exact: true }).click();
+  await expect(
+    page.getByRole('dialog', { name: '节点详情与设置', exact: true }).getByRole('img'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '返回画布', exact: true }).click();
+  const remove = page.getByLabel('节点工具条').getByRole('button', { name: '删除', exact: true });
+  await expect(remove.locator('svg')).toHaveCount(1);
+  await remove.click();
+  await save(page);
+  expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
+  expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(1);
 });

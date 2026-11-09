@@ -4,6 +4,7 @@ import { Dialog } from '../components/Dialog';
 import { VideoFrameButton } from '../components/VideoFrameDialog';
 import type { MediaVersion } from '../media-types';
 import { kindLabels, statusLabels } from './board-types';
+import { StudioIcon } from '../shared/ui/StudioUI';
 const fields: Record<string, string> = {
   code: '镜头编号',
   version: '固定版本',
@@ -102,6 +103,7 @@ export function BoardInspector({
   onUseImage,
   onMediaSaved,
   onPinMedia,
+  inlineEditing = false,
 }: {
   node?: BoardNode;
   value?: BoardResolved;
@@ -116,6 +118,7 @@ export function BoardInspector({
   onUseImage?: () => void;
   onMediaSaved?: () => void;
   onPinMedia?: (media: MediaVersion) => Promise<void>;
+  inlineEditing?: boolean;
 }) {
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => setMediaError(false), [node?.id, value?.media?.contentUrl]);
@@ -223,7 +226,7 @@ export function BoardInspector({
                 折叠分组
               </label>
             </>
-          ) : (
+          ) : !inlineEditing ? (
             <label>
               {kindLabels[node.type]}
               <textarea
@@ -246,7 +249,7 @@ export function BoardInspector({
                 }
               />
             </label>
-          )}
+          ) : null}
           {node.type === 'note' && node.data.prompt && (
             <details>
               <summary>提示词附加信息</summary>
@@ -300,7 +303,8 @@ export function BoardInspector({
           {node.type !== 'group' && <BoardNodeLayout {...{ node, nodes, editable, update, remove }} />}
           {editable && node.type === 'group' && (
             <button className="creative-remove" onClick={remove}>
-              移除画布节点
+              <StudioIcon name="trash" size={15} />
+              删除
             </button>
           )}
         </>
@@ -365,7 +369,8 @@ export function BoardNodeLayout({
       </label>
       {editable && (
         <button className="creative-remove" onClick={remove}>
-          移除画布节点
+          <StudioIcon name="trash" size={15} />
+          删除
         </button>
       )}
     </details>
