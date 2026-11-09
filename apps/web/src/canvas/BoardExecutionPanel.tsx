@@ -290,7 +290,8 @@ export function BoardExecutionPanel({
     layout.edges.find((e) => e.kind === 'input_binding' && e.target === node.id && e.targetPort === port)
       ?.source ?? '';
   const firstFrame = source('first_frame');
-  const prompt = layout.nodes.find((item) => item.id === source('prompt'))?.data;
+  const promptNode = layout.nodes.find((item) => item.id === source('prompt'));
+  const prompt = promptNode?.data;
   const text = prompt?.text?.trim();
   const needsFrame = workflow?.capability === 'video.image_to_video';
   const frame = resolved[firstFrame];
@@ -325,7 +326,7 @@ export function BoardExecutionPanel({
   else if (!needsFrame && firstFrame) blocked = '当前工作流没有首帧槽位，请移除首帧。';
   else if (missingSlot)
     blocked = `请选择参考${referenceMediaLabels[missingSlot.mediaType]}：${missingSlot.label}`;
-  else if (!text) blocked = '填写提示词或连接文本便签。';
+  else if (!text) blocked = '填写提示词或连接文字节点。';
   else if (apiImage && prompt?.prompt?.negativePrompt?.trim()) blocked = '当前 API 模型仅支持正向提示词。';
   else if (poolConfigured && mode === 'manual' && !instance) blocked = '选择一台可用实例。';
   else if (dirty && !save) blocked = '填写画布名称后才能保存并生成。';
@@ -508,7 +509,7 @@ export function BoardExecutionPanel({
               <textarea
                 aria-label="生成提示词"
                 rows={3}
-                maxLength={16000}
+                maxLength={promptNode?.type === 'brief' ? 4000 : 16000}
                 value={prompt?.text ?? ''}
                 placeholder={
                   workflow?.capability === 'audio.music'
@@ -655,12 +656,12 @@ export function BoardExecutionPanel({
                 value={source('prompt')}
                 onChange={(e) => bind('prompt', e.target.value)}
               >
-                <option value="">连接文本便签</option>
+                <option value="">连接文字节点</option>
                 {layout.nodes
-                  .filter((n) => n.type === 'note')
+                  .filter((n) => n.type === 'note' || n.type === 'brief')
                   .map((n) => (
                     <option key={n.id} value={n.id}>
-                      {n.data.text?.slice(0, 50) || '空便签'}
+                      {n.data.text?.slice(0, 50) || '空文字'}
                     </option>
                   ))}
               </select>

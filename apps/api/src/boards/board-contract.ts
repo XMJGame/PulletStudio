@@ -61,7 +61,23 @@ const node = z.discriminatedUnion('type', [
     })
     .strict(),
   z
-    .object({ ...base, type: z.literal('brief'), data: z.object({ text: z.string().max(4000) }).strict() })
+    .object({
+      ...base,
+      type: z.literal('brief'),
+      data: z
+        .object({
+          text: z.string().max(4000),
+          prompt: z
+            .object({
+              negativePrompt: z.string().max(16000).default(''),
+              source: z.string().max(300).default(''),
+              promptLibraryRevisionId: z.uuid().optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    })
     .strict(),
   z
     .object({
@@ -135,7 +151,7 @@ export const boardLayout = z
           invalid('生成节点的每个输入端口只能绑定一个来源');
         if (
           edge.targetPort === 'prompt'
-            ? edge.sourcePort !== 'text' || source?.type !== 'note'
+            ? edge.sourcePort !== 'text' || !['note', 'brief'].includes(source?.type ?? '')
             : !edge.targetPort ||
               (edge.targetPort === 'first_frame'
                 ? edge.sourcePort !== 'image'

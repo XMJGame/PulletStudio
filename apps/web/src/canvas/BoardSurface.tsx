@@ -19,7 +19,6 @@ import '@xyflow/react/dist/style.css';
 import { CanvasNode, kindLabels, statusLabels } from './board-types';
 import { boardResourceDrag } from './BoardSources';
 import { BoardMediaFrame, BoardVideoPreview } from './BoardMediaFrame';
-import { referenceMediaLabels } from '../workflows/workflow-types';
 import type { BoardInputPort, BoardNode } from '../../../../packages/contracts/src/board';
 import { generationStates } from '../components/GenerationDialog';
 import { StudioIcon } from '../shared/ui/StudioUI';
@@ -58,6 +57,14 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         position={Position.Left}
         id="in"
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
+        title={domain.type === 'generation' ? '连接文字、图片、视频或音频，自动识别用途' : '创作连线'}
+        className={
+          domain.type === 'generation' &&
+          editing.connectingType &&
+          data.generationCard?.accepts.includes(editing.connectingType)
+            ? 'creative-compatible-port'
+            : undefined
+        }
       />
       {visual && <BoardMediaFrame id={domain.id} title={value.title} media={media} />}
       {domain.type !== 'note' && domain.type !== 'brief' && domain.type !== 'generation' && (
@@ -154,58 +161,6 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         id="out"
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输出`}
       />
-      {domain.type === 'note' && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="text"
-          style={{ top: '75%' }}
-          aria-label="提示词 TEXT 输出"
-        />
-      )}
-      {((domain.type === 'reference' && domain.data.ref?.kind === 'media') || domain.type === 'result') &&
-        media && (
-          <Handle
-            type="source"
-            position={Position.Right}
-            id={media.mediaType}
-            style={{ top: '75%' }}
-            aria-label={`${referenceMediaLabels[media.mediaType]} ${media.mediaType.toUpperCase()} 输出`}
-          />
-        )}
-      {domain.type === 'generation' && (
-        <>
-          <Handle
-            type="target"
-            position={Position.Left}
-            id="prompt"
-            style={{ top: '65%' }}
-            aria-label="提示词 TEXT 输入"
-            title="连接提示词"
-          />
-          <Handle
-            type="target"
-            position={Position.Left}
-            id="first_frame"
-            style={{ top: '85%' }}
-            aria-label="首帧 IMAGE 输入"
-            title="连接首帧"
-          />
-          <Handle
-            type="target"
-            position={Position.Left}
-            id="references"
-            style={{ top: '75%' }}
-            aria-label="素材自动匹配输入"
-            title="连接图片、视频或音频"
-            className={
-              editing.connectingType && data.generationCard?.accepts.includes(editing.connectingType)
-                ? 'creative-compatible-port'
-                : undefined
-            }
-          />
-        </>
-      )}
     </article>
   );
 });
@@ -359,7 +314,9 @@ export function BoardSurface({
                 if (params.handleType === 'source') {
                   const source = nodes.find((node) => node.id === params.nodeId);
                   setConnectingType(
-                    params.handleId === 'text' ? 'text' : source?.data.value?.media?.mediaType,
+                    ['note', 'brief'].includes(source?.data.domain.type ?? '')
+                      ? 'text'
+                      : source?.data.value?.media?.mediaType,
                   );
                 }
               }}

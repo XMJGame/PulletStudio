@@ -95,6 +95,14 @@ export default function BoardWorkspace({
     workflowId: string;
     ports: { port: BoardInputPort; label: string }[];
   }>();
+  const [connecting, setConnecting] = useState(false);
+  const connectionRequest = useRef(0);
+  useEffect(
+    () => () => {
+      connectionRequest.current++;
+    },
+    [],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -545,6 +553,10 @@ export default function BoardWorkspace({
       },
     };
     const existing = layout.nodes.find((item) => item.id === binding?.source);
+    if (existing?.type === 'brief' && !replace && draft.positivePrompt.length > 4000) {
+      setError('文字节点最多 4000 字，请缩短提示词或选择独立提示词来源。');
+      return false;
+    }
     if (
       existing &&
       !replace &&
@@ -701,7 +713,7 @@ export default function BoardWorkspace({
                         unavailable: !value?.media || value.status === 'unavailable',
                       };
                     });
-                  const accepts =
+                  const accepts: string[] =
                     currentWorkflow?.executable === true
                       ? (currentWorkflow.mediaSchema?.inputs ?? [])
                           .filter(
@@ -714,6 +726,7 @@ export default function BoardWorkspace({
                     !inputs.some((edge) => edge.targetPort === 'first_frame')
                   )
                     accepts.push('image');
+                  if (!inputs.some((edge) => edge.targetPort === 'prompt')) accepts.push('text');
                   return {
                     name:
                       presentation?.name ??
@@ -740,13 +753,8 @@ export default function BoardWorkspace({
     () =>
       (layout?.edges ?? []).map((edge) => ({
         ...edge,
-        sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
-        targetHandle:
-          edge.kind === 'input_binding'
-            ? edge.targetPort?.startsWith('reference:')
-              ? 'references'
-              : edge.targetPort
-            : 'in',
+        sourceHandle: 'out',
+        targetHandle: 'in',
         label:
           edge.kind === 'input_binding'
             ? edge.targetPort === 'prompt'
@@ -830,17 +838,21 @@ export default function BoardWorkspace({
       target.type !== 'generation' ||
       !workflow ||
       workflow.id !== target.data.generation?.workflowId ||
-      workflow.executable !== true ||
+      workflow.executable !== true
+    )
+      return [];
+    const ports: { port: BoardInputPort; label: string }[] = [];
+    if (source.type === 'brief' || source.type === 'note') ports.push({ port: 'prompt', label: '提示词' });
+    else if (
       media?.status === 'unavailable' ||
       !(source.type === 'result' || source.data.ref?.kind === 'media') ||
       !media?.media
     )
       return [];
-    const ports: { port: BoardInputPort; label: string }[] = [];
-    if (workflow.capability === 'video.image_to_video' && media.media.mediaType === 'image')
+    if (workflow.capability === 'video.image_to_video' && media?.media?.mediaType === 'image')
       ports.push({ port: 'first_frame', label: '首帧' });
     for (const slot of workflow.mediaSchema?.inputs ?? [])
-      if (slot.mediaType === media.media.mediaType)
+      if (slot.mediaType === media?.media?.mediaType)
         ports.push({ port: `reference:${slot.id}`, label: slot.label });
     return ports.filter(
       (item) =>
@@ -850,12 +862,46 @@ export default function BoardWorkspace({
         ),
     );
   }
-  function connect(connection: Connection) {
+  async function connect(connection: Connection) {
     if (!editable || !layout) return;
-    if (connection.targetHandle === 'references') {
+    const target = layout.nodes.find((item) => item.id === connection.target);
+    if (target?.type === 'generation') {
+      const workflowId = target.data.generation?.workflowId;
+      if (!workflowId || connection.source === connection.target) {
+        setError('请先选择目标节点的工作流，不能连接自身。');
+        return;
+      }
+      const request = ++connectionRequest.current;
+      if (workflowsForNodes.current.get(target.id)?.id !== workflowId) {
+        setConnecting(true);
+        setError('');
+        try {
+          const config = await api<{ pinnedWorkflow?: Workflow; canEdit: boolean }>(
+            `/projects/${projectId}/generation-config?workflowId=${workflowId}`,
+          );
+          if (request !== connectionRequest.current) return;
+          if (
+            JSON.stringify(current.current.layout) !== JSON.stringify(layout) ||
+            current.current.base?.id !== base?.id ||
+            !current.current.canEdit ||
+            !config.canEdit
+          ) {
+            setError('画布或输入已变化，请重新连接。');
+            return;
+          }
+          if (!config.pinnedWorkflow || config.pinnedWorkflow.id !== workflowId)
+            throw new Error('固定工作流暂不可用，请重试连接。');
+          registerWorkflow(target.id, config.pinnedWorkflow);
+        } catch (reason) {
+          if (request === connectionRequest.current) report(reason);
+          return;
+        } finally {
+          if (request === connectionRequest.current) setConnecting(false);
+        }
+      } else setConnecting(false);
       const ports = matchingPorts(connection.source, connection.target);
       if (!ports.length) {
-        setError('没有匹配的空输入。请先选中生成节点加载工作流，并检查素材类型或已有连接。');
+        setError('没有匹配的空输入，请检查素材类型或已有连接；已有来源不会被覆盖。');
         return;
       }
       if (ports.length === 1) bindInput(connection.target, ports[0].port, connection.source);
@@ -866,39 +912,6 @@ export default function BoardWorkspace({
           workflowId: workflowsForNodes.current.get(connection.target)!.id,
           ports,
         });
-      return;
-    }
-    if (['prompt', 'first_frame'].includes(connection.targetHandle ?? '')) {
-      const target = layout.nodes.find((n) => n.id === connection.target),
-        source = layout.nodes.find((n) => n.id === connection.source),
-        port = connection.targetHandle as 'prompt' | 'first_frame';
-      if (
-        target?.type !== 'generation' ||
-        source?.id === target.id ||
-        (port === 'prompt'
-          ? source?.type !== 'note' || connection.sourceHandle !== 'text'
-          : !(
-              (source?.type === 'result' || source?.data.ref?.kind === 'media') &&
-              resolved[source.id]?.media?.mediaType === 'image' &&
-              connection.sourceHandle === 'image'
-            ))
-      ) {
-        setError('输入端口类型不匹配，请连接文本 TEXT 或图片 IMAGE 输出。');
-        return;
-      }
-      if (
-        layout.edges.some(
-          (e) => e.kind === 'input_binding' && e.target === target.id && e.targetPort === port,
-        )
-      ) {
-        setError('此输入已有来源，请先解除连接或在设置中替换。');
-        return;
-      }
-      bindInput(target.id, port, source!.id);
-      return;
-    }
-    if (['text', 'image', 'video', 'audio'].includes(connection.sourceHandle ?? '')) {
-      setError('具名输出只能连接匹配的生成输入端口。');
       return;
     }
     if (
@@ -1392,6 +1405,11 @@ export default function BoardWorkspace({
           {message && (
             <p role="status" className="creative-notice">
               {message}
+            </p>
+          )}
+          {connecting && (
+            <p role="status" className="creative-notice">
+              正在读取目标工作流，确认可连接的输入…
             </p>
           )}
           {!base.canEdit && dirty && (

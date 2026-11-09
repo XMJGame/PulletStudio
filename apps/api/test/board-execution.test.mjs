@@ -335,6 +335,74 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
       board = (await save()).data;
     });
     await t.test(
+      'text cards share typed prompt execution while snapshots stay fixed and viewers cannot submit',
+      async () => {
+        const draft = (
+          await owner('POST', `/projects/${project.id}/boards`, { title: 'Text card execution' })
+        ).data;
+        const brief = node('brief', {
+          text: 'Text card prompt',
+          prompt: { negativePrompt: 'no subtitles', source: 'Canvas text' },
+        });
+        const gen = node('generation', { generation: { workflowId: workflow.id } });
+        const next = {
+          ...draft.layout,
+          nodes: [brief, imageNode, gen],
+          edges: [
+            {
+              id: randomUUID(),
+              source: brief.id,
+              target: gen.id,
+              kind: 'input_binding',
+              sourcePort: 'text',
+              targetPort: 'prompt',
+            },
+            {
+              id: randomUUID(),
+              source: imageNode.id,
+              target: gen.id,
+              kind: 'input_binding',
+              sourcePort: 'image',
+              targetPort: 'first_frame',
+            },
+          ],
+        };
+        const saved = await owner('POST', `/boards/${draft.id}/revisions`, {
+          title: draft.title,
+          expectedRevision: 1,
+          layout: next,
+        });
+        assert.equal(saved.status, 201, JSON.stringify(saved.data));
+        const target = `/boards/${draft.id}/nodes/${gen.id}/generation-jobs`;
+        const input = { expectedRevision: saved.data.revision, confirmed: true };
+        assert.equal((await viewer('POST', target, input)).status, 403);
+        const job = await owner('POST', target, input);
+        assert.equal(job.status, 201, JSON.stringify(job.data));
+        assert.equal(job.data.prompt.positivePrompt, 'Text card prompt');
+        assert.equal(job.data.prompt.negativePrompt, 'no subtitles');
+        assert.equal(job.data.boardExecution.bindings[0].sourceNodeId, brief.id);
+        next.nodes[0].data.text = 'Edited after submit';
+        assert.equal(
+          (
+            await owner('POST', `/boards/${draft.id}/revisions`, {
+              title: draft.title,
+              expectedRevision: saved.data.revision,
+              layout: next,
+            })
+          ).status,
+          201,
+        );
+        assert.equal(
+          (await owner('GET', `/generation-jobs/${job.data.id}`)).data.prompt.positivePrompt,
+          'Text card prompt',
+        );
+        await app.get(GenerationWorker).tick();
+        await app.get(GenerationWorker).tick();
+        await app.get(GenerationWorker).tick();
+        assert.equal((await owner('GET', `/generation-jobs/${job.data.id}`)).data.state, 'completed');
+      },
+    );
+    await t.test(
       'audit failure rolls back the reused job and history survives restart and backup',
       async () => {
         db().exec(

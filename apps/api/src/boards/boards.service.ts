@@ -293,7 +293,7 @@ export class BoardsService {
             );
         }
         for (const node of input.layout.nodes)
-          if (node.type === 'note' && node.data.prompt?.promptLibraryRevisionId)
+          if ((node.type === 'note' || node.type === 'brief') && node.data.prompt?.promptLibraryRevisionId)
             this.promptLibrary.reference(
               user,
               row.projectId,

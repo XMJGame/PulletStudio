@@ -76,8 +76,8 @@ export class BoardGenerationService {
         const textEdge = bindings.find((e) => e.targetPort === 'prompt'),
           imageEdge = bindings.find((e) => e.targetPort === 'first_frame');
         const text = layout.nodes.find((n) => n.id === textEdge?.source);
-        if (text?.type !== 'note' || !text.data.text?.trim())
-          fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文本便签');
+        if (!text || !['note', 'brief'].includes(text.type) || !text.data.text?.trim())
+          fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文字');
         const resolveMedia = (sourceId: string, type: ReferenceMediaType) => {
           const source = layout.nodes.find((n) => n.id === sourceId)!;
           const value =

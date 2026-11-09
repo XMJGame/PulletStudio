@@ -2388,13 +2388,11 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     await panel.getByLabel('节点提示词输入').selectOption('');
     await page.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
-    await page.locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="text"]`).hover();
+    await page.locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="out"]`).hover();
     const from = (await page
-        .locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="text"]`)
+        .locator(`.react-flow__node[data-id="${text.id}"] [data-handleid="out"]`)
         .boundingBox())!,
-      to = (await page
-        .locator(`.react-flow__node[data-id="${gen.id}"] [data-handleid="prompt"]`)
-        .boundingBox())!;
+      to = (await page.locator(`.react-flow__node[data-id="${gen.id}"] [data-handleid="in"]`).boundingBox())!;
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 18 });
@@ -4013,6 +4011,131 @@ test('context import keeps the drop position and deleting its node preserves the
   expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
 });
 
+test('one visible port lazily loads fixed workflows and text cards execute without stale or failed bindings', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  let release: (() => void) | undefined;
+  try {
+    const value = await project('Unified text connection');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Unified fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureWorkflow(connection.id),
+    );
+    await open(page, value);
+    const id = await createBoard(page, 'Text to generation');
+    const board = await call('GET', `/boards/${id}`);
+    const textId = randomUUID(),
+      genId = randomUUID();
+    await call('POST', `/boards/${id}/revisions`, {
+      title: board.title,
+      expectedRevision: board.revision,
+      layout: {
+        ...board.layout,
+        viewport: { x: 80, y: 60, zoom: 1 },
+        nodes: [
+          {
+            id: textId,
+            type: 'brief',
+            position: { x: 0, y: 0 },
+            width: 250,
+            height: 200,
+            data: { text: 'A quiet studio' },
+          },
+          {
+            id: genId,
+            type: 'generation',
+            position: { x: 430, y: 0 },
+            width: 250,
+            height: 280,
+            data: { generation: { workflowId: workflow.id } },
+          },
+        ],
+        edges: [],
+      },
+    });
+    await page.reload();
+    const source = page.locator(`.react-flow__node[data-id="${textId}"]`);
+    const target = page.locator(`.react-flow__node[data-id="${genId}"]`);
+    await expect(source).toBeVisible();
+    await expect(source.locator('.react-flow__handle')).toHaveCount(2);
+    await expect(target.locator('.react-flow__handle')).toHaveCount(2);
+    const configPath = `**/generation-config?workflowId=${workflow.id}`;
+    async function wire() {
+      const a = (await source.locator('[data-handleid="out"]').boundingBox())!;
+      const b = (await target.locator('[data-handleid="in"]').boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 16 });
+      await page.mouse.up();
+    }
+    await page.route(configPath, (route) =>
+      route.fulfill({ status: 503, json: { message: 'Workflow temporarily unavailable' } }),
+    );
+    await wire();
+    await expect(page.getByRole('alert')).toContainText('Workflow temporarily unavailable');
+    await expect(page.getByRole('button', { name: '保存画布', exact: true })).toBeDisabled();
+    expect((await call('GET', `/boards/${id}`)).layout.edges).toHaveLength(0);
+    await page.unroute(configPath);
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(configPath, async (route) => {
+      const response = await route.fetch();
+      await gate;
+      await route.fulfill({ response });
+    });
+    await wire();
+    await expect(page.getByRole('status').filter({ hasText: '正在读取目标工作流' })).toBeVisible();
+    await source.locator('textarea').fill('A revised quiet studio');
+    release!();
+    await expect(page.getByRole('alert')).toContainText('画布或输入已变化');
+    await save(page);
+    expect((await call('GET', `/boards/${id}`)).layout.edges).toHaveLength(0);
+    await page.unroute(configPath);
+    await wire();
+    await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+    await save(page);
+    const saved = await call('GET', `/boards/${id}`);
+    expect(saved.layout.edges[0]).toMatchObject({
+      source: textId,
+      target: genId,
+      sourcePort: 'text',
+      targetPort: 'prompt',
+      kind: 'input_binding',
+    });
+    await target.click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await expect(panel.getByLabel('生成提示词')).toHaveValue('A revised quiet studio');
+    await panel.getByLabel('生成提示词').fill('A revised quiet studio with warm light');
+    await page.screenshot({ path: 'test-results/b21b-unified-desktop.png' });
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    const jobs = await call('GET', `/boards/${id}/nodes/${genId}/generation-jobs`);
+    expect(jobs.items[0].prompt.positivePrompt).toBe('A revised quiet studio with warm light');
+    expect(jobs.items[0].boardExecution.bindings[0]).toEqual({ port: 'prompt', sourceNodeId: textId });
+    expect(remote.mock.submissions).toHaveLength(1);
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'test-results/b21b-unified-mobile.png' });
+    if (await page.getByRole('button', { name: '保存画布', exact: true }).isEnabled()) await save(page);
+    await page.reload();
+    await expect(page.locator('.creative-surface')).toBeVisible();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await expect(page.locator(`.react-flow__node[data-id="${genId}"] .react-flow__handle`)).toHaveCount(2);
+    expect((await call('GET', `/boards/${id}`)).layout.edges[0].targetPort).toBe('prompt');
+  } finally {
+    release?.();
+    await remote.close();
+  }
+});
+
 test('media connections match unique slots and require explicit choices for ambiguous slots without overwriting', async ({
   page,
 }) => {
@@ -4041,8 +4164,8 @@ test('media connections match unique slots and require explicit choices for ambi
     await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
     async function wire() {
-      const source = page.locator(`.react-flow__node[data-id="${sourceId}"] [data-handleid="image"]`);
-      const target = page.locator(`.react-flow__node[data-id="${targetId}"] [data-handleid="references"]`);
+      const source = page.locator(`.react-flow__node[data-id="${sourceId}"] [data-handleid="out"]`);
+      const target = page.locator(`.react-flow__node[data-id="${targetId}"] [data-handleid="in"]`);
       await source.click({ trial: true });
       await target.click({ trial: true });
       const a = (await source.boundingBox())!,
@@ -4224,8 +4347,8 @@ test('generation card shows real context and common parameters stay editable out
     await expect(card.locator('.creative-port-label')).toHaveCount(0);
     await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
     await page.getByRole('button', { name: 'Fit View', exact: true }).click();
-    const source = page.locator(`.react-flow__node[data-id="${image.id}"] [data-handleid="image"]`),
-      target = card.locator('[data-handleid="references"]');
+    const source = page.locator(`.react-flow__node[data-id="${image.id}"] [data-handleid="out"]`),
+      target = card.locator('[data-handleid="in"]');
     await source.click({ trial: true });
     await target.click({ trial: true });
     const a = (await source.boundingBox())!,
