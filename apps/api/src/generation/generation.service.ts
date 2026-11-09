@@ -286,6 +286,7 @@ export class GenerationService {
           .select({
             id: generationConnections.id,
             name: generationConnections.name,
+            baseUrl: generationConnections.baseUrl,
             enabled: generationConnections.enabled,
             version: generationConnections.version,
             poolEnabled: generationConnections.poolEnabled,

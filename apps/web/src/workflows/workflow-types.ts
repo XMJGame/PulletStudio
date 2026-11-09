@@ -25,6 +25,7 @@ export type Workflow = {
 export type Connection = {
   id: string;
   name: string;
+  baseUrl?: string;
   version: number;
   enabled: boolean;
   poolEnabled: boolean;

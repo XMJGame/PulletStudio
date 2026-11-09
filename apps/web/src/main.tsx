@@ -176,6 +176,7 @@ function App() {
   const [theme, setTheme] = useState(readStudioTheme);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
+  const [comfyTab, setComfyTab] = useState<'instances' | 'workflows'>('instances');
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
@@ -507,7 +508,10 @@ function App() {
               onToggleTheme={toggleTheme}
               onUnauthorized={() => setUser(undefined)}
               onClose={leaveProject}
-              onWorkflows={() => setShowWorkflowCenter(true)}
+              onWorkflows={(tab = 'workflows') => {
+                setComfyTab(tab);
+                setShowWorkflowCenter(true);
+              }}
               projectActions={
                 <>
                   {access.canManage && (
@@ -554,6 +558,7 @@ function App() {
               key={projectId}
               theme={theme}
               projectId={projectId}
+              initialTab={comfyTab}
               onClose={() => setShowWorkflowCenter(false)}
               onUnauthorized={() => setUser(undefined)}
             />

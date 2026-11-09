@@ -71,7 +71,7 @@ async function project(title: string) {
 async function openCenter(page: Page) {
   await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '工作流中心', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '工作流中心', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'ComfyUI', exact: true })).toBeVisible();
 }
 async function open(page: Page, value: any, actor = owner, userId = setup.user.id) {
   await page.context().addCookies((await actor.storageState()).cookies);
@@ -86,6 +86,143 @@ async function open(page: Page, value: any, actor = owner, userId = setup.user.i
   await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
   await openCenter(page);
 }
+test('ComfyUI tabs preserve independent drafts, create instances without workflows and retain failures', async ({
+  page,
+}) => {
+  const value = await project('Independent ComfyUI tabs');
+  await open(page, value);
+  const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
+  await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
+  await page.getByRole('button', { name: 'ComfyUI', exact: true }).click();
+  const instanceTab = center.getByRole('tab', { name: '实例', exact: true });
+  const workflowTab = center.getByRole('tab', { name: '工作流', exact: true });
+  await expect(instanceTab).toHaveAttribute('aria-selected', 'true');
+  await expect(center.getByRole('heading', { name: '添加实例', exact: true })).toBeVisible();
+  await center.getByLabel('实例名称', { exact: true }).fill('Studio connection');
+  await center.getByLabel('ComfyUI 地址', { exact: true }).fill(remote.baseUrl);
+  await center.getByLabel('Bearer 凭据（可选）').fill('fake-b12-private-token');
+  await center.getByLabel('批准自部署 HTTP 或私有网络地址').check();
+  await workflowTab.click();
+  await expect(center.getByRole('heading', { name: '添加实例', exact: true })).toBeHidden();
+  await center.getByLabel('工作流名称', { exact: true }).fill('Unsaved independent workflow');
+  await instanceTab.click();
+  await expect(center.getByLabel('实例名称', { exact: true })).toHaveValue('Studio connection');
+  await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
+  const leave = page.getByRole('dialog', { name: '离开 ComfyUI 配置', exact: true });
+  await expect(leave).toBeVisible();
+  await leave.getByRole('button', { name: '继续配置', exact: true }).click();
+  const createUrl = `**/projects/${value.id}/generation-connections`;
+  await page.route(createUrl, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'TEMPORARY', message: '实例暂时无法保存' }),
+    }),
+  );
+  await center.getByRole('button', { name: '添加实例', exact: true }).click();
+  await expect(center.getByRole('alert')).toContainText('实例暂时无法保存');
+  await expect(center.getByLabel('实例名称', { exact: true })).toHaveValue('Studio connection');
+  await expect(center.getByLabel('Bearer 凭据（可选）')).toHaveValue('fake-b12-private-token');
+  await page.unroute(createUrl);
+  await center.getByRole('button', { name: '添加实例', exact: true }).click();
+  await expect(center.getByRole('status')).toContainText('已添加 ComfyUI 实例');
+  const row = center.getByRole('article', { name: '实例 Studio connection', exact: true });
+  await expect(row).toContainText(remote.baseUrl);
+  const saved = await api('GET', `/projects/${value.id}/generation-config`);
+  expect(saved.workflows).toHaveLength(0);
+  expect(saved.connections[0].baseUrl).toBe(remote.baseUrl);
+  expect(JSON.stringify(saved)).not.toContain('fake-b12-private-token');
+  expect(saved.connections[0]).not.toHaveProperty('tokenCipher');
+  expect(remote.mock.submissions).toHaveLength(0);
+  await row.getByRole('button', { name: '测试连接', exact: true }).click();
+  await expect(row).toContainText('连接正常');
+  await page.screenshot({ path: 'test-results/b12-instances-desktop.png' });
+  await workflowTab.click();
+  await expect(center.getByLabel('工作流名称', { exact: true })).toHaveValue('Unsaved independent workflow');
+  await page.screenshot({ path: 'test-results/b12-workflows-desktop.png' });
+  await instanceTab.click();
+  await row.getByText('调度设置', { exact: true }).click();
+  await row.getByLabel('运行任务阈值').fill('3');
+  await workflowTab.click();
+  await instanceTab.click();
+  await expect(row.getByLabel('运行任务阈值')).toHaveValue('3');
+  const connection = saved.connections[0];
+  await api('PATCH', `/generation-connections/${connection.id}/pool`, {
+    expectedPoolVersion: connection.poolVersion,
+    poolEnabled: false,
+    maxRunning: 2,
+    maxPending: 4,
+  });
+  await row.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+  await expect(center.getByRole('alert')).toBeVisible();
+  await expect(row.getByLabel('运行任务阈值')).toHaveValue('3');
+  expect((await api('GET', `/projects/${value.id}/generation-config`)).connections[0].maxRunning).toBe(2);
+});
+
+test('ComfyUI tabs support mobile keyboard navigation and keep viewer connection data private', async ({
+  page,
+  browser,
+}) => {
+  const value = await project('ComfyUI mobile and permissions');
+  await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Mobile workstation',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  await open(page, value);
+  let center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
+  await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'ComfyUI', exact: true }).click();
+  center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
+  const instanceTab = center.getByRole('tab', { name: '实例', exact: true });
+  const workflowTab = center.getByRole('tab', { name: '工作流', exact: true });
+  await instanceTab.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(workflowTab).toBeFocused();
+  await expect(workflowTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Home');
+  await expect(instanceTab).toBeFocused();
+  await expect
+    .poll(() => center.evaluate((element) => element.scrollWidth <= element.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: 'test-results/b12-instances-mobile.png' });
+  await page.keyboard.press('End');
+  await expect(workflowTab).toBeFocused();
+  await expect(center.getByLabel('实例名称', { exact: true })).toBeHidden();
+  await page.screenshot({ path: 'test-results/b12-workflows-mobile.png' });
+  const invite = await api('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+    email: `b12-viewer-${randomUUID()}@workflow.test`,
+  });
+  const viewer = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+  const accepted = await viewer.post('/api/v1/invitations/accept', {
+    data: { token: invite.token, name: 'B12 viewer', password: 'Studio8!' },
+    headers: { 'X-Studio-Request': '1' },
+  });
+  expect(accepted.ok()).toBeTruthy();
+  const actor = await accepted.json();
+  await api('POST', `/projects/${value.id}/members`, { userId: actor.user.id, role: 'VIEWER' });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const readonly = await context.newPage();
+    await open(readonly, value, viewer, actor.user.id);
+    const readonlyCenter = readonly.getByRole('dialog', { name: 'ComfyUI', exact: true });
+    await readonlyCenter.getByRole('tab', { name: '实例', exact: true }).click();
+    await expect(
+      readonlyCenter.getByText('当前账号可浏览工作流，实例配置需要实例及工作区管理权限。', { exact: true }),
+    ).toBeVisible();
+    await expect(readonlyCenter.getByRole('button', { name: '添加实例', exact: true })).toHaveCount(0);
+    await expect(readonlyCenter.getByLabel('实例名称', { exact: true })).toHaveCount(0);
+    const deniedConfig = await api('GET', `/projects/${value.id}/generation-config`, undefined, viewer);
+    expect(deniedConfig.connections).toEqual([]);
+    expect(JSON.stringify(deniedConfig)).not.toContain(remote.baseUrl);
+  } finally {
+    await context.close();
+    await viewer.dispose();
+  }
+});
+
 test('configures free-quota API text presets without returning credentials', async ({ page }) => {
   await page.context().addCookies((await owner.storageState()).cookies);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -169,7 +306,7 @@ test('formal project and library views work across themes, screen sizes and actu
   try {
     const page = await context.newPage();
     await open(page, value);
-    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('光线与构图');
     await page.getByRole('button', { name: '创建画布', exact: true }).click();
     await expect(page.getByLabel('当前画布名称')).toHaveValue('光线与构图');
@@ -195,7 +332,7 @@ test('formal project and library views work across themes, screen sizes and actu
       expect(await setZoom(page.url(), 1)).toBe(1);
     }
     async function inspect(theme: string, size: string) {
-      const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+      const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
       const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
       await page.getByRole('button', { name: '返回工作台', exact: true }).click();
       const search = page.getByRole('searchbox', { name: '搜索项目' });
@@ -241,7 +378,7 @@ test('formal project and library views work across themes, screen sizes and actu
       expect(await center.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await center.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
       await page.screenshot({ path: `test-results/review-workflows-${theme}-${size}.png` });
-      await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+      await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     }
     expect(remote.mock.submissions).toHaveLength(0);
     expect((await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`)).catalog.revision).toBe(1);
@@ -266,8 +403,8 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
   });
   await open(page, value);
   await page
-    .getByRole('dialog', { name: '工作流中心', exact: true })
-    .getByRole('button', { name: '关闭工作流中心', exact: true })
+    .getByRole('dialog', { name: 'ComfyUI', exact: true })
+    .getByRole('button', { name: '关闭 ComfyUI', exact: true })
     .click();
   await expect(page.getByRole('main', { name: '创作画布', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'AI 分镜', exact: true })).not.toBeVisible();
@@ -334,7 +471,7 @@ test('prompt library revises with conflict recovery, clipboard and revoked read 
 }) => {
   const value = await project('Reusable prompts');
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('button', { name: '打开提示词库', exact: true }).click();
   const library = page.getByRole('dialog', { name: '项目提示词库', exact: true });
   await library.getByLabel('提示词标题', { exact: true }).fill('Station lighting');
@@ -401,7 +538,7 @@ test('prompt library revises with conflict recovery, clipboard and revoked read 
     await api('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
     const viewer = await context.newPage();
     await open(viewer, value, reader, joined.user.id);
-    await viewer.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await viewer.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await viewer.getByRole('button', { name: '打开提示词库', exact: true }).click();
     const readonly = viewer.getByRole('dialog', { name: '项目提示词库', exact: true });
     await readonly.getByRole('button', { name: /Station lighting · v2/ }).click();
@@ -434,7 +571,7 @@ test('full prompt versions travel through generation and separate canvases witho
   );
   const text = 'A softly lit station. '.repeat(250).trim();
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('button', { name: '开始生成', exact: true }).click();
   const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
   await generation.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
@@ -507,14 +644,14 @@ test('project workflow center imports, visualizes and maps existing API fields w
 }) => {
   const value = await project('Workflow setup');
   await open(page, value);
-  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
-  await dialog.getByText('ComfyUI 连接', { exact: true }).click();
-  await dialog.getByLabel('连接名称', { exact: true }).fill('Local validation fixture');
-  await dialog.getByLabel('ComfyUI 基础地址', { exact: true }).fill(remote.baseUrl);
+  const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
+  await dialog.getByRole('tab', { name: '实例', exact: true }).click();
+  await dialog.getByLabel('实例名称', { exact: true }).fill('Local validation fixture');
+  await dialog.getByLabel('ComfyUI 地址', { exact: true }).fill(remote.baseUrl);
   await dialog.getByLabel('批准自部署 HTTP 或私有网络地址').check();
-  await dialog.getByRole('button', { name: '添加连接', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('已添加生成连接');
-  await dialog.getByText('ComfyUI 连接', { exact: true }).click();
+  await dialog.getByRole('button', { name: '添加实例', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('已添加 ComfyUI 实例');
+  await dialog.getByRole('tab', { name: '工作流', exact: true }).click();
   const graph = fixtureWorkflow('').graph,
     content = JSON.stringify(graph),
     requests = remote.mock.requests.length;
@@ -556,7 +693,7 @@ test('project workflow center imports, visualizes and maps existing API fields w
   await dialog.getByLabel('选择工作流节点').selectOption('1');
   await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-desktop.png', animations: 'disabled' });
-  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await page.getByRole('button', { name: '深色画布', exact: true }).click();
   await openCenter(page);
@@ -591,7 +728,7 @@ test('workflow trials and free generation switch typed artifacts without archivi
       fixtureExtendedOutputs(connection.id),
     );
     await open(page, value);
-    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
     await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
     await expect(center.getByLabel('媒体输出1数量', { exact: true })).toHaveValue('multiple');
     await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
@@ -621,7 +758,7 @@ test('workflow trials and free generation switch typed artifacts without archivi
     await release.getByLabel('选择生成产物').selectOption(evidence.outputs[1].id);
     await expect(release.getByRole('img', { name: '试跑结果', exact: true })).toBeVisible();
     await release.getByRole('button', { name: '关闭', exact: true }).click();
-    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
     await generation.getByLabel('生成工作流').selectOption(workflow.id);
@@ -675,7 +812,7 @@ test('primary batch settings revise immutably and expose independent image candi
     delete definition.output.batch;
     const first = await api('POST', '/projects/' + value.id + '/generation-workflows', definition);
     await open(page, value);
-    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
     await center.getByRole('button', { name: '查看 / 修订', exact: true }).click();
     await expect(center.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeEnabled();
     const batch = center.getByRole('checkbox', { name: '接收批量主结果（最多 8 份）', exact: true });
@@ -710,7 +847,7 @@ test('primary batch settings revise immutably and expose independent image candi
     await expect(trial.getByLabel('选择生成产物').locator('option').last()).toContainText('主结果 · 2');
     await trial.getByRole('button', { name: '关闭', exact: true }).click();
     await release.getByRole('button', { name: '关闭', exact: true }).click();
-    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
     await generation.getByLabel('生成工作流').selectOption(current.id);
@@ -765,7 +902,7 @@ test('free generation bulk dialog preserves the main file and retries package pr
       fixturePrimaryBatch(connection.id),
     );
     await open(page, value);
-    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
     await generation.getByLabel('生成工作流').selectOption(workflow.id);
@@ -834,7 +971,7 @@ test('free video candidates extract frames without exposing production tools in 
       fixtureWorkflow(connection.id, true),
     );
     await open(page, value);
-    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
     await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
     const release = page.getByRole('dialog', { name: '试跑与发布', exact: true });
     await release.getByRole('button', { name: '粘贴提示词试跑', exact: true }).click();
@@ -845,7 +982,7 @@ test('free video candidates extract frames without exposing production tools in 
     await expect(trial.getByRole('button', { name: '提取视频画面', exact: true })).toHaveCount(0);
     await trial.getByRole('button', { name: '关闭', exact: true }).click();
     await release.getByRole('button', { name: '关闭', exact: true }).click();
-    await center.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
     await generation.getByLabel('生成工作流').selectOption(workflow.id);
@@ -912,7 +1049,7 @@ test('free generation filters output types and keeps API jobs outside ComfyUI ro
       token: 'isolated-b5-workflow-api-key',
     });
     await open(page, value);
-    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
     const picker = dialog.getByRole('group', { name: '生成输出类型' });
@@ -1023,7 +1160,7 @@ test('maps optional video audio controls and previews audio trial evidence', asy
     });
     const fixture = fixtureOptionalMedia(connection.id, true);
     await open(page, value);
-    const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
     await dialog.getByLabel('工作流名称', { exact: true }).fill('Audio study');
     await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
     await dialog.getByLabel('生成方式', { exact: true }).selectOption('audio.music');
@@ -1098,7 +1235,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   });
   const fixture = fixtureMediaSchema(connection.id);
   await open(page, value);
-  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
   await dialog.getByLabel('工作流名称', { exact: true }).fill('Reference study');
   await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
   await dialog.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
@@ -1156,7 +1293,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
     original,
   );
   await expect(dialog.getByRole('button', { name: '验证绑定并保存', exact: true })).toBeEnabled();
-  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await openCenter(page);
   await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
   await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toHaveValue('动作参考');
@@ -1168,7 +1305,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/workflow-media-mobile.png', animations: 'disabled' });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('button', { name: '深色画布', exact: true }).click();
   await openCenter(page);
   await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
@@ -1180,7 +1317,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await expect(release.getByRole('button', { name: '粘贴提示词试跑', exact: true })).toBeDisabled();
   await expect(release).toContainText('当前执行尚未接通');
   await release.getByRole('button', { name: '关闭', exact: true }).click();
-  await dialog.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Media contract board');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
   await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
@@ -1224,7 +1361,7 @@ test('free generation runs two selected image versions and displays the frozen r
     mediaIds.push((await result.json()).mediaVersion.id);
   }
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Two image slots');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
   await page.getByRole('button', { name: '自由生成', exact: true }).click();
@@ -1280,7 +1417,7 @@ test('free generation selects typed video and audio versions and reuses them for
     mediaIds.push((await reply.json()).mediaVersion.id);
   }
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Mixed reference board');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
   await page.getByRole('button', { name: '自由生成', exact: true }).click();
@@ -1355,7 +1492,7 @@ test('readonly users see existing workflow summaries without connection credenti
     expect(accepted.ok()).toBeTruthy();
     await api('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
     await open(page, value, reader, joined.user.id);
-    const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
     await expect(dialog).toContainText('Shared workflow summary');
     await expect(dialog.getByLabel('ComfyUI 基础地址', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: '验证绑定并保存' })).toHaveCount(0);
@@ -1382,7 +1519,7 @@ test('invalid files preserve drafts; untrusted graph text never becomes external
     if (req.url().includes('untrusted.invalid')) external.push(req.url());
   });
   await open(page, await project('Safe technical preview'));
-  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
   const graph = {
       a: {
         class_type: '<img onerror=alert(1)>',
@@ -1416,8 +1553,8 @@ test('invalid files preserve drafts; untrusted graph text never becomes external
   await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-center-mobile.png' });
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
-  await dialog.getByRole('button', { name: '关闭工作流中心' }).click();
-  await expect(page.getByRole('dialog', { name: '离开工作流配置' })).toBeVisible();
+  await dialog.getByRole('button', { name: '关闭 ComfyUI' }).click();
+  await expect(page.getByRole('dialog', { name: '离开 ComfyUI 配置' })).toBeVisible();
   await page.getByRole('button', { name: '继续配置', exact: true }).click();
   await expect(dialog.getByLabel('API 格式工作流 JSON', { exact: true })).toHaveValue(content);
   expect(external).toEqual([]);
@@ -1437,7 +1574,7 @@ test('saved schemas revise immutably, preserve conflicting input, load latest an
   const definition = fixtureCreativeFields(connection.id),
     first = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
   await open(page, value);
-  const dialog = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
   await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
   await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue(definition.name);
   await dialog.getByText(/^公开创作参数/).click();
@@ -1503,7 +1640,7 @@ test('creator fields freeze selected revisions in project generation without leg
   const definition = fixtureCreativeFields(connection.id),
     workflow = await api('POST', `/projects/${value.id}/generation-workflows`, definition);
   await open(page, value);
-  await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+  await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
   await page.getByRole('button', { name: '开始生成', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
   await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);
@@ -1557,7 +1694,7 @@ test('manager runs a fixed draft and releases only the reviewed evidence', async
     reviewRequired: true,
   });
   await open(page, value);
-  const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
+  const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
   await expect(center.getByText('待审核发布', { exact: true })).toBeVisible();
   await center.getByRole('button', { name: '试跑与发布', exact: true }).click();
   const review = page.getByRole('dialog', { name: '试跑与发布', exact: true });
@@ -1629,16 +1766,23 @@ test('workspace pool enrolls two instances and displays different workflow check
     alternate.mock.objectInfoOverrides = { ImageOutput: null };
     alternate.mock.queue = { queue_running: [['private remote work']], queue_pending: [] };
     await open(page, value);
-    const center = page.getByRole('dialog', { name: '工作流中心', exact: true });
-    await center.getByRole('button', { name: '管理实例池', exact: true }).click();
-    const pool = page.getByRole('dialog', { name: 'ComfyUI 实例池', exact: true });
-    for (const connection of [first, second]) {
-      await pool.getByLabel('实例连接', { exact: true }).selectOption(connection.id);
-      await pool.getByLabel('加入工作区实例池').check();
-      await pool.getByRole('button', { name: '保存实例池设置', exact: true }).click();
-      await expect(pool.getByRole('status')).toContainText('实例池设置已保存');
+    const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
+    await center.getByRole('tab', { name: '实例', exact: true }).click();
+    for (const connection of [
+      { ...first, name: 'Local A' },
+      { ...second, name: 'Local B' },
+    ]) {
+      const row = center.getByRole('article', { name: `实例 ${connection.name}`, exact: true });
+      await row.getByText('调度设置', { exact: true }).click();
+      await row.getByLabel('加入工作区实例池').check();
+      await row.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+      await expect(center.getByRole('status')).toContainText('实例池设置已保存');
+      await expect(row).toContainText('参与自动调度');
     }
-    await expect(pool.getByRole('heading', { name: '工作区实例 · 2/12', exact: true })).toBeVisible();
+    await expect(center).toContainText('2/12 已加入自动调度');
+    await center.getByRole('tab', { name: '工作流', exact: true }).click();
+    await center.getByRole('button', { name: '检查工作流兼容性', exact: true }).click();
+    const pool = page.getByRole('dialog', { name: '工作流实例检查', exact: true });
     await expect(pool.getByLabel('检查工作流修订').locator(`option[value="${draft.id}"]`)).toHaveCount(1);
     await pool.getByLabel('检查工作流修订', { exact: true }).selectOption(workflow.id);
     const a = pool.locator('article').filter({ hasText: 'Local A' });
@@ -1653,9 +1797,15 @@ test('workspace pool enrolls two instances and displays different workflow check
     await expect(pool).not.toContainText('private remote work');
     expect(remote.mock.submissions).toHaveLength(submissions);
     expect(alternate.mock.submissions).toHaveLength(0);
-    await pool.getByLabel('实例连接', { exact: true }).selectOption(first.id);
-    await pool.getByLabel('运行任务阈值').fill('2');
-    await pool.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+    await pool.getByRole('button', { name: '关闭兼容性检查', exact: true }).click();
+    await center.getByRole('tab', { name: '实例', exact: true }).click();
+    const firstRow = center.getByRole('article', { name: '实例 Local A', exact: true });
+    await firstRow.getByLabel('运行任务阈值').fill('2');
+    await firstRow.getByRole('button', { name: '保存实例池设置', exact: true }).click();
+    await expect(firstRow).toContainText('运行阈值 2');
+    await center.getByRole('tab', { name: '工作流', exact: true }).click();
+    await center.getByRole('button', { name: '检查工作流兼容性', exact: true }).click();
+    await pool.getByLabel('检查工作流修订', { exact: true }).selectOption(workflow.id);
     await expect(a).toContainText('检查已过期');
     await page.setViewportSize({ width: 390, height: 844 });
     await expect
@@ -1693,7 +1843,7 @@ test('project generation defaults to automatic routing and records the manual in
     for (const id of [aId, bId])
       await api('POST', `/generation-workflows/${workflow.id}/instance-checks/${id}`, {});
     await open(page, value);
-    await page.getByRole('button', { name: '关闭工作流中心', exact: true }).click();
+    await page.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
     await page.getByRole('button', { name: '开始生成', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '自由生成', exact: true });
     await dialog.getByLabel('生成工作流', { exact: true }).selectOption(workflow.id);

@@ -17,6 +17,100 @@
 .workflow-center-dialog > .dialog-footer {
   justify-content: space-between;
 }
+.comfy-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.comfy-tabs [role='tab'] {
+  padding: 9px 24px;
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  font-weight: 600;
+}
+.comfy-tabs [role='tab'][aria-selected='true'] {
+  color: var(--accent);
+  border-color: var(--line);
+  background: var(--accent-soft);
+}
+.workflow-center-dialog [role='tabpanel'] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.workflow-center-dialog [role='tabpanel'][hidden] {
+  display: none;
+}
+.comfy-instances {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.65fr);
+  gap: 24px;
+  padding: 20px;
+  overflow: auto;
+  min-height: 0;
+}
+.comfy-instances > * {
+  min-width: 0;
+}
+.comfy-instance-card {
+  padding: 16px;
+  margin-block: 12px;
+}
+.comfy-instance-card header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comfy-instance-address {
+  overflow-wrap: anywhere;
+  font-size: var(--caption);
+  color: var(--muted);
+}
+.comfy-instance-empty {
+  padding: 32px 18px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-card);
+  color: var(--muted);
+  line-height: 1.8;
+}
+.comfy-instance-create {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  align-self: start;
+}
+.comfy-instance-scheduling {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.comfy-instance-scheduling summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+@media (max-width: 760px) {
+  .comfy-tabs {
+    padding: 8px 12px;
+  }
+  .comfy-tabs [role='tab'] {
+    flex: 1;
+  }
+  .comfy-instances {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px;
+    gap: 12px;
+  }
+  .comfy-instance-scheduling .dialog-field-row {
+    flex-wrap: wrap;
+  }
+}
 .v2-workflow-status {
   display: inline-block;
   padding: 2px 7px;
@@ -53,13 +147,6 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-}
-.v2-workflow-connection {
-  padding: 8px 0;
-  color: var(--muted);
-}
-.v2-workflow-connection .entity-reference {
-  border-color: var(--line);
 }
 .workflow-graph-controls {
   margin: 16px 0;

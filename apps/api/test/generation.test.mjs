@@ -164,6 +164,15 @@ test('ComfyUI jobs freeze inputs, recover safely and archive actual image and vi
       assert.equal(created.status, 201, JSON.stringify(created.data));
       connectionId = created.data.id;
       assert.equal((await owner('POST', `/generation-connections/${connectionId}/test`, {})).status, 201);
+      const managerConfig = (await owner('GET', `/projects/${project.id}/generation-config`)).data;
+      assert.equal(
+        managerConfig.connections.find((item) => item.id === connectionId).baseUrl,
+        remote.baseUrl,
+      );
+      assert.equal(
+        (await viewer('GET', `/projects/${project.id}/generation-config`)).data.connections.length,
+        0,
+      );
       assert.ok(
         !JSON.stringify((await owner('GET', `/projects/${project.id}/generation-config`)).data).includes(
           input.token,

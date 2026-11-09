@@ -160,6 +160,9 @@
   .v2-live-actions {
     width: 100%;
   }
+  .v2-live-actions {
+    flex-wrap: wrap;
+  }
   .v2-live-actions .creative-save-state {
     min-width: 0;
     overflow: hidden;

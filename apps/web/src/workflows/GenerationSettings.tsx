@@ -44,7 +44,7 @@ export function GenerationSettings({
   editing?: WorkflowEditing;
   onSaved?: (id: string) => void | Promise<void>;
 }) {
-  const [dirtyForms, setDirtyForms] = useState({ connection: false, workflow: false });
+  const [dirtyForms, setDirtyForms] = useState({ workflow: false });
   const definition = editing?.definition;
   const initial = {
     ...initialBindings,
@@ -67,7 +67,7 @@ export function GenerationSettings({
   const [primaryBatch, setPrimaryBatch] = useState(definition?.output.batch);
   const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
-  useEffect(() => onDraftChange?.(dirtyForms.connection || dirtyForms.workflow), [dirtyForms, onDraftChange]);
+  useEffect(() => onDraftChange?.(dirtyForms.workflow), [dirtyForms, onDraftChange]);
   const [bindingFormVersion, setBindingFormVersion] = useState(0);
   const [capability, setCapability] = useState(definition?.capability ?? 'image.text_to_image');
   const [graphText, setGraphText] = useState(definition ? JSON.stringify(definition.graph, null, 2) : '');
@@ -82,83 +82,6 @@ export function GenerationSettings({
 
   return (
     <div className="v2-workflow-config">
-      <details className="v2-workflow-connection">
-        <summary>ComfyUI 连接</summary>
-        {config.connections.map((item) => (
-          <div className="entity-reference" key={item.id}>
-            <span>
-              {item.name} · {item.enabled ? '启用' : '停用'}
-            </span>
-            <div className="review-actions">
-              <button
-                disabled={busy || !item.enabled}
-                onClick={() =>
-                  void run(async () => {
-                    await api(`/generation-connections/${item.id}/test`, 'POST', {});
-                    setMessage('ComfyUI 可达。');
-                  })
-                }
-              >
-                测试连接
-              </button>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await api(`/generation-connections/${item.id}`, 'PATCH', {
-                      enabled: !item.enabled,
-                      expectedVersion: item.version,
-                    });
-                    await refreshConfig();
-                  })
-                }
-              >
-                {item.enabled ? '停用' : '启用'}
-              </button>
-            </div>
-          </div>
-        ))}
-        <form
-          onChangeCapture={() => setDirtyForms((value) => ({ ...value, connection: true }))}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const data = new FormData(form);
-            void run(async () => {
-              await api(`${projectPath}/generation-connections`, 'POST', {
-                name: data.get('name'),
-                baseUrl: data.get('baseUrl'),
-                token: data.get('token'),
-                trustedPrivate: data.has('trustedPrivate'),
-              });
-              form.reset();
-              setDirtyForms((value) => ({ ...value, connection: false }));
-              await refreshConfig();
-              setMessage('已添加生成连接。');
-            });
-          }}
-        >
-          <fieldset className="plain-fieldset" disabled={busy}>
-            <label>
-              连接名称
-              <input name="name" required maxLength={120} />
-            </label>
-            <label>
-              ComfyUI 基础地址
-              <input name="baseUrl" type="url" placeholder="http://192.168.x.x:8188" required />
-            </label>
-            <label>
-              Bearer 凭据（可选）
-              <input name="token" type="password" autoComplete="off" />
-            </label>
-            <label className="checkbox-label">
-              <input type="checkbox" name="trustedPrivate" />
-              批准自部署 HTTP 或私有网络地址
-            </label>
-            <button>添加连接</button>
-          </fieldset>
-        </form>
-      </details>
       <form
         onChangeCapture={(event) => {
           if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview')))

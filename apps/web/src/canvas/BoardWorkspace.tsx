@@ -65,7 +65,7 @@ export default function BoardWorkspace({
   onUnauthorized: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
-  onWorkflows: () => void;
+  onWorkflows: (tab?: 'instances' | 'workflows') => void;
   projectActions?: ReactNode;
 }) {
   const [boards, setBoards] = useState<BoardListItem[]>([]);
@@ -941,6 +941,14 @@ export default function BoardWorkspace({
         </div>
         {!denied && (
           <div className="v2-live-actions">
+            <StudioButton
+              icon="sliders"
+              variant="ghost"
+              onClick={() => onWorkflows('instances')}
+              title="ComfyUI 实例与工作流"
+            >
+              ComfyUI
+            </StudioButton>
             {base && (
               <span role="status" className="creative-save-state">
                 {busy
@@ -1007,7 +1015,7 @@ export default function BoardWorkspace({
             >
               <summary>更多操作</summary>
               <div>
-                <StudioButton variant="ghost" onClick={onWorkflows}>
+                <StudioButton variant="ghost" onClick={() => onWorkflows('workflows')}>
                   工作流中心
                 </StudioButton>
                 <StudioButton variant="ghost" onClick={() => setMediaLibrary(true)}>
