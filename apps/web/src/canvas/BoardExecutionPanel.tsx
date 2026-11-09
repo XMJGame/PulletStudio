@@ -48,6 +48,7 @@ export function BoardExecutionPanel({
   onResult,
   onOpenTasks,
   onDismiss,
+  onWorkflow,
   children,
 }: {
   board: BoardView;
@@ -68,6 +69,7 @@ export function BoardExecutionPanel({
   onResult: (job: GenerationJob) => void;
   onOpenTasks: () => void;
   onDismiss: () => void;
+  onWorkflow: (nodeId: string, workflow: Workflow) => void;
   children: ReactNode;
 }) {
   const [config, setConfig] = useState<GenerationConfig>(),
@@ -263,6 +265,9 @@ export function BoardExecutionPanel({
   );
   const imageNodes = referenceNodes.filter((n) => resolved[n.id]?.media?.mediaType === 'image');
   const referenceSlots = workflow?.executable === true ? (workflow.mediaSchema?.inputs ?? []) : [];
+  useEffect(() => {
+    if (workflow) onWorkflow(node.id, workflow);
+  }, [node.id, workflow, onWorkflow]);
   const missingSlot = referenceSlots.find((slot) => {
     const selected = source(`reference:${slot.id}`);
     return (

@@ -3928,3 +3928,72 @@ test('context import keeps the drop position and deleting its node preserves the
   expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
   expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(1);
 });
+
+test('media connections match unique slots and require explicit choices for ambiguous slots without overwriting', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'image.png': fixtures['image.png'].bytes });
+  try {
+    const value = await project('Mapped connection choices');
+    const image = await uploadMedia(value.id, 'image.png');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Mapping fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const definition = fixtureReferenceImages(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, definition);
+    await open(page, value);
+    const boardId = await createBoard(page, 'Mapped slots');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('A character in a scene');
+    await save(page);
+    const board = await call('GET', `/boards/${boardId}`);
+    const sourceId = board.layout.nodes.find((n: any) => n.data.ref?.id === image.id).id;
+    const targetId = board.layout.nodes.find((n: any) => n.type === 'generation').id;
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    async function wire() {
+      const source = page.locator(`.react-flow__node[data-id="${sourceId}"] [data-handleid="image"]`);
+      const target = page.locator(`.react-flow__node[data-id="${targetId}"] [data-handleid="references"]`);
+      await source.click({ trial: true });
+      await target.click({ trial: true });
+      const a = (await source.boundingBox())!,
+        b = (await target.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 15 });
+      await page.mouse.up();
+    }
+    await wire();
+    await page.screenshot({ path: 'test-results/b15-connect-debug.png' });
+    const choosing = page.getByRole('dialog', { name: '选择素材用途', exact: true });
+    await expect(choosing.getByRole('button', { name: 'Character', exact: true })).toBeVisible();
+    await expect(choosing.getByRole('button', { name: 'Scene', exact: true })).toBeVisible();
+    await choosing.getByRole('button', { name: '取消连接', exact: true }).click();
+    await save(page);
+    expect((await call('GET', `/boards/${boardId}`)).layout.edges).toEqual(board.layout.edges);
+    await wire();
+    await choosing.getByRole('button', { name: 'Scene', exact: true }).click();
+    await save(page);
+    let saved = await call('GET', `/boards/${boardId}`);
+    expect(saved.layout.edges.find((e: any) => e.targetPort?.startsWith('reference:')).targetPort).toBe(
+      `reference:${definition.mediaSchema.inputs[1].id}`,
+    );
+    await wire();
+    await expect(choosing).toHaveCount(0);
+    await save(page);
+    saved = await call('GET', `/boards/${boardId}`);
+    const references = saved.layout.edges.filter((e: any) => e.targetPort?.startsWith('reference:'));
+    expect(references).toHaveLength(2);
+    expect(new Set(references.map((e: any) => e.targetPort)).size).toBe(2);
+    await wire();
+    await expect(page.getByRole('alert')).toContainText('没有匹配的空输入');
+    await page.screenshot({ path: 'test-results/b15-mapped-connections.png' });
+  } finally {
+    await remote.close();
+  }
+});

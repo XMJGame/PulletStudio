@@ -17,6 +17,7 @@ import { MediaDialog } from '../components/MediaDialog';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
+import type { Workflow } from '../workflows/workflow-types';
 import { BoardSurface } from './BoardSurface';
 import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
@@ -74,6 +75,16 @@ export default function BoardWorkspace({
   const [title, setTitle] = useState('');
   const [resolved, setResolved] = useState<Record<string, BoardResolved>>({});
   const [selected, setSelected] = useState<string[]>([]);
+  const workflowsForNodes = useRef(new Map<string, Workflow>());
+  const registerWorkflow = useCallback((id: string, workflow: Workflow) => {
+    workflowsForNodes.current.set(id, workflow);
+  }, []);
+  const [pendingInput, setPendingInput] = useState<{
+    source: string;
+    target: string;
+    workflowId: string;
+    ports: { port: BoardInputPort; label: string }[];
+  }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -700,8 +711,55 @@ export default function BoardWorkspace({
           },
       );
   }
+  function matchingPorts(sourceId: string, targetId: string) {
+    const source = layout?.nodes.find((n) => n.id === sourceId),
+      target = layout?.nodes.find((n) => n.id === targetId);
+    const workflow = workflowsForNodes.current.get(targetId);
+    const media = resolved[sourceId];
+    if (
+      !source ||
+      !target ||
+      target.type !== 'generation' ||
+      !workflow ||
+      workflow.id !== target.data.generation?.workflowId ||
+      workflow.executable !== true ||
+      media?.status === 'unavailable' ||
+      !(source.type === 'result' || source.data.ref?.kind === 'media') ||
+      !media?.media
+    )
+      return [];
+    const ports: { port: BoardInputPort; label: string }[] = [];
+    if (workflow.capability === 'video.image_to_video' && media.media.mediaType === 'image')
+      ports.push({ port: 'first_frame', label: '首帧' });
+    for (const slot of workflow.mediaSchema?.inputs ?? [])
+      if (slot.mediaType === media.media.mediaType)
+        ports.push({ port: `reference:${slot.id}`, label: slot.label });
+    return ports.filter(
+      (item) =>
+        !layout?.edges.some(
+          (edge) =>
+            edge.kind === 'input_binding' && edge.target === targetId && edge.targetPort === item.port,
+        ),
+    );
+  }
   function connect(connection: Connection) {
     if (!editable || !layout) return;
+    if (connection.targetHandle === 'references') {
+      const ports = matchingPorts(connection.source, connection.target);
+      if (!ports.length) {
+        setError('没有匹配的空输入。请先选中生成节点加载工作流，并检查素材类型或已有连接。');
+        return;
+      }
+      if (ports.length === 1) bindInput(connection.target, ports[0].port, connection.source);
+      else
+        setPendingInput({
+          source: connection.source,
+          target: connection.target,
+          workflowId: workflowsForNodes.current.get(connection.target)!.id,
+          ports,
+        });
+      return;
+    }
     if (['prompt', 'first_frame'].includes(connection.targetHandle ?? '')) {
       const target = layout.nodes.find((n) => n.id === connection.target),
         source = layout.nodes.find((n) => n.id === connection.source),
@@ -1387,6 +1445,7 @@ export default function BoardWorkspace({
                       <BoardExecutionPanel
                         key={`${base.id}:${node.id}`}
                         board={base}
+                        onWorkflow={registerWorkflow}
                         userId={userId}
                         node={node}
                         layout={layout}
@@ -1468,6 +1527,40 @@ export default function BoardWorkspace({
               : undefined
           }
         />
+      )}
+      {pendingInput && !denied && (
+        <Dialog
+          title="选择素材用途"
+          description="多个输入接受这种素材，请选择用途；已有来源不会被覆盖。"
+          onClose={() => setPendingInput(undefined)}
+        >
+          <div className="dialog-body">
+            {pendingInput.ports.map((item) => (
+              <button
+                key={item.port}
+                onClick={() => {
+                  const target = layout?.nodes.find((n) => n.id === pendingInput.target);
+                  if (
+                    !editable ||
+                    target?.data.generation?.workflowId !== pendingInput.workflowId ||
+                    !matchingPorts(pendingInput.source, pendingInput.target).some((p) => p.port === item.port)
+                  ) {
+                    setError('输入已变化，请重新连接。');
+                    setPendingInput(undefined);
+                    return;
+                  }
+                  bindInput(pendingInput.target, item.port, pendingInput.source);
+                  setPendingInput(undefined);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="dialog-footer">
+            <button onClick={() => setPendingInput(undefined)}>取消连接</button>
+          </div>
+        </Dialog>
       )}
       {fileImport && !denied && (
         <CanvasImportDialog

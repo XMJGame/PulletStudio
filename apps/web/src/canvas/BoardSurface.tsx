@@ -153,9 +153,8 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
             type="target"
             position={Position.Left}
             id="references"
-            style={{ top: '75%', opacity: data.hasReferenceInputs ? 1 : 0 }}
-            isConnectable={false}
-            aria-label="参考素材输入连线"
+            style={{ top: '75%' }}
+            aria-label="素材自动匹配输入"
           />
         </>
       )}
