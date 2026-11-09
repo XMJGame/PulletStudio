@@ -7,7 +7,9 @@ import type { ExposedField } from '../../../../packages/contracts/src/workflow';
 import { readWorkflowGraph } from './workflow-graph';
 import { StudioButton } from '../shared/ui/StudioUI';
 import { WorkflowMediaEditor } from './WorkflowMediaEditor';
-import type { WorkflowMediaSchema } from '../../../../packages/contracts/src/workflow';
+import type { WorkflowMediaSchema, WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
+import { suggestField } from './workflow-draft';
+import { WorkflowFormPreview, type WorkflowPreviewDraft } from './WorkflowFormPreview';
 const WorkflowGraphPreview = lazy(() => import('./WorkflowGraphPreview'));
 const initialBindings: Record<string, string> = {
   positiveNode: '',
@@ -65,6 +67,9 @@ export function GenerationSettings({
   const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
   const [mediaSchema, setMediaSchema] = useState<WorkflowMediaSchema | undefined>(definition?.mediaSchema);
   const [primaryBatch, setPrimaryBatch] = useState(definition?.output.batch);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [preview, setPreview] = useState<WorkflowPreviewDraft>();
+  const [revealField, setRevealField] = useState<string>();
   const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
   useEffect(() => onDraftChange?.(dirtyForms.workflow), [dirtyForms, onDraftChange]);
@@ -72,6 +77,7 @@ export function GenerationSettings({
   const [capability, setCapability] = useState(definition?.capability ?? 'image.text_to_image');
   const [graphText, setGraphText] = useState(definition ? JSON.stringify(definition.graph, null, 2) : '');
   const nodeListId = useId();
+  const sectionPrefix = useId();
   const workflowNodes = useMemo(() => {
     try {
       return Object.entries(readWorkflowGraph(graphText));
@@ -79,10 +85,78 @@ export function GenerationSettings({
       return [];
     }
   }, [graphText]);
+  function mapped(node: string, input: string) {
+    const targets = [
+      { node: bindings.positiveNode, input: bindings.positiveInput },
+      { node: bindings.negativeNode, input: bindings.negativeInput },
+      ...(capability === 'video.image_to_video'
+        ? [{ node: bindings.imageNode, input: bindings.imageInput }]
+        : []),
+      ...fields,
+      ...(mediaSchema?.inputs ?? []),
+      ...readParameterBindings(new FormData(formRef.current!)),
+    ];
+    return targets.some((target) => target.node === node && target.input === input);
+  }
+  function mapInput(node: string, input: string, type?: WorkflowMediaType) {
+    void run(async () => {
+      if (mapped(node, input)) throw new Error('此输入已有映射，请编辑原映射或先解除绑定。');
+      if (type) {
+        if ((mediaSchema?.inputs.length ?? 0) >= 32) throw new Error('最多配置 32 份媒体输入。');
+        setMediaSchema({
+          version: 'studio.workflow-media.v1',
+          inputs: [
+            ...(mediaSchema?.inputs ?? []),
+            {
+              id: crypto.randomUUID(),
+              node,
+              input,
+              mediaType: type,
+              label: `${({ image: '图片', video: '视频', audio: '音频' } as const)[type]} ${(mediaSchema?.inputs.length ?? 0) + 1}`,
+              role: 'reference',
+              required: true,
+              onMissing: 'error',
+            },
+          ],
+          outputs: mediaSchema?.outputs ?? [],
+        });
+      } else {
+        if (fields.length >= 20) throw new Error('最多公开 20 个创作参数。');
+        const field = suggestField(
+          crypto.randomUUID(),
+          node,
+          input,
+          readWorkflowGraph(graphText)[node]?.inputs[input],
+        );
+        setFields([...fields, field]);
+        setRevealField(field.id);
+      }
+      setDirtyForms((current) => ({ ...current, workflow: true }));
+      setMessage(
+        type
+          ? '已添加媒体映射，请核对用途、顺序和缺失处理。'
+          : '已添加创作参数，请核对名称、单位和节点实际允许范围。',
+      );
+    });
+  }
 
   return (
     <div className="v2-workflow-config">
+      <nav className="workflow-config-nav" aria-label="工作流配置分区">
+        {['基础信息', '输入映射', '创作参数', '输出配置'].map((label, index) => (
+          <StudioButton
+            key={label}
+            variant="ghost"
+            onClick={() =>
+              document.getElementById(`${sectionPrefix}-${index}`)?.scrollIntoView({ block: 'start' })
+            }
+          >
+            {index + 1} · {label}
+          </StudioButton>
+        ))}
+      </nav>
       <form
+        ref={formRef}
         onChangeCapture={(event) => {
           if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview')))
             setDirtyForms((value) => ({ ...value, workflow: true }));
@@ -161,7 +235,7 @@ export function GenerationSettings({
         }}
       >
         <fieldset className="plain-fieldset" disabled={busy}>
-          <section className="v2-workflow-step" aria-label="导入与基础配置">
+          <section id={`${sectionPrefix}-0`} className="v2-workflow-step" aria-label="导入与基础配置">
             <h4>导入与基础配置</h4>
             <div className="v2-workflow-columns">
               <label>
@@ -238,8 +312,11 @@ export function GenerationSettings({
               请使用已验证且信任的工作流。节点可能访问 ComfyUI 主机上的文件或外部服务。
             </p>
           </section>
-          <section className="v2-workflow-step" aria-label="节点与输入输出映射">
-            <h4>节点与输入输出映射</h4>
+          <section id={`${sectionPrefix}-1`} className="v2-workflow-step" aria-label="输入映射">
+            <h4>输入映射</h4>
+            <p className="field-hint">
+              提示词和首帧单独绑定；其他图片、视频和音频按名称、用途及顺序声明。每个输入只能映射一次。
+            </p>
             {workflowNodes.length > 0 && (
               <div className="workflow-graph-controls">
                 <button type="button" onClick={() => setShowGraph((value) => !value)}>
@@ -253,6 +330,19 @@ export function GenerationSettings({
                       capability={capability}
                       bindings={bindings}
                       disabled={busy}
+                      onExpose={(node, input) => mapInput(node, input)}
+                      onMedia={(node, input, type) => mapInput(node, input, type)}
+                      mappedTargets={[
+                        ...fields.map((field) => ({ node: field.node, label: field.label })),
+                        ...(mediaSchema?.inputs ?? []).map((slot) => ({
+                          node: slot.node,
+                          label: slot.label,
+                        })),
+                        ...(mediaSchema?.outputs ?? []).map((slot) => ({
+                          node: slot.node,
+                          label: slot.label,
+                        })),
+                      ]}
                       onBind={(role, node, input) => {
                         setBindings((value) => ({
                           ...value,
@@ -351,6 +441,54 @@ export function GenerationSettings({
                 />
               </label>
             </div>
+
+            <WorkflowMediaEditor
+              mode="inputs"
+              value={mediaSchema}
+              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+              change={(value) => {
+                setMediaSchema(value);
+                setDirtyForms((current) => ({ ...current, workflow: true }));
+              }}
+            />
+          </section>
+          <section id={`${sectionPrefix}-2`} className="v2-workflow-step" aria-label="创作参数">
+            <h4>创作参数</h4>
+            <p className="field-hint">
+              默认值取自导入图；名称请包含必要单位，如宽度（像素）、分辨率（MP）。0.4 MP 约为 40
+              万像素预算，实际宽高由工作流按画幅和对齐规则计算。
+            </p>
+            <WorkflowParameterFields
+              key={bindingFormVersion}
+              nodeListId={nodeListId}
+              capability={capability}
+              initial={definition?.parameters}
+            />
+            <ExposedFieldsEditor
+              reveal={revealField}
+              fields={fields}
+              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+              change={(value) => {
+                setFields(value);
+                setDirtyForms((current) => ({ ...current, workflow: true }));
+              }}
+            />
+          </section>
+          <section id={`${sectionPrefix}-3`} className="v2-workflow-step" aria-label="输出配置">
+            <h4>输出配置</h4>
+            <label>
+              主输出类型
+              <input
+                aria-label="主输出类型"
+                readOnly
+                value={
+                  capability.startsWith('video.') ? '视频' : capability.startsWith('audio.') ? '音频' : '图片'
+                }
+              />
+            </label>
+            <p className="field-hint">
+              主输出类型由生成方式确定。附加输出可声明其他媒体类型，每份产物独立归档。
+            </p>
             <div className="dialog-field-row">
               <label>
                 输出节点
@@ -387,24 +525,8 @@ export function GenerationSettings({
             <p className="field-hint">
               数量由工作流参数决定。开启后逐份归档同一输出字段的文件，不会重复调用模型。
             </p>
-          </section>
-          <section className="v2-workflow-step" aria-label="创作参数与保存">
-            <h4>创作参数与保存</h4>
-            <WorkflowParameterFields
-              key={bindingFormVersion}
-              nodeListId={nodeListId}
-              capability={capability}
-              initial={definition?.parameters}
-            />
-            <ExposedFieldsEditor
-              fields={fields}
-              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
-              change={(value) => {
-                setFields(value);
-                setDirtyForms((current) => ({ ...current, workflow: true }));
-              }}
-            />
             <WorkflowMediaEditor
+              mode="outputs"
               value={mediaSchema}
               graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
               change={(value) => {
@@ -412,6 +534,8 @@ export function GenerationSettings({
                 setDirtyForms((current) => ({ ...current, workflow: true }));
               }}
             />
+          </section>
+          <div className="workflow-config-save">
             {editing && (
               <>
                 <p className="field-hint">
@@ -430,12 +554,36 @@ export function GenerationSettings({
                 </label>
               </>
             )}
+            <StudioButton
+              type="button"
+              icon="eye"
+              onClick={() =>
+                void run(async () => {
+                  const data = new FormData(formRef.current!);
+                  setPreview(
+                    structuredClone({
+                      name: String(data.get('name') ?? ''),
+                      capability,
+                      graph: readWorkflowGraph(graphText),
+                      bindings,
+                      fields,
+                      parameters: readParameterBindings(data),
+                      mediaSchema,
+                      primaryBatch: Boolean(primaryBatch),
+                    }),
+                  );
+                })
+              }
+            >
+              预览创作者表单
+            </StudioButton>
             <StudioButton type="submit" variant="primary" icon="check">
               验证绑定并保存
             </StudioButton>
-          </section>
+          </div>
         </fieldset>
       </form>
+      {preview && <WorkflowFormPreview draft={preview} onClose={() => setPreview(undefined)} theme={theme} />}
     </div>
   );
 }

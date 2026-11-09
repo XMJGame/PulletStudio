@@ -3,6 +3,8 @@ import { Background, Controls, MiniMap, Position, ReactFlow } from '@xyflow/reac
 import '@xyflow/react/dist/style.css';
 import { isWorkflowLink, workflowDiagram, type WorkflowGraph } from './workflow-graph';
 import './workflow-center.css';
+import { canExposeInput } from './workflow-draft';
+import type { WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
 type Bind = 'positive' | 'negative' | 'image' | 'output';
 export default function WorkflowGraphPreview({
   graph,
@@ -11,6 +13,9 @@ export default function WorkflowGraphPreview({
   onBind,
   disabled,
   theme,
+  onExpose,
+  onMedia,
+  mappedTargets = [],
 }: {
   graph: WorkflowGraph;
   bindings: Record<string, string>;
@@ -18,9 +23,13 @@ export default function WorkflowGraphPreview({
   disabled: boolean;
   theme: 'light' | 'dark';
   onBind: (role: Bind, node: string, input?: string) => void;
+  onExpose?: (node: string, input: string) => void;
+  onMedia?: (node: string, input: string, type: WorkflowMediaType) => void;
+  mappedTargets?: { node: string; label: string }[];
 }) {
   const [selected, setSelected] = useState('');
   const [input, setInput] = useState('');
+  const [mediaType, setMediaType] = useState<WorkflowMediaType>('image');
   const analysis = useMemo(() => {
     try {
       return { value: workflowDiagram(graph), error: '' };
@@ -58,13 +67,16 @@ export default function WorkflowGraphPreview({
                 ]
                   .filter(([key]) => bindings[key] === node.id)
                   .map(([, label]) => label)
+                  .concat(
+                    mappedTargets.filter((target) => target.node === node.id).map((target) => target.label),
+                  )
                   .join(' · ')}
               </small>
             </span>
           ),
         },
       })),
-    [model, selected, graph, bindings],
+    [model, selected, graph, bindings, mappedTargets],
   );
   const edges = useMemo(
     () =>
@@ -208,6 +220,39 @@ export default function WorkflowGraphPreview({
               设为输出节点
             </button>
           </div>
+          {onExpose && (
+            <button
+              type="button"
+              disabled={disabled || !input || !canExposeInput(input, current.inputs[input])}
+              onClick={() => onExpose(selected, input)}
+            >
+              公开为创作参数
+            </button>
+          )}
+          {onMedia && (
+            <div className="workflow-map-actions">
+              <label>
+                素材类型
+                <select
+                  aria-label="节点映射素材类型"
+                  value={mediaType}
+                  onChange={(event) => setMediaType(event.target.value as WorkflowMediaType)}
+                  disabled={disabled}
+                >
+                  <option value="image">图片</option>
+                  <option value="video">视频</option>
+                  <option value="audio">音频</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={disabled || !text}
+                onClick={() => onMedia(selected, input, mediaType)}
+              >
+                添加媒体映射
+              </button>
+            </div>
+          )}
         </div>
       )}
       {model && !current && (

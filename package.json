@@ -31,7 +31,7 @@
     "review:ui": "node tools/ui-review.mjs",
     "test:boards": "npm run build && npm run test:canvas-logic && playwright test --config playwright.boards.config.ts",
     "test:canvas-logic": "node --import tsx --test tests/unit/result-group.test.mjs",
-    "test:workflow-graph": "node --import tsx --test tests/workflows/graph.test.mjs",
+    "test:workflow-graph": "node --import tsx --test tests/workflows/*.test.mjs",
     "test:workflows": "npm run build && npm run test:workflow-graph && playwright test --config playwright.workflows.config.ts",
     "test:settings": "npm run build && playwright test --config playwright.settings.config.ts",
     "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts playwright.settings.config.ts",

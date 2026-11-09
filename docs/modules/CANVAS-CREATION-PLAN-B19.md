@@ -1,6 +1,6 @@
 # B19–B23 · 分类创作、工作流映射与简洁连接实施计划
 
-状态：2026-11-09，B19 已完成，B20–B23 待实施。实际进度统一维护在 [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)。依据用户本轮截图及明确选择，复用 B14–B18 已验收能力；参考资料的菜单不等于必须实现的功能清单。
+状态：2026-11-09，B19–B20 已完成，B21–B23 待实施。实际进度统一维护在 [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)。依据用户本轮截图及明确选择，复用 B14–B18 已验收能力；参考资料的菜单不等于必须实现的功能清单。
 
 ## 产品决定
 
@@ -57,10 +57,20 @@
 
 - 已完成：截图与本地归档研究、代码复用点核对、产品规则和阶段计划。
 - B19：分类工具栏/右键动作、创作目标保存、ComfyUI 去除重复类型筛选、API 保留类型与切换保护已实现；画布全量 43 项、工作流相关 7 项、后端全量 288 项及构建/类型/格式通过。创作目标从实际执行合同中明确排除，旧节点缺省兼容。
-- 未开始：B20–B23 代码。B19 已完成体验包交付复核，当前运行 B19。
+- B20：四区表单、节点添加映射及只读表单预览已完成；工作流全量 24 项、全局设置 4 项、图/草稿单元 7 项通过。B21–B23 待实施；B20 包尚待交付复核，当前运行 B19。
 
 ## B19 验收证据
 
 忽略目录日志：`b19-boards-full-final.log`（43 项）、`b19-workflows-targeted.log`（7 项）、`b19-api-full-final.log`（288 项）、`b19-api-contract-final.log`、`b19-build-final.log`、`b19-typecheck-final.log`、`b19-format-check.log`。分类创建截图为 `test-results/b19-creation-desktop.png` 与 `b19-creation-mobile-dark.png`；调整右键创建的截图落点后，`b19-creation-final.log` 再次通过。首轮完整回归的失败证据保留于 `b19-boards-first-run.log`：新 UI 提示字段误入严格执行合同及重复分组入口，分别改用执行字段白名单与统一工具栏入口后，重新全量通过。没有数据库迁移或真实外部模型请求。交付时将 B18 用户空间完整复制到 B19，原有记录保持一致。
 
 B19 程序包来源 `3b4e7dd`，10049 份程序文件逐项校验通过，ZIP 不含用户数据。复制 B18 后 70 张表、12 份媒体和加密配置一致，启动后表内容没有变化；Web/API 就绪，原工程库仍 42 条迁移。交付证据为忽略目录 `b19-package.log`、`b19-profile-receipt.json`、`b19-delivery-report.json`。
+
+## B20 实施范围与验证
+
+仅 Web 与测试命令变更。复用 GenerationSettings、WorkflowGraphPreview、ExposedFieldsEditor 和按输入/输出分区的 WorkflowMediaEditor；新增 WorkflowFormPreview 与 workflow-draft 负责快照展示及建议/默认值读取。保存仍提交原 definitions、parameters、fields、mediaSchema 和 output，不新增数据库、API 字段或执行通道。没有独立持久化 description/unit；必要单位由参数名称明确表达。
+
+预览不读取未映射默认值，不展示原媒体文件名；非法公开字段、范围/步长或枚举默认值明确报错。图上添加映射继续以服务端实际元数据核验为准，前端建议不冒充 object_info 自动适配成功。修订编辑、冲突保留、只读和全局设置权限继续复用。测试使用隔离库与 Mock，不请求真实 GPU。
+
+验收日志位于忽略目录：`b20-workflows-full-final.log`（24 项）、`b20-settings-full.log`（4 项）、`b20-unit-final.log`（7 项）、`b20-build-final.log`、`b20-typecheck-final.log`、`b20-format-check-final.log`。预览专项还核验固定修订的画幅、时长、种子与无效范围；预览后未保存值仍保留，目录修订不变化。`b20-form-preview-light.png`、`b20-form-preview-mobile-dark.png` 及实际浏览器缩放截图已查看。
+
+首轮全量的 2 个失败保留于 `b20-workflows-full.log`：测试默认确认框处理抢先处理提示词库确认，以及关闭设置后仅等待项目入口而未等待恢复画布就读取缩放目标 URL。修正测试监听范围、等待画布名称后，`b20-preview-final.log` 定向通过，随后 24 项全量全部通过；没有通过放宽产品校验或跳过场景规避。后端沿用 B19 的 288 项，未重复无变化后端全量。

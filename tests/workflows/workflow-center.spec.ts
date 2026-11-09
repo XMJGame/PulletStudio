@@ -13,6 +13,7 @@ import {
   fixtureExtendedOutputs,
   fixtureOptionalMedia,
   fixturePrimaryBatch,
+  fixtureParameterized,
 } from '../fixtures/comfy-mock.mjs';
 import { createMediaFixtures } from '../fixtures/media-fixtures.mjs';
 import { readPackageZip } from '../fixtures/read-zip.mjs';
@@ -33,9 +34,9 @@ async function api(method: string, path: string, data?: unknown, actor = owner) 
   return response.json();
 }
 test.beforeEach(async ({ page }) => {
-  page.on('dialog', (dialog) =>
-    dialog.message().startsWith('切换将清除') ? dialog.accept() : dialog.dismiss(),
-  );
+  page.on('dialog', async (dialog) => {
+    if (dialog.message().startsWith('切换将清除')) await dialog.accept();
+  });
 });
 
 test.beforeAll(async () => {
@@ -279,6 +280,7 @@ test('formal project and library views work across themes, screen sizes and actu
       await center.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
       await page.screenshot({ path: `test-results/review-workflows-${theme}-${size}.png` });
       await closeCenter(page);
+      await expect(page.getByLabel('当前画布名称')).toHaveValue('光线与构图');
     }
     expect(remote.mock.submissions).toHaveLength(0);
     expect((await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`)).catalog.revision).toBe(1);
@@ -1064,7 +1066,7 @@ test('maps optional video audio controls and previews audio trial evidence', asy
     await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
     await dialog.getByLabel('输出节点', { exact: true }).fill(fixture.output.node);
     await dialog.getByLabel('历史输出字段', { exact: true }).fill('audio');
-    await dialog.getByText('扩展媒体声明', { exact: true }).click();
+    await dialog.getByText('媒体输入映射', { exact: true }).click();
     for (const [index, slot] of fixture.mediaSchema.inputs.entries()) {
       const n = index + 1;
       await dialog.getByRole('button', { name: '添加媒体输入', exact: true }).click();
@@ -1137,7 +1139,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   });
   await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
   await dialog.getByLabel('输出节点', { exact: true }).fill('3');
-  await dialog.getByText('扩展媒体声明', { exact: true }).click();
+  await dialog.getByText('媒体输入映射', { exact: true }).click();
   await dialog.getByRole('button', { name: '添加媒体输入', exact: true }).click();
   await dialog.getByLabel('媒体输入1名称', { exact: true }).fill('角色参考');
   await dialog.getByLabel('媒体输入1节点', { exact: true }).selectOption('6');
@@ -1149,6 +1151,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await dialog.getByLabel('媒体输入2节点', { exact: true }).selectOption('7');
   await dialog.getByLabel('媒体输入2字段', { exact: true }).selectOption('video');
   await dialog.getByLabel('媒体输入2缺失处理', { exact: true }).selectOption('optional');
+  await dialog.getByText('附加输出映射', { exact: true }).click();
   await dialog.getByRole('button', { name: '添加媒体输出', exact: true }).click();
   await dialog.getByLabel('媒体输出1名称', { exact: true }).fill('预览图');
   await dialog.getByLabel('媒体输出1节点', { exact: true }).selectOption('9');
@@ -1171,7 +1174,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await dialog.getByRole('button', { name: '下移媒体输入1', exact: true }).click();
   await expect(dialog.getByLabel('媒体输入1名称', { exact: true })).toHaveValue('动作参考');
   await dialog.getByRole('button', { name: '添加媒体输出', exact: true }).click();
-  await dialog.getByRole('button', { name: '移除媒体输出2', exact: true }).click();
+  await dialog.getByRole('button', { name: '删除媒体输出2', exact: true }).click();
   await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
   await expect(dialog.getByRole('status')).toContainText('修订 v2');
   const latest = (await api('GET', `/projects/${value.id}/generation-config`)).workflows[0];
@@ -1765,4 +1768,109 @@ test('project generation defaults to automatic routing and records the manual in
   } finally {
     await Promise.all([first.close(), second.close()]);
   }
+});
+
+test('workflow sections map node inputs and preview the creator form without submitting or exposing internal defaults', async ({
+  page,
+}) => {
+  const value = await project('Creator form mapping');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Mapping preview fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const fixture = fixtureCreativeFields(connection.id);
+  fixture.graph['5'].inputs.note = 'UNEXPOSED_PRIVATE_NOTE';
+  fixture.graph['8'] = { class_type: 'LoadAudio', inputs: { audio: 'UNEXPOSED_PRIVATE_AUDIO.wav' } };
+  fixture.graph['3'].inputs.audio_reference = ['8', 0];
+  await open(page, value);
+  const dialog = page.getByRole('dialog', { name: '设置', exact: true });
+  await expect(dialog.getByRole('navigation', { name: '工作流配置分区' }).getByRole('button')).toHaveCount(4);
+  await dialog.getByLabel('工作流名称', { exact: true }).fill('Mapped form preview');
+  await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+  await dialog.getByLabel('API 格式工作流 JSON', { exact: true }).fill(JSON.stringify(fixture.graph));
+  await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
+  await dialog.getByLabel('输出节点', { exact: true }).fill('3');
+  await dialog.getByRole('button', { name: '预览节点图', exact: true }).click();
+  await dialog.getByLabel('选择工作流节点', { exact: true }).selectOption('5');
+  await dialog.getByLabel('节点常量输入', { exact: true }).selectOption('iterations');
+  await dialog.getByRole('button', { name: '公开为创作参数', exact: true }).click();
+  await expect(dialog.getByLabel('参数1名称', { exact: true })).toBeVisible();
+  await dialog.getByLabel('参数1名称', { exact: true }).fill('迭代次数');
+  await dialog.getByLabel('参数1最小值', { exact: true }).fill('1');
+  await dialog.getByLabel('参数1最大值', { exact: true }).fill('20');
+  await expect(dialog.getByLabel('参数1默认值', { exact: true })).toHaveValue('4');
+  await dialog.getByLabel('选择工作流节点', { exact: true }).selectOption('8');
+  await dialog.getByLabel('节点常量输入', { exact: true }).selectOption('audio');
+  await expect(dialog.getByRole('button', { name: '公开为创作参数', exact: true })).toBeDisabled();
+  await dialog.getByLabel('节点映射素材类型', { exact: true }).selectOption('audio');
+  await dialog.getByRole('button', { name: '添加媒体映射', exact: true }).click();
+  await dialog.getByLabel('媒体输入1名称', { exact: true }).fill('环境声音参考');
+  await dialog.getByLabel('媒体输入1缺失处理', { exact: true }).selectOption('disconnect');
+  await dialog.getByRole('button', { name: '添加媒体映射', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('此输入已有映射');
+  await dialog.getByText('接收批量主结果（最多 8 份）', { exact: true }).check();
+  await dialog.getByRole('button', { name: '预览创作者表单', exact: true }).click();
+  const preview = page.getByRole('dialog', { name: '创作者表单预览', exact: true });
+  await expect(preview.getByLabel('创作参数：迭代次数', { exact: true })).toHaveValue('4');
+  await expect(preview.getByLabel('创作参数：迭代次数', { exact: true })).toBeDisabled();
+  await expect(preview).toContainText('环境声音参考 · 音频 · 可选');
+  await expect(preview.getByRole('region', { name: '预览输出清单' })).toContainText('最多 8 份');
+  await expect(preview).not.toContainText('UNEXPOSED_PRIVATE');
+  await page.screenshot({ path: 'test-results/b20-form-preview-light.png', animations: 'disabled' });
+  await preview.getByRole('button', { name: '关闭对话框', exact: true }).click();
+  await expect(dialog.getByLabel('工作流名称', { exact: true })).toHaveValue('Mapped form preview');
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('绑定节点已验证并保存');
+  const saved = (await api('GET', `/projects/${value.id}/generation-config`)).workflows[0];
+  expect(saved.fields[0]).toMatchObject({ label: '迭代次数', defaultValue: 4 });
+  expect(saved.mediaSchema.inputs[0]).toMatchObject({
+    label: '环境声音参考',
+    mediaType: 'audio',
+    required: false,
+    onMissing: 'disconnect',
+  });
+  await closeCenter(page);
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await openCenter(page);
+  await page.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await page.getByRole('button', { name: '预览创作者表单', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(preview.getByLabel('创作参数：迭代次数', { exact: true })).toHaveValue('4');
+  expect(await preview.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/b20-form-preview-mobile-dark.png', animations: 'disabled' });
+  expect(remote.mock.submissions).toHaveLength(0);
+});
+
+test('creator preview reads fixed parameter defaults and reports invalid ranges without changing the revision', async ({
+  page,
+}) => {
+  const value = await project('Parameter preview');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Parameter preview fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const fixture = fixtureParameterized(connection.id);
+  const workflow = await api('POST', `/projects/${value.id}/generation-workflows`, fixture);
+  await open(page, value);
+  const dialog = page.getByRole('dialog', { name: '设置', exact: true });
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await dialog.getByRole('button', { name: '预览创作者表单', exact: true }).click();
+  const preview = page.getByRole('dialog', { name: '创作者表单预览', exact: true });
+  await expect(preview.getByLabel('预览画幅', { exact: true })).toHaveValue('1:1 (Square)');
+  await expect(preview.getByLabel('预览时长（秒）', { exact: true })).toHaveValue('2.5');
+  await expect(preview.getByLabel('预览Seed', { exact: true })).toHaveValue('37');
+  await expect(preview.getByRole('alert')).toHaveCount(0);
+  await preview.getByRole('button', { name: '关闭对话框', exact: true }).click();
+  await dialog.getByText('可调生成参数（可选）', { exact: true }).click();
+  await dialog.getByLabel('时长（秒）最大值', { exact: true }).fill('1');
+  await dialog.getByRole('button', { name: '预览创作者表单', exact: true }).click();
+  await expect(preview.getByRole('alert')).toContainText('默认值与映射配置不匹配');
+  await preview.getByRole('button', { name: '关闭对话框', exact: true }).click();
+  await expect(dialog.getByLabel('时长（秒）最大值', { exact: true })).toHaveValue('1');
+  const definition = await api('GET', `/workflow-catalogs/${workflow.familyId}/definition`);
+  expect(definition.catalog.revision).toBe(1);
+  expect(definition.definition.parameters.find((p: any) => p.key === 'durationSeconds').max).toBe(30);
+  expect(remote.mock.submissions).toHaveLength(0);
 });

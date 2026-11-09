@@ -1,15 +1,24 @@
 import type { ExposedField, FieldSpec } from '../../../../packages/contracts/src/workflow';
 import type { WorkflowGraph } from './workflow-graph';
 import { isWorkflowLink } from './workflow-graph';
+import { useEffect, useRef } from 'react';
+import { canExposeInput } from './workflow-draft';
+import { StudioButton } from '../shared/ui/StudioUI';
 export function ExposedFieldsEditor({
   fields,
   graph,
   change,
+  reveal,
 }: {
   fields: ExposedField[];
   graph?: WorkflowGraph;
   change: (fields: ExposedField[]) => void;
+  reveal?: string;
 }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (reveal && details.current) details.current.open = true;
+  }, [reveal]);
   function update(index: number, patch: Partial<ExposedField>) {
     change(
       fields.map((field, position) =>
@@ -38,7 +47,7 @@ export function ExposedFieldsEditor({
     change(fields.map((item, position) => (position === index ? { ...common, ...spec } : item)));
   }
   return (
-    <details className="exposed-fields">
+    <details className="exposed-fields" ref={details}>
       <summary>公开创作参数（{fields.length}/20）</summary>
       <p className="field-hint">
         管理员选择现有常量并声明类型/范围，创作者只填写命名后的参数。默认值取自图，保存时核对节点声明；不公开凭据、地址或路径。
@@ -95,6 +104,18 @@ export function ExposedFieldsEditor({
               </select>
             </label>
           </div>
+          <label>
+            默认值（来自工作流）
+            <input
+              aria-label={`参数${index + 1}默认值`}
+              readOnly
+              value={
+                canExposeInput(field.input, graph?.[field.node]?.inputs[field.input])
+                  ? String(graph?.[field.node]?.inputs[field.input]).slice(0, 4000)
+                  : '请先绑定可公开的常量'
+              }
+            />
+          </label>
           <label>
             字段类型
             <select
@@ -161,9 +182,13 @@ export function ExposedFieldsEditor({
               />
             </label>
           )}
-          <button type="button" onClick={() => change(fields.filter((_, position) => position !== index))}>
-            移除参数 {index + 1}
-          </button>
+          <StudioButton
+            icon="trash"
+            aria-label={`删除创作参数${index + 1}`}
+            onClick={() => change(fields.filter((_, position) => position !== index))}
+          >
+            删除
+          </StudioButton>
         </fieldset>
       ))}
       <button

@@ -85,8 +85,60 @@
   margin-top: 6px;
 }
 .v2-workflow-step {
+  scroll-margin-top: 64px;
   margin-block: 12px;
   padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.workflow-config-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+.workflow-config-nav .v2-button {
+  flex: 1 1 100px;
+  justify-content: center;
+}
+.workflow-config-save {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+}
+.workflow-form-preview fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+.workflow-form-preview-body {
+  padding: 0 24px 24px;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.workflow-form-preview-body > h3,
+.workflow-form-preview-body > p {
+  margin: 0;
+}
+.workflow-form-preview-body label {
+  margin: 0;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.workflow-form-preview :disabled {
+  opacity: 1;
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+}
+.workflow-preview-outputs {
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-card);
 }
