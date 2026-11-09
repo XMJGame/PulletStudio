@@ -1,6 +1,6 @@
 # B19–B23 · 分类创作、工作流映射与简洁连接实施计划
 
-状态：2026-11-09，B19–B20 已完成，用户补充的 [B21-A 主动入库](CANVAS-MANUAL-LIBRARY-B21A.md) 优先验收，原 B21 单口连接及 B22–B23 待实施。实际进度统一维护在 [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)。依据用户本轮截图及明确选择，复用 B14–B18 已验收能力；参考资料的菜单不等于必须实现的功能清单。
+状态：2026-11-09，B19–B20 已完成，用户补充的 [B21-A 主动入库](CANVAS-MANUAL-LIBRARY-B21A.md) 已完成，原 B21 单口连接及 B22–B23 待实施。实际进度统一维护在 [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md)。依据用户本轮截图及明确选择，复用 B14–B18 已验收能力；参考资料的菜单不等于必须实现的功能清单。
 
 ## 产品决定
 
