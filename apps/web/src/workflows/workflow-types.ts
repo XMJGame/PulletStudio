@@ -6,6 +6,7 @@ export type Workflow = {
   id: string;
   name: string;
   capability: string;
+  defaultRouting?: 'auto' | 'fixed';
   enabled: boolean;
   provider?: 'comfyui' | 'modelscope';
   createdAt: string;
@@ -72,6 +73,7 @@ export function matchesGenerationType(
   return workflowEngine(workflow) === engine && (output === 'all' || workflowOutputType(workflow) === output);
 }
 export type WorkflowDefinition = {
+  defaultRouting?: 'auto' | 'fixed';
   name: string;
   connectionId: string;
   capability: string;

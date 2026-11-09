@@ -556,7 +556,9 @@ test('project workflow center imports, visualizes and maps existing API fields w
     content = JSON.stringify(graph),
     requests = remote.mock.requests.length;
   await dialog.getByLabel('工作流名称', { exact: true }).fill('Mapped studio workflow');
-  await dialog.getByLabel('工作流连接', { exact: true }).selectOption({ label: 'Local validation fixture' });
+  await dialog
+    .getByLabel('运行实例', { exact: true })
+    .selectOption({ label: '指定：Local validation fixture' });
   await dialog
     .getByLabel('选择 API 格式 JSON 文件', { exact: true })
     .setInputFiles({ name: 'workflow-api.json', mimeType: 'application/json', buffer: Buffer.from(content) });
@@ -1056,7 +1058,7 @@ test('maps optional video audio controls and previews audio trial evidence', asy
     await open(page, value);
     const dialog = page.getByRole('dialog', { name: '设置', exact: true });
     await dialog.getByLabel('工作流名称', { exact: true }).fill('Audio study');
-    await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+    await dialog.getByLabel('运行实例', { exact: true }).selectOption(connection.id);
     await dialog.getByLabel('生成方式', { exact: true }).selectOption('audio.music');
     await dialog.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
       name: 'audio-api.json',
@@ -1131,7 +1133,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await open(page, value);
   const dialog = page.getByRole('dialog', { name: '设置', exact: true });
   await dialog.getByLabel('工作流名称', { exact: true }).fill('Reference study');
-  await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+  await dialog.getByLabel('运行实例', { exact: true }).selectOption(connection.id);
   await dialog.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
     name: 'media-api.json',
     mimeType: 'application/json',
@@ -1787,7 +1789,7 @@ test('workflow sections map node inputs and preview the creator form without sub
   const dialog = page.getByRole('dialog', { name: '设置', exact: true });
   await expect(dialog.getByRole('navigation', { name: '工作流配置分区' }).getByRole('button')).toHaveCount(4);
   await dialog.getByLabel('工作流名称', { exact: true }).fill('Mapped form preview');
-  await dialog.getByLabel('工作流连接', { exact: true }).selectOption(connection.id);
+  await dialog.getByLabel('运行实例', { exact: true }).selectOption(connection.id);
   await dialog.getByLabel('API 格式工作流 JSON', { exact: true }).fill(JSON.stringify(fixture.graph));
   await dialog.getByLabel('正向文本节点', { exact: true }).fill('1');
   await dialog.getByLabel('输出节点', { exact: true }).fill('3');
@@ -1839,6 +1841,68 @@ test('workflow sections map node inputs and preview the creator form without sub
   await expect(preview.getByLabel('创作参数：迭代次数', { exact: true })).toHaveValue('4');
   expect(await preview.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/b20-form-preview-mobile-dark.png', animations: 'disabled' });
+  expect(remote.mock.submissions).toHaveLength(0);
+});
+
+test('mapped nodes locate fields and output and instance policies save as immutable revisions', async ({
+  page,
+}) => {
+  const value = await project('Mapping visibility');
+  const connection = await api('POST', `/projects/${value.id}/generation-connections`, {
+    name: 'Mapping routing fixture',
+    baseUrl: remote.baseUrl,
+    trustedPrivate: true,
+  });
+  const fixture = fixtureParameterized(connection.id);
+  const original = await api('POST', `/projects/${value.id}/generation-workflows`, fixture);
+  await open(page, value);
+  const dialog = page.getByRole('dialog', { name: '设置', exact: true });
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await expect(dialog.getByLabel('运行实例', { exact: true })).toHaveValue(connection.id);
+  await dialog.getByLabel('主输出类型', { exact: true }).selectOption('audio');
+  await expect(dialog.getByLabel('生成方式', { exact: true })).toHaveValue('audio.music');
+  await dialog.getByLabel('主输出类型', { exact: true }).selectOption('video');
+  await expect(dialog.getByLabel('生成方式', { exact: true })).toHaveValue('video.text_to_video');
+  await dialog.getByLabel('主输出类型', { exact: true }).selectOption('image');
+  await expect(dialog.getByLabel('生成方式', { exact: true })).toHaveValue('image.text_to_image');
+  await dialog.getByLabel('生成方式', { exact: true }).selectOption(fixture.capability);
+  await dialog.getByRole('button', { name: '预览节点图', exact: true }).click();
+  await expect(dialog.locator('.workflow-node-mapped').first()).toContainText('已映射');
+  await dialog.getByText(/^映射清单 ·/).click();
+  const index = dialog.locator('.workflow-mapping-index');
+  await expect(index).toContainText('参数 · Seed');
+  await index.getByRole('button').filter({ hasText: '参数 · Seed' }).click();
+  await expect(dialog.getByLabel('当前节点已映射')).toContainText('Seed');
+  await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
+  await expect(dialog.getByLabel('选择工作流节点', { exact: true })).toHaveValue('8');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/b24-mapping-light.png', animations: 'disabled' });
+  await dialog.getByLabel('运行实例', { exact: true }).selectOption('auto');
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('修订 v2');
+  const auto = await api('GET', `/workflow-catalogs/${original.familyId}/definition`);
+  expect(auto.definition.defaultRouting).toBe('auto');
+  expect(
+    (await api('GET', `/generation-workflows/${original.id}/definition`)).definition.defaultRouting,
+  ).toBeUndefined();
+  await dialog.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await expect(dialog.getByLabel('运行实例', { exact: true })).toHaveValue('auto');
+  await dialog.getByLabel('运行实例', { exact: true }).selectOption(connection.id);
+  await dialog.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('修订 v3');
+  const fixed = await api('GET', `/workflow-catalogs/${original.familyId}/definition`);
+  expect(fixed.definition).toMatchObject({ defaultRouting: 'fixed', connectionId: connection.id });
+  await closeCenter(page);
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await openCenter(page);
+  await page.getByRole('button', { name: '查看 / 修订', exact: true }).click();
+  await page.getByRole('button', { name: '预览节点图', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.locator('.workflow-technical-surface').scrollIntoViewIfNeeded();
+  await dialog.locator('.react-flow__controls-fitview').click();
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/b24-mapping-mobile-dark.png', animations: 'disabled' });
   expect(remote.mock.submissions).toHaveLength(0);
 });
 

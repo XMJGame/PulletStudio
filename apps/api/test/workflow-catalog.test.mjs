@@ -1189,6 +1189,100 @@ test('workflow catalog revisions, creative schemas and dependency inspection pre
         assert.equal(freeResult.state, 'completed');
         assert.equal(freeResult.takeId, null);
         assert.equal(freeResult.instance.id, aId);
+        // New workflow defaults retain the old bound execution path for fixed instances,
+        // and reuse the existing checked pool for automatic dispatch and idempotent retry.
+        a.mock.queue = { queue_running: [], queue_pending: [] };
+        const fixedWorkflow = await create({
+          ...fixtureWorkflow(aId),
+          name: 'Fixed workflow policy',
+          defaultRouting: 'fixed',
+        });
+        assert.equal(fixedWorkflow.status, 201, JSON.stringify(fixedWorkflow.data));
+        const fixedBody = {
+          workflowId: fixedWorkflow.data.id,
+          positivePrompt: 'Keep this workstation',
+          confirmed: true,
+        };
+        assert.equal(
+          (
+            await owner(
+              'POST',
+              `/projects/${project.id}/generation-jobs`,
+              { ...fixedBody, routing: { mode: 'auto' } },
+              { 'Idempotency-Key': randomUUID() },
+            )
+          ).data.code,
+          'WORKFLOW_INSTANCE_FIXED',
+        );
+        const fixedJob = await owner('POST', `/projects/${project.id}/generation-jobs`, fixedBody, {
+          'Idempotency-Key': randomUUID(),
+        });
+        assert.equal(fixedJob.status, 201, JSON.stringify(fixedJob.data));
+        assert.equal(fixedJob.data.instance, null);
+        await tick(fixedJob.data.id);
+        await tick(fixedJob.data.id);
+        assert.equal((await tick(fixedJob.data.id)).state, 'completed');
+        const automaticWorkflow = await create({
+          ...fixtureWorkflow(aId),
+          name: 'Automatic workflow policy',
+          defaultRouting: 'auto',
+        });
+        assert.equal(automaticWorkflow.status, 201);
+        const automaticId = automaticWorkflow.data.id;
+        assert.equal(
+          (await owner('POST', `/generation-workflows/${automaticId}/instance-checks/${aId}`, {})).status,
+          201,
+        );
+        const automaticBody = {
+          workflowId: automaticId,
+          positivePrompt: 'Choose a checked workstation',
+          confirmed: true,
+        };
+        const automaticKey = { 'Idempotency-Key': randomUUID() };
+        const defaultJob = await owner(
+          'POST',
+          `/projects/${project.id}/generation-jobs`,
+          automaticBody,
+          automaticKey,
+        );
+        assert.equal(defaultJob.status, 201, JSON.stringify(defaultJob.data));
+        assert.equal(defaultJob.data.instance.id, aId);
+        assert.equal(defaultJob.data.instance.mode, 'auto');
+        assert.equal(
+          (await owner('POST', `/projects/${project.id}/generation-jobs`, automaticBody, automaticKey)).data
+            .id,
+          defaultJob.data.id,
+        );
+        await tick(defaultJob.data.id);
+        await tick(defaultJob.data.id);
+        assert.equal((await tick(defaultJob.data.id)).state, 'completed');
+        const currentVersion = db()
+          .prepare('SELECT version FROM generation_connections WHERE id=?')
+          .get(aId).version;
+        await owner('PATCH', `/generation-connections/${aId}`, {
+          expectedVersion: currentVersion,
+          enabled: false,
+        });
+        assert.equal(
+          (
+            await owner('POST', `/projects/${project.id}/generation-jobs`, fixedBody, {
+              'Idempotency-Key': randomUUID(),
+            })
+          ).data.code,
+          'CONNECTION_DISABLED',
+        );
+        assert.equal(
+          (
+            await owner('POST', `/projects/${project.id}/generation-jobs`, automaticBody, {
+              'Idempotency-Key': randomUUID(),
+            })
+          ).data.code,
+          'INSTANCE_POOL_UNAVAILABLE',
+        );
+        const fixedSummary = (
+          await owner('GET', `/projects/${project.id}/generation-config?workflowId=${fixedWorkflow.data.id}`)
+        ).data.pinnedWorkflow;
+        assert.equal(fixedSummary.defaultRouting, 'fixed');
       } finally {
         await Promise.all([a.close(), b.close()]);
       }

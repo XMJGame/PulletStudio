@@ -290,6 +290,7 @@ export class GenerationService {
         fieldValues = resolveFields(definition);
       return {
         ...workflow,
+        defaultRouting: definition.defaultRouting,
         mediaSchema: publicMediaSchema(definition.mediaSchema),
         executable,
         executionBlocker: executable ? null : mediaExecutionReason,
@@ -843,6 +844,16 @@ export class GenerationService {
             ),
           )
           .get();
+        if (replay && replay.workflowId !== input.workflowId)
+          fail(409, 'IDEMPOTENCY_CONFLICT', '此请求标识已用于其他生成输入');
+        const workflow = this.workflow(input.workflowId);
+        if (workflow.projectId !== project.id) fail(404, 'NOT_FOUND', '工作流不属于当前项目');
+        const policy = (JSON.parse(workflow.definitionJson) as WorkflowInput).defaultRouting;
+        if (purpose === 'production') {
+          if (policy === 'fixed' && input.routing)
+            fail(409, 'WORKFLOW_INSTANCE_FIXED', '工作流已指定运行实例，请使用固定实例或修改工作流修订。');
+          if (policy === 'auto' && !input.routing) input = { ...input, routing: { mode: 'auto' } };
+        }
         if (replay) {
           const route = jobRoute(this.database, replay.id);
           if (
@@ -890,7 +901,6 @@ export class GenerationService {
         }
         if (input.canvasShotVersion !== undefined && shot?.version !== input.canvasShotVersion)
           fail(409, 'CANVAS_SHOT_OUTDATED', '制作卡已有新版本，请更新画布镜头引用后再生成');
-        const workflow = this.workflow(input.workflowId);
         const promptLibrary = input.promptLibraryRevisionId
           ? this.promptLibrary.reference(
               user,

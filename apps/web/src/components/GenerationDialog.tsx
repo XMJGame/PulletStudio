@@ -208,13 +208,18 @@ export function GenerationDialog({
     ? `/generation-workflows/${testWorkflow.id}/test-jobs`
     : `/projects/${creation.projectId}/generation-jobs${creation.boardId ? `?boardId=${creation.boardId}` : ''}`;
   const projectPath = `/projects/${creation.projectId}`;
-  const poolRouting = Boolean(config?.poolConfigured && !testWorkflow && engine !== 'api');
   const availableWorkflows = config?.workflows ?? [];
   const selectedWorkflow =
     testWorkflow ??
     (pinnedWorkflow?.id === workflowId
       ? pinnedWorkflow
       : availableWorkflows.find((item) => item.id === workflowId));
+  const poolRouting = Boolean(
+    (config?.poolConfigured || selectedWorkflow?.defaultRouting === 'auto') &&
+    selectedWorkflow?.defaultRouting !== 'fixed' &&
+    !testWorkflow &&
+    engine !== 'api',
+  );
   const workflows = [
     ...availableWorkflows,
     ...(pinnedWorkflow && !availableWorkflows.some((item) => item.id === pinnedWorkflow.id)
@@ -541,6 +546,9 @@ export function GenerationDialog({
                   固定工作流 · {workflowEngine(testWorkflow) === 'api' ? 'API' : 'ComfyUI'} ·{' '}
                   {referenceMediaLabels[workflowOutputType(testWorkflow) ?? 'image']}
                 </p>
+              )}
+              {selectedWorkflow?.defaultRouting === 'fixed' && (
+                <p className="field-hint">运行实例：工作流指定实例</p>
               )}
               {poolRouting && selectedWorkflow && (
                 <section aria-label="实例调度">

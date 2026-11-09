@@ -71,6 +71,7 @@ export const workflowInput = z
   .object({
     name,
     connectionId: z.uuid(),
+    defaultRouting: z.enum(['auto', 'fixed']).optional(),
     capability: z.enum(['image.text_to_image', 'video.text_to_video', 'video.image_to_video', 'audio.music']),
     graph: z.record(
       nodeId,

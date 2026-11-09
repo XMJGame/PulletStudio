@@ -2059,7 +2059,7 @@ test('a new project imports media and a workflow, generates and shares its resul
     const owningBoard = await call('GET', `/boards/${boardId}`);
     await center.getByLabel('工作流所属项目').selectOption(owningBoard.projectId);
     await center.getByLabel('工作流名称', { exact: true }).fill('Coastal image to video');
-    await center.getByLabel('工作流连接', { exact: true }).selectOption({ label: 'Acceptance GPU' });
+    await center.getByLabel('运行实例', { exact: true }).selectOption({ label: '指定：Acceptance GPU' });
     await center.getByLabel('生成方式', { exact: true }).selectOption('video.image_to_video');
     await center.getByLabel('选择 API 格式 JSON 文件', { exact: true }).setInputFiles({
       name: 'coastal-api.json',

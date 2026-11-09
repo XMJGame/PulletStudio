@@ -162,7 +162,7 @@
   min-width: 0;
 }
 .workflow-technical-surface {
-  height: 340px;
+  height: 480px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -209,6 +209,70 @@
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+.workflow-technical-surface .react-flow__node.workflow-node-mapped {
+  border-color: var(--accent);
+  border-left-width: 4px;
+}
+.workflow-mapping-badge {
+  padding: 2px 7px;
+  font-size: 10px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.workflow-node-mapping-labels {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-graph-card .workflow-node-unmapped {
+  color: var(--muted);
+}
+.workflow-mapping-index > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+  max-height: 160px;
+  overflow: auto;
+}
+.workflow-mapping-index button {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.workflow-mapping-index span {
+  color: var(--muted);
+}
+.workflow-current-mappings p {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid var(--accent);
+  padding: 7px 9px;
+  margin: 8px 0;
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+.workflow-current-mappings span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.workflow-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: end;
+}
+.workflow-node-inspector .workflow-map-actions button {
+  flex: 1 1 130px;
+}
+.workflow-node-inspector > button {
+  width: 100%;
+  margin-block: 8px;
+}
 .workflow-node-inspector h4 {
   overflow-wrap: anywhere;
   margin-top: 0;
@@ -219,7 +283,7 @@
 @media (min-width: 1160px) {
   .workflow-graph-preview {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(200px, 0.43fr);
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 0.48fr);
     align-items: start;
     column-gap: 12px;
   }

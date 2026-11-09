@@ -1,6 +1,10 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { readParameterBindings, WorkflowParameterFields } from '../components/GenerationParameters';
+import {
+  readParameterBindings,
+  WorkflowParameterFields,
+  parameterLabels,
+} from '../components/GenerationParameters';
 import type { GenerationConfig, WorkflowEditing } from './workflow-types';
 import { ExposedFieldsEditor } from './ExposedFieldsEditor';
 import type { ExposedField } from '../../../../packages/contracts/src/workflow';
@@ -67,6 +71,16 @@ export function GenerationSettings({
   const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
   const [mediaSchema, setMediaSchema] = useState<WorkflowMediaSchema | undefined>(definition?.mediaSchema);
   const [primaryBatch, setPrimaryBatch] = useState(definition?.output.batch);
+  const [instance, setInstance] = useState(
+    definition?.defaultRouting === 'auto' || !definition ? 'auto' : definition.connectionId,
+  );
+  const [parameterTargets, setParameterTargets] = useState(
+    (definition?.parameters ?? []).map((item) => ({
+      node: item.node,
+      input: item.input,
+      label: parameterLabels[item.key],
+    })),
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const [preview, setPreview] = useState<WorkflowPreviewDraft>();
   const [revealField, setRevealField] = useState<string>();
@@ -158,8 +172,22 @@ export function GenerationSettings({
       <form
         ref={formRef}
         onChangeCapture={(event) => {
-          if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview')))
+          if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview'))) {
             setDirtyForms((value) => ({ ...value, workflow: true }));
+            requestAnimationFrame(() => {
+              if (!formRef.current) return;
+              const data = new FormData(formRef.current);
+              setParameterTargets(
+                Object.entries(parameterLabels)
+                  .filter(([key]) => data.has(`parameter-${key}`))
+                  .map(([key, label]) => ({
+                    node: String(data.get(`${key}-node`) ?? ''),
+                    input: String(data.get(`${key}-input`) ?? ''),
+                    label,
+                  })),
+              );
+            });
+          }
         }}
         onSubmit={(event) => {
           event.preventDefault();
@@ -176,9 +204,13 @@ export function GenerationSettings({
               negativeInput = data.get('negativeInput');
             if (Boolean(negativeNode) !== Boolean(negativeInput))
               throw new Error('负向绑定须同时填写节点和输入。');
+            const connectionId =
+              instance === 'auto' ? config.connections.find((item) => item.enabled)?.id : instance;
+            if (!connectionId) throw new Error('请先添加并启用一个 ComfyUI 实例。');
             const definition = {
               name: data.get('name'),
-              connectionId: data.get('connectionId'),
+              connectionId,
+              defaultRouting: instance === 'auto' ? 'auto' : 'fixed',
               capability: data.get('capability'),
               graph,
               positive: { node: data.get('positiveNode'), input: data.get('positiveInput') },
@@ -220,6 +252,8 @@ export function GenerationSettings({
             setBindings(initialBindings);
             setShowGraph(false);
             setCapability('image.text_to_image');
+            setInstance('auto');
+            setParameterTargets([]);
             setGraphText('');
             setFields([]);
             setPrimaryBatch(undefined);
@@ -243,19 +277,24 @@ export function GenerationSettings({
                 <input name="name" required maxLength={120} defaultValue={definition?.name} />
               </label>
               <label>
-                工作流连接
+                运行实例
                 <select
                   name="connectionId"
-                  aria-label="工作流连接"
+                  aria-label="运行实例"
                   required
-                  defaultValue={definition?.connectionId}
+                  value={instance}
+                  onChange={(event) => setInstance(event.target.value)}
                 >
-                  <option value="">选择连接</option>
+                  <option value="auto">自动选择可用实例</option>
+                  {definition &&
+                    !config.connections.some(
+                      (item) => item.enabled && item.id === definition.connectionId,
+                    ) && <option value={definition.connectionId}>原指定实例（已停用或不可用）</option>}
                   {config.connections
                     .filter((item) => item.enabled)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name}
+                        指定：{item.name}
                       </option>
                     ))}
                 </select>
@@ -275,6 +314,11 @@ export function GenerationSettings({
                 </select>
               </label>
             </div>
+            <p className="field-hint">
+              {instance === 'auto'
+                ? '自动模式按当前工作流的兼容检查、健康和负载选择实例；没有合适实例时会明确提示，不会随意换模型。'
+                : '此工作流使用指定实例运行；该实例不可用时提示失败，不自动换机。'}
+            </p>
             <label>
               选择 API 格式 JSON 文件
               <input
@@ -333,14 +377,21 @@ export function GenerationSettings({
                       onExpose={(node, input) => mapInput(node, input)}
                       onMedia={(node, input, type) => mapInput(node, input, type)}
                       mappedTargets={[
-                        ...fields.map((field) => ({ node: field.node, label: field.label })),
+                        ...parameterTargets.map((item) => ({ ...item, label: `参数 · ${item.label}` })),
+                        ...fields.map((field) => ({
+                          node: field.node,
+                          input: field.input,
+                          label: `参数 · ${field.label}`,
+                        })),
                         ...(mediaSchema?.inputs ?? []).map((slot) => ({
                           node: slot.node,
-                          label: slot.label,
+                          input: slot.input,
+                          label: `输入 · ${slot.label}`,
                         })),
                         ...(mediaSchema?.outputs ?? []).map((slot) => ({
                           node: slot.node,
-                          label: slot.label,
+                          input: slot.field,
+                          label: `输出 · ${slot.label}`,
                         })),
                       ]}
                       onBind={(role, node, input) => {
@@ -478,16 +529,34 @@ export function GenerationSettings({
             <h4>输出配置</h4>
             <label>
               主输出类型
-              <input
+              <select
                 aria-label="主输出类型"
-                readOnly
                 value={
-                  capability.startsWith('video.') ? '视频' : capability.startsWith('audio.') ? '音频' : '图片'
+                  capability.startsWith('video.')
+                    ? 'video'
+                    : capability.startsWith('audio.')
+                      ? 'audio'
+                      : 'image'
                 }
-              />
+                onChange={(event) =>
+                  setCapability(
+                    event.target.value === 'video'
+                      ? capability.startsWith('video.')
+                        ? capability
+                        : 'video.text_to_video'
+                      : event.target.value === 'audio'
+                        ? 'audio.music'
+                        : 'image.text_to_image',
+                  )
+                }
+              >
+                <option value="image">图片</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+              </select>
             </label>
             <p className="field-hint">
-              主输出类型由生成方式确定。附加输出可声明其他媒体类型，每份产物独立归档。
+              主输出类型与生成方式同步。请核对实际输出节点和历史字段；附加输出可以包含其他媒体类型。
             </p>
             <div className="dialog-field-row">
               <label>

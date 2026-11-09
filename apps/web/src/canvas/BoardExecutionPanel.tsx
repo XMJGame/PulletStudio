@@ -104,7 +104,10 @@ export function BoardExecutionPanel({
     engine = selection?.engine ?? workflowEngine(workflow),
     output = selection?.output ?? workflowOutputType(workflow) ?? settings.creationTarget ?? 'image',
     apiImage = workflow?.provider === 'modelscope',
-    poolConfigured = !!config?.poolConfigured && engine !== 'api',
+    poolConfigured =
+      (!!config?.poolConfigured || workflow?.defaultRouting === 'auto') &&
+      workflow?.defaultRouting !== 'fixed' &&
+      engine !== 'api',
     path = `/boards/${board.id}/nodes/${node.id}/generation-jobs`;
   const workflows = [
     ...(config?.workflows ?? []),
@@ -666,6 +669,7 @@ export function BoardExecutionPanel({
                   ))}
               </select>
             </label>
+            {workflow?.defaultRouting === 'fixed' && <p className="field-hint">运行实例：工作流指定实例</p>}
             {poolConfigured && editable && (
               <div>
                 <label>
