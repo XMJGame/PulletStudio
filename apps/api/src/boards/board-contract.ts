@@ -25,6 +25,7 @@ const node = z.discriminatedUnion('type', [
           generation: z
             .object({
               workflowId: z.uuid().optional(),
+              creationTarget: z.enum(['image', 'video', 'audio']).optional(),
               parameterValues: parameterValues.optional(),
               fieldValues: fieldValuesInput.optional(),
             })
@@ -33,7 +34,13 @@ const node = z.discriminatedUnion('type', [
         .strict(),
     })
     .strict(),
-  z.object({ ...base, type: z.literal('result'), data: z.object({ jobId: z.uuid() }).strict() }).strict(),
+  z
+    .object({
+      ...base,
+      type: z.literal('result'),
+      data: z.object({ jobId: z.uuid(), outputId: z.uuid().optional() }).strict(),
+    })
+    .strict(),
   z
     .object({
       ...base,
@@ -54,7 +61,23 @@ const node = z.discriminatedUnion('type', [
     })
     .strict(),
   z
-    .object({ ...base, type: z.literal('brief'), data: z.object({ text: z.string().max(4000) }).strict() })
+    .object({
+      ...base,
+      type: z.literal('brief'),
+      data: z
+        .object({
+          text: z.string().max(4000),
+          prompt: z
+            .object({
+              negativePrompt: z.string().max(16000).default(''),
+              source: z.string().max(300).default(''),
+              promptLibraryRevisionId: z.uuid().optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    })
     .strict(),
   z
     .object({
@@ -86,8 +109,10 @@ export const boardLayout = z
             source: z.uuid(),
             target: z.uuid(),
             kind: z.enum(['annotation', 'input_binding']).optional(),
-            sourcePort: z.enum(['text', 'image']).optional(),
-            targetPort: z.enum(['prompt', 'first_frame']).optional(),
+            sourcePort: z.enum(['text', 'image', 'video', 'audio']).optional(),
+            targetPort: z
+              .union([z.enum(['prompt', 'first_frame']), z.templateLiteral(['reference:', z.uuid()])])
+              .optional(),
           })
           .strict(),
       )
@@ -99,7 +124,8 @@ export const boardLayout = z
     const invalid = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (ids.size !== layout.nodes.length) invalid('节点标识不能重复');
     for (const n of layout.nodes)
-      if (n.type === 'result' && n.id !== n.data.jobId) invalid('结果节点使用任务标识，不能重复加入同一结果');
+      if (n.type === 'result' && n.id !== (n.data.outputId ?? n.data.jobId))
+        invalid('结果节点使用任务或产物标识，不能重复加入同一结果');
     for (const n of layout.nodes)
       if (n.parentId && (n.type === 'group' || ids.get(n.parentId)?.type !== 'group'))
         invalid('分组须引用本画布的一级分组');
@@ -125,9 +151,11 @@ export const boardLayout = z
           invalid('生成节点的每个输入端口只能绑定一个来源');
         if (
           edge.targetPort === 'prompt'
-            ? edge.sourcePort !== 'text' || source?.type !== 'note'
-            : edge.targetPort !== 'first_frame' ||
-              edge.sourcePort !== 'image' ||
+            ? edge.sourcePort !== 'text' || !['note', 'brief'].includes(source?.type ?? '')
+            : !edge.targetPort ||
+              (edge.targetPort === 'first_frame'
+                ? edge.sourcePort !== 'image'
+                : !edge.sourcePort || edge.sourcePort === 'text') ||
               !(
                 source?.type === 'result' ||
                 (source?.type === 'reference' && source.data.ref.kind === 'media')

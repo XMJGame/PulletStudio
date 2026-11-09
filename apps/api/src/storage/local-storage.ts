@@ -18,11 +18,13 @@ export class StorageFailure extends Error {
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const sessionPattern = new RegExp(`^${uuid}$`),
   keyPattern = new RegExp(
-    `^(staging/${uuid}|workspaces/${uuid}/projects/${uuid}/objects/${uuid})/(original\\.bin|poster\\.jpg)$`,
+    `^(staging/${uuid}|workspaces/${uuid}/projects/${uuid}/objects/${uuid}|workspaces/${uuid}/library/objects/${uuid})/(original\\.bin|poster\\.jpg)$`,
   );
 const normalize = (path: string) => (process.platform === 'win32' ? path.toLowerCase() : path);
 export const objectPrefix = (workspaceId: string, projectId: string, versionId: string) =>
   `workspaces/${workspaceId}/projects/${projectId}/objects/${versionId}`;
+export const workspaceObjectPrefix = (workspaceId: string, fileId: string) =>
+  `workspaces/${workspaceId}/library/objects/${fileId}`;
 const signature = (stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }) =>
   `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 @Injectable()

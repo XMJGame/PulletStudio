@@ -8,7 +8,11 @@ import { DatabaseService } from '../db/database.service';
 import { boards, boardRevisions, generationJobs } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { GenerationService, type GenerationSnapshot } from '../generation/generation.service';
-import { createJobInput, createProjectJobInput } from '../generation/generation-contract';
+import {
+  createJobInput,
+  createProjectJobInput,
+  type ReferenceMediaType,
+} from '../generation/generation-contract';
 import { boardLayout } from './board-contract';
 import { BoardReferencesService } from './board-references.service';
 
@@ -72,26 +76,44 @@ export class BoardGenerationService {
         const textEdge = bindings.find((e) => e.targetPort === 'prompt'),
           imageEdge = bindings.find((e) => e.targetPort === 'first_frame');
         const text = layout.nodes.find((n) => n.id === textEdge?.source);
-        if (text?.type !== 'note' || !text.data.text?.trim())
-          fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文本便签');
-        let imageVersionId: string | undefined;
-        if (imageEdge) {
-          const source = layout.nodes.find((n) => n.id === imageEdge.source)!;
+        if (!text || !['note', 'brief'].includes(text.type) || !text.data.text?.trim())
+          fail(400, 'BOARD_GENERATION_INCOMPLETE', '生成节点需要连接非空文字');
+        const resolveMedia = (sourceId: string, type: ReferenceMediaType) => {
+          const source = layout.nodes.find((n) => n.id === sourceId)!;
           const value =
             source.type === 'result'
-              ? this.references.result(user, board.projectId, source.data.jobId!, true)
+              ? this.references.result(user, board.projectId, source.data.jobId!, true, source.data.outputId)
               : this.references.resolve(user, board.projectId, source.data.ref!, true);
-          if (value.status === 'unavailable' || value.media?.mediaType !== 'image')
-            fail(400, 'REFERENCE_IMAGE_INVALID', '首帧输入必须是可访问的固定图片');
-          imageVersionId = value.media.id;
-        }
+          if (value.status === 'unavailable' || value.media?.mediaType !== type)
+            fail(
+              400,
+              type === 'image' ? 'REFERENCE_IMAGE_INVALID' : 'REFERENCE_MEDIA_INVALID',
+              '参考素材必须是类型匹配且可访问的固定版本',
+            );
+          return value.media.id;
+        };
+        const referenceMediaVersions = Object.fromEntries(
+          bindings.flatMap((edge) =>
+            edge.targetPort?.startsWith('reference:')
+              ? [
+                  [
+                    edge.targetPort.slice('reference:'.length),
+                    resolveMedia(edge.source, edge.sourcePort as ReferenceMediaType),
+                  ],
+                ]
+              : [],
+          ),
+        );
         const job = parse(createProjectJobInput, {
-          ...node.data.generation,
+          workflowId: node.data.generation.workflowId,
+          parameterValues: node.data.generation.parameterValues,
+          fieldValues: node.data.generation.fieldValues,
           positivePrompt: text.data.text,
           negativePrompt: text.data.prompt?.negativePrompt ?? '',
           source: text.data.prompt?.source ?? '',
           promptLibraryRevisionId: text.data.prompt?.promptLibraryRevisionId,
-          imageVersionId,
+          imageVersionId: imageEdge && resolveMedia(imageEdge.source, 'image'),
+          referenceMediaVersions,
           boardId: id,
           routing: input.routing,
           confirmed: input.confirmed,

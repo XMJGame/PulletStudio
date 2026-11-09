@@ -7,6 +7,7 @@ import { AspectRatioField } from './components/AspectRatioField';
 import { MetadataDialog } from './components/MetadataDialog';
 import { VisualStyleField } from './components/VisualStyleField';
 import { TeamDialog } from './components/TeamDialog';
+
 import { TrashDialog } from './components/TrashDialog';
 import { ProjectTrashDialog } from './components/ProjectTrashDialog';
 import { ProjectSetupFields } from './components/ProjectSetupFields';
@@ -23,7 +24,8 @@ import {
   rememberProject,
 } from './features/projects/studio-preferences';
 const BoardWorkspace = lazy(() => import('./canvas/BoardWorkspace'));
-const WorkflowCenter = lazy(() => import('./workflows/WorkflowCenter'));
+const SettingsDialog = lazy(() => import('./features/settings/SettingsDialog'));
+const WorkspaceLibraryDialog = lazy(() => import('./components/WorkspaceLibraryDialog'));
 
 type Status = { initialized: boolean; setupEnabled: boolean };
 type Access = { canEdit: boolean; canManage: boolean };
@@ -173,9 +175,10 @@ function App() {
   const [editProject, setEditProject] = useState<Project>();
   const [theme, setTheme] = useState(readStudioTheme);
   const [recentIds, setRecentIds] = useState<string[]>([]);
-  const [showWorkflowCenter, setShowWorkflowCenter] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPublicLibrary, setShowPublicLibrary] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [trashProject, setTrashProject] = useState<Project>();
   const [showTrash, setShowTrash] = useState(false);
@@ -185,7 +188,15 @@ function App() {
   const project = projects.find((x) => x.id === projectId);
   const workspaceManager = !!workspace && workspace.role !== 'MEMBER';
   const dialogOpen =
-    projectForm || workspaceForm || showTeam || showJoin || !!editProject || !!trashProject || showTrash;
+    projectForm ||
+    workspaceForm ||
+    showTeam ||
+    showJoin ||
+    !!editProject ||
+    !!trashProject ||
+    showTrash ||
+    showSettings ||
+    showPublicLibrary;
   async function refreshMemberships() {
     const available = await api<Workspace[]>('/workspaces');
     setWorkspaces(available);
@@ -208,16 +219,19 @@ function App() {
   }
   function selectWorkspace(id: string) {
     leaveProject();
+    setShowSettings(false);
+    setShowPublicLibrary(false);
     if (user) localStorage.setItem(`pullet.workspace.${user.id}`, id);
     setWorkspaceId(id);
   }
   function leaveProject() {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     setProjectId('');
-    setShowWorkflowCenter(false);
+    setShowSettings(false);
   }
   function openProject(id: string) {
     if (!user || !id) return;
+    setShowSettings(false);
     setMessage('');
     window.history.replaceState(null, '', '#canvas');
     setRecentIds(rememberProject(user.id, workspaceId, id));
@@ -327,7 +341,6 @@ function App() {
   }, [projectId, workspaceId, user?.id, projects]);
   useEffect(() => {
     setProjectAccess(undefined);
-    setShowWorkflowCenter(false);
     setEditProject(undefined);
     if (!projectId) return;
     let active = true;
@@ -387,6 +400,13 @@ function App() {
                   }
                 : undefined
             }
+            railActions={
+              workspace && (
+                <StudioButton variant="ghost" icon="sliders" onClick={() => setShowSettings(true)}>
+                  设置
+                </StudioButton>
+              )
+            }
             dark={theme === 'dark'}
             toggleTheme={toggleTheme}
             emptyText={
@@ -407,6 +427,20 @@ function App() {
             }
             topActions={
               <div className="v2-project-top-actions">
+                {workspace && (
+                  <StudioButton
+                    className="v2-mobile-settings"
+                    variant="ghost"
+                    icon="sliders"
+                    aria-label="设置"
+                    onClick={() => setShowSettings(true)}
+                  />
+                )}
+                {workspace && (
+                  <StudioButton variant="ghost" icon="folder" onClick={() => setShowPublicLibrary(true)}>
+                    公共库
+                  </StudioButton>
+                )}
                 {workspaces.length > 1 && (
                   <WorkspaceMenu
                     workspaces={workspaces}
@@ -443,6 +477,7 @@ function App() {
                         团队协作
                       </StudioButton>
                     )}
+
                     {workspaceId && (
                       <StudioButton variant="ghost" disabled={busy} onClick={() => setShowTrash(true)}>
                         项目回收站
@@ -483,7 +518,6 @@ function App() {
               onToggleTheme={toggleTheme}
               onUnauthorized={() => setUser(undefined)}
               onClose={leaveProject}
-              onWorkflows={() => setShowWorkflowCenter(true)}
               projectActions={
                 <>
                   {access.canManage && (
@@ -501,13 +535,27 @@ function App() {
             />
           </Suspense>
         )}
-        {project && showWorkflowCenter && (
-          <Suspense fallback={<p role="status">正在打开工作流中心…</p>}>
-            <WorkflowCenter
-              key={projectId}
+        {workspace && showPublicLibrary && (
+          <Suspense fallback={<p role="status">正在打开公共库…</p>}>
+            <WorkspaceLibraryDialog
+              key={workspace.id}
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              onClose={() => setShowPublicLibrary(false)}
+            />
+          </Suspense>
+        )}
+        {workspace && showSettings && (
+          <Suspense fallback={<p role="status">正在打开设置…</p>}>
+            <SettingsDialog
+              key={workspace.id}
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              projects={projects}
+              canManageApi={workspaceManager}
+              canCreateApi={user.instanceAdmin}
               theme={theme}
-              projectId={projectId}
-              onClose={() => setShowWorkflowCenter(false)}
+              onClose={() => setShowSettings(false)}
               onUnauthorized={() => setUser(undefined)}
             />
           </Suspense>

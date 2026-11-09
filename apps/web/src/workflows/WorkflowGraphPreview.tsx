@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Background, Controls, MiniMap, Position, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { isWorkflowLink, workflowDiagram, type WorkflowGraph } from './workflow-graph';
 import './workflow-center.css';
+import { canExposeInput } from './workflow-draft';
+import type { WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
 type Bind = 'positive' | 'negative' | 'image' | 'output';
 export default function WorkflowGraphPreview({
   graph,
@@ -11,6 +13,9 @@ export default function WorkflowGraphPreview({
   onBind,
   disabled,
   theme,
+  onExpose,
+  onMedia,
+  mappedTargets = [],
 }: {
   graph: WorkflowGraph;
   bindings: Record<string, string>;
@@ -18,9 +23,38 @@ export default function WorkflowGraphPreview({
   disabled: boolean;
   theme: 'light' | 'dark';
   onBind: (role: Bind, node: string, input?: string) => void;
+  onExpose?: (node: string, input: string) => void;
+  onMedia?: (node: string, input: string, type: WorkflowMediaType) => void;
+  mappedTargets?: { node: string; label: string; input?: string }[];
 }) {
   const [selected, setSelected] = useState('');
   const [input, setInput] = useState('');
+  const [mediaType, setMediaType] = useState<WorkflowMediaType>('image');
+  const focusNode = useRef<(id: string) => void>(() => {});
+  const mappings = useMemo(
+    () =>
+      [
+        ...[
+          ['positive', '正向词'],
+          ['negative', '负向词'],
+          ...(capability === 'video.image_to_video' ? [['image', '首帧']] : []),
+          ['output', '主输出'],
+        ]
+          .filter(([key]) => bindings[key + 'Node'])
+          .map(([key, label]) => ({
+            node: bindings[key + 'Node'],
+            input: bindings[key + (key === 'output' ? 'Field' : 'Input')],
+            label,
+          })),
+        ...mappedTargets,
+      ].filter((item) => item.node),
+    [bindings, capability, mappedTargets],
+  );
+  function choose(id: string, focus = true) {
+    setSelected(id);
+    setInput('');
+    if (focus) focusNode.current(id);
+  }
   const analysis = useMemo(() => {
     try {
       return { value: workflowDiagram(graph), error: '' };
@@ -38,9 +72,10 @@ export default function WorkflowGraphPreview({
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         width: 230,
-        height: 90,
-        measured: { width: 230, height: 90 },
-        style: { width: 230, height: 90 },
+        height: 108,
+        measured: { width: 230, height: 108 },
+        className: mappings.some((item) => item.node === node.id) ? 'workflow-node-mapped' : undefined,
+        style: { width: 230, height: 108 },
         selected: node.id === selected,
         data: {
           label: (
@@ -49,22 +84,30 @@ export default function WorkflowGraphPreview({
               <small>
                 #{node.id} · {Object.keys(graph[node.id].inputs).length}个输入
               </small>
-              <small>
-                {[
-                  ['positiveNode', '正向词'],
-                  ['negativeNode', '负向词'],
-                  ['imageNode', '首帧'],
-                  ['outputNode', '输出'],
-                ]
-                  .filter(([key]) => bindings[key] === node.id)
-                  .map(([, label]) => label)
+              {mappings.some((item) => item.node === node.id) ? (
+                <span
+                  className="workflow-mapping-badge"
+                  title={mappings
+                    .filter((item) => item.node === node.id)
+                    .map((item) => `${item.label} → ${item.input ?? ''}`)
+                    .join('\n')}
+                >
+                  已映射 {mappings.filter((item) => item.node === node.id).length} 项
+                </span>
+              ) : (
+                <small className="workflow-node-unmapped">未映射</small>
+              )}
+              <small className="workflow-node-mapping-labels">
+                {mappings
+                  .filter((item) => item.node === node.id)
+                  .map((item) => item.label)
                   .join(' · ')}
               </small>
             </span>
           ),
         },
       })),
-    [model, selected, graph, bindings],
+    [model, selected, graph, mappings],
   );
   const edges = useMemo(
     () =>
@@ -100,22 +143,42 @@ export default function WorkflowGraphPreview({
       {model && (
         <>
           <p>
-            {model.nodes.length}节点 · {model.links.length}连接
+            {model.nodes.length} 节点 · {model.links.length} 连接 ·{' '}
+            {new Set(mappings.map((item) => item.node)).size} 个节点已映射
           </p>
+          <details className="workflow-mapping-index">
+            <summary>映射清单 · {mappings.length} 项（点击定位）</summary>
+            <div>
+              {mappings.map((item, index) => (
+                <button
+                  key={`${item.node}:${item.input}:${index}`}
+                  type="button"
+                  disabled={!Object.hasOwn(graph, item.node)}
+                  onClick={() => choose(item.node)}
+                >
+                  <strong>{item.label}</strong>
+                  <span>
+                    #{item.node}
+                    {item.input ? ` · ${item.input}` : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </details>
           <label>
             选择工作流节点
             <select
               aria-label="选择工作流节点"
               value={current ? selected : ''}
               onChange={(event) => {
-                setSelected(event.target.value);
-                setInput('');
+                choose(event.target.value);
               }}
             >
               <option value="">从图上或列表选择节点</option>
               {model.nodes.map((node) => (
                 <option key={node.id} value={node.id}>
                   {node.classType} · #{node.id}
+                  {mappings.some((item) => item.node === node.id) ? ' · 已映射' : ''}
                 </option>
               ))}
             </select>
@@ -133,9 +196,13 @@ export default function WorkflowGraphPreview({
               minZoom={0.12}
               maxZoom={2}
               colorMode={theme}
+              onInit={(flow) => {
+                focusNode.current = (id) => {
+                  void flow.fitView({ nodes: [{ id }], maxZoom: 1.1, padding: 0.5, duration: 200 });
+                };
+              }}
               onNodeClick={(_, node) => {
-                setSelected(node.id);
-                setInput('');
+                choose(node.id, false);
               }}
             >
               <Background color="var(--dot)" />
@@ -150,6 +217,20 @@ export default function WorkflowGraphPreview({
           <h4>
             {current.class_type} · #{selected}
           </h4>
+          <div className="workflow-current-mappings" aria-label="当前节点已映射">
+            {mappings.filter((item) => item.node === selected).length ? (
+              mappings
+                .filter((item) => item.node === selected)
+                .map((item, index) => (
+                  <p key={index}>
+                    <strong>{item.label}</strong>
+                    <span>{item.input ?? '输出节点'}</span>
+                  </p>
+                ))
+            ) : (
+              <p className="field-hint">此节点尚未映射。</p>
+            )}
+          </div>
           <p className="field-hint">
             仅列字段名/类型，不展示可能含凭据或路径的常量。保存时由服务端核对真实节点能力。
           </p>
@@ -208,6 +289,39 @@ export default function WorkflowGraphPreview({
               设为输出节点
             </button>
           </div>
+          {onExpose && (
+            <button
+              type="button"
+              disabled={disabled || !input || !canExposeInput(input, current.inputs[input])}
+              onClick={() => onExpose(selected, input)}
+            >
+              公开为创作参数
+            </button>
+          )}
+          {onMedia && (
+            <div className="workflow-map-actions">
+              <label>
+                素材类型
+                <select
+                  aria-label="节点映射素材类型"
+                  value={mediaType}
+                  onChange={(event) => setMediaType(event.target.value as WorkflowMediaType)}
+                  disabled={disabled}
+                >
+                  <option value="image">图片</option>
+                  <option value="video">视频</option>
+                  <option value="audio">音频</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={disabled || !text}
+                onClick={() => onMedia(selected, input, mediaType)}
+              >
+                添加媒体映射
+              </button>
+            </div>
+          )}
         </div>
       )}
       {model && !current && (

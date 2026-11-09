@@ -18,6 +18,7 @@ export const uploadInput = z
     contentType: z.string().trim().toLowerCase().max(100).default(''),
     assetId: z.uuid().nullable().default(null),
     expectedAssetVersion: z.number().int().min(0).default(0),
+    addToLibrary: z.boolean().optional(),
   })
   .strict()
   .refine(

@@ -1,11 +1,14 @@
 import type { AvailableParameter } from '../components/GenerationParameters';
 import type { AvailableField, ExposedField } from '../../../../packages/contracts/src/workflow';
 import type { WorkflowGraph } from './workflow-graph';
+import type { WorkflowMediaSchema, WorkflowMediaSummary } from '../../../../packages/contracts/src/workflow';
 export type Workflow = {
   id: string;
   name: string;
   capability: string;
+  defaultRouting?: 'auto' | 'fixed';
   enabled: boolean;
+  provider?: 'comfyui' | 'modelscope';
   createdAt: string;
   parameters: AvailableParameter[];
   fields?: AvailableField[];
@@ -16,10 +19,14 @@ export type Workflow = {
   reviewRequired?: boolean;
   releaseState?: 'compatible' | 'published' | 'draft';
   publishedWorkflowId?: string | null;
+  mediaSchema?: WorkflowMediaSummary;
+  executable?: boolean;
+  executionBlocker?: string | null;
 };
 export type Connection = {
   id: string;
   name: string;
+  baseUrl?: string;
   version: number;
   enabled: boolean;
   poolEnabled: boolean;
@@ -33,15 +40,40 @@ export type GenerationConfig = {
   canReview: boolean;
   poolConfigured: boolean;
   workflows: Workflow[];
+  pinnedWorkflow?: Workflow;
   productionWorkflows: Workflow[];
   connections: Connection[];
 };
 export const capabilityLabels: Record<string, string> = {
   'image.text_to_image': '文字生图',
+  'audio.music': '音频生成',
   'video.text_to_video': '文字生视频',
   'video.image_to_video': '图生视频',
 };
+export const referenceMediaLabels = { image: '图片', video: '视频', audio: '音频' };
+export type GenerationEngine = 'comfyui' | 'api';
+export type GenerationOutputFilter = 'all' | 'image' | 'video' | 'audio';
+export function workflowOutputType(workflow?: Workflow) {
+  const outputs: Readonly<Record<string, Exclude<GenerationOutputFilter, 'all'>>> = {
+    'image.text_to_image': 'image',
+    'video.text_to_video': 'video',
+    'video.image_to_video': 'video',
+    'audio.music': 'audio',
+  };
+  return workflow ? outputs[workflow.capability] : undefined;
+}
+export function workflowEngine(workflow?: Workflow): GenerationEngine {
+  return workflow?.provider === 'modelscope' ? 'api' : 'comfyui';
+}
+export function matchesGenerationType(
+  workflow: Workflow,
+  engine: GenerationEngine,
+  output: GenerationOutputFilter,
+) {
+  return workflowEngine(workflow) === engine && (output === 'all' || workflowOutputType(workflow) === output);
+}
 export type WorkflowDefinition = {
+  defaultRouting?: 'auto' | 'fixed';
   name: string;
   connectionId: string;
   capability: string;
@@ -49,9 +81,10 @@ export type WorkflowDefinition = {
   positive: { node: string; input: string };
   negative?: { node: string; input: string };
   image?: { node: string; input: string };
-  output: { node: string; field: string };
+  output: { node: string; field: string; batch?: { id: string } };
   parameters?: import('../components/GenerationParameters').WorkflowParameter[];
   fields?: ExposedField[];
+  mediaSchema?: WorkflowMediaSchema;
 };
 export type WorkflowEditing = {
   id: string;

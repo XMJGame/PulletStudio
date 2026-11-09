@@ -38,15 +38,12 @@ export function InstancePoolDialog({
   onRefresh: () => Promise<void>;
   onClose: () => void;
 }) {
-  const [connectionId, setConnectionId] = useState('');
   const [workflow, setWorkflow] = useState<Workflow>();
   const [instances, setInstances] = useState<Instance[]>();
   const [checkingId, setCheckingId] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const connection = config.connections.find((item) => item.id === connectionId);
-  const poolSize = config.connections.filter((item) => item.poolEnabled).length;
   const workflowId = workflow?.id ?? '';
   const workflows = new Map(config.workflows.map((item) => [item.id, item]));
   for (const item of config.productionWorkflows) workflows.set(item.id, item);
@@ -74,10 +71,10 @@ export function InstancePoolDialog({
 
   return (
     <Dialog
-      title="ComfyUI 实例池"
+      title="工作流实例检查"
       className="studio-v2 v2-library v2-library-aux"
       theme={theme}
-      description="登记工作区实例，按固定工作流修订检查依赖和负载。"
+      description="按固定工作流修订检查各实例的依赖和负载。实例的地址与调度设置在「实例」Tab 管理。"
       busy={busy}
       onClose={onClose}
     >
@@ -92,84 +89,11 @@ export function InstancePoolDialog({
             {message}
           </p>
         )}
-        <section aria-label="实例池设置">
-          <h3>工作区实例 · {poolSize}/12</h3>
-          <label>
-            生成连接
-            <select
-              aria-label="实例连接"
-              value={connectionId}
-              disabled={busy}
-              onChange={(event) => setConnectionId(event.target.value)}
-            >
-              <option value="">选择要配置的连接</option>
-              {config.connections.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} · {item.poolEnabled ? '已加入' : '未加入'}
-                  {item.enabled ? '' : ' · 已停用'}
-                </option>
-              ))}
-            </select>
-          </label>
-          {!config.connections.length && <p className="field-hint">请先在工作流中心添加生成连接。</p>}
-          {connection && (
-            <form
-              key={`${connection.id}:${connection.poolVersion}`}
-              onSubmit={(event) => {
-                event.preventDefault();
-                const data = new FormData(event.currentTarget);
-                void run(async () => {
-                  await api(`/generation-connections/${connection.id}/pool`, 'PATCH', {
-                    expectedPoolVersion: connection.poolVersion,
-                    poolEnabled: data.has('poolEnabled'),
-                    maxRunning: Number(data.get('maxRunning')),
-                    maxPending: Number(data.get('maxPending')),
-                  });
-                  await onRefresh();
-                  await load();
-                  setMessage('实例池设置已保存。');
-                });
-              }}
-            >
-              <fieldset className="plain-fieldset" disabled={busy}>
-                <label className="checkbox-label">
-                  <input name="poolEnabled" type="checkbox" defaultChecked={connection.poolEnabled} />
-                  加入工作区实例池
-                </label>
-                <div className="dialog-field-row">
-                  <label>
-                    运行任务阈值
-                    <input
-                      name="maxRunning"
-                      type="number"
-                      min={1}
-                      max={16}
-                      step={1}
-                      required
-                      defaultValue={connection.maxRunning}
-                    />
-                  </label>
-                  <label>
-                    等待任务阈值
-                    <input
-                      name="maxPending"
-                      type="number"
-                      min={1}
-                      max={64}
-                      step={1}
-                      required
-                      defaultValue={connection.maxPending}
-                    />
-                  </label>
-                </div>
-                <button>保存实例池设置</button>
-              </fieldset>
-            </form>
-          )}
-        </section>
         <section aria-label="实例检查">
           <h3>按工作流检查</h3>
-          <p className="field-hint">检查结果是最近 15 分钟的观测。正式生成继续使用工作流当前绑定的连接。</p>
+          <p className="field-hint">
+            检查结果是最近 15 分钟的观测。生成时按原自动或手动路由规则选择实例，历史任务保留实际使用的连接。
+          </p>
           <label>
             工作流修订
             <select
@@ -273,7 +197,7 @@ export function InstancePoolDialog({
       </div>
       <div className="dialog-footer">
         <button disabled={busy} onClick={onClose}>
-          关闭实例池
+          关闭兼容性检查
         </button>
       </div>
     </Dialog>

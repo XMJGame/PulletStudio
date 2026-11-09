@@ -4,11 +4,15 @@ export type MediaVersion = {
   projectId: string;
   version: number;
   fileName: string;
+  inLibrary?: boolean;
+  libraryName?: string;
+  assetVersion?: number;
   mediaType: 'image' | 'video' | 'audio';
   mime: string;
   byteLength: number;
   sha256: string;
   origin: string;
+  librarySource?: { importId: string; resourceId: string };
   metadata: {
     width: number | null;
     height: number | null;
@@ -18,6 +22,8 @@ export type MediaVersion = {
     audioCodecs: string[];
     sampleRate: number | null;
     channels: number | null;
+    frameRate?: string | null;
+    derivedFrom?: { mediaVersionId: string; atMs: number };
   };
   contentUrl: string;
   downloadUrl: string;

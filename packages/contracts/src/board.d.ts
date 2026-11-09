@@ -15,8 +15,10 @@ export type BoardNode = {
     collapsed?: boolean;
     ref?: BoardReference;
     jobId?: string;
+    outputId?: string;
     generation?: {
       workflowId?: string;
+      creationTarget?: 'image' | 'video' | 'audio';
       parameterValues?: Partial<Record<'aspectRatio' | 'durationSeconds' | 'seed', string | number>>;
       fieldValues?: Record<string, string | number | boolean>;
     };
@@ -29,19 +31,20 @@ export type BoardLayout = {
   nodes: BoardNode[];
   edges: BoardEdge[];
 };
+export type BoardInputPort = 'prompt' | 'first_frame' | `reference:${string}`;
 export type BoardEdge = {
   id: string;
   source: string;
   target: string;
   kind?: 'annotation' | 'input_binding';
-  sourcePort?: 'text' | 'image';
-  targetPort?: 'prompt' | 'first_frame';
+  sourcePort?: 'text' | 'image' | 'video' | 'audio';
+  targetPort?: BoardInputPort;
 };
 export type BoardExecution = {
   boardId: string;
   revision: number;
   nodeId: string;
-  bindings: { port: 'prompt' | 'first_frame'; sourceNodeId: string }[];
+  bindings: { port: BoardInputPort; sourceNodeId: string }[];
 };
 export type BoardResolved = {
   status: 'current' | 'stale' | 'draft' | 'revoked' | 'unavailable';
@@ -54,7 +57,7 @@ export type BoardResolved = {
   media?: {
     id: string;
     fileName: string;
-    mediaType: string;
+    mediaType: 'image' | 'video' | 'audio';
     contentUrl: string;
     posterUrl: string | null;
     downloadUrl: string;
@@ -83,4 +86,9 @@ export type BoardListItem = {
   createdAt: string;
   updatedAt: string;
 };
-export type BoardSource = { ref: BoardReference; value: BoardResolved; ready: boolean };
+export type BoardSource = {
+  ref: BoardReference;
+  value: BoardResolved;
+  ready: boolean;
+  placement?: { folderId: string | null; version: number };
+};

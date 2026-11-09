@@ -6,6 +6,7 @@ import { kindLabels, statusLabels } from './board-types';
 import { roleLabels, type EntityRevision } from '../entity-types';
 import { BoardEntityVersions } from './BoardEntityVersions';
 import './board-source-preview.css';
+import { VideoFrameButton } from '../components/VideoFrameDialog';
 
 export function BoardSourcePreview({
   projectId,
@@ -14,6 +15,7 @@ export function BoardSourcePreview({
   add,
   report,
   onBack,
+  onMediaSaved,
 }: {
   projectId: string;
   source: BoardSource;
@@ -21,6 +23,7 @@ export function BoardSourcePreview({
   add: (source: BoardSource) => boolean;
   report: (reason: unknown) => void;
   onBack: () => void;
+  onMediaSaved: () => void;
 }) {
   const [selectedRef, setSelectedRef] = useState<BoardReference>(source.ref);
   const [selectedMedia, setSelectedMedia] = useState('');
@@ -220,6 +223,31 @@ export function BoardSourcePreview({
             </dl>
           )}
           <div className="v2-source-preview-actions">
+            {editable && media?.mediaType === 'video' && (
+              <VideoFrameButton
+                mediaId={media.id}
+                onSaved={onMediaSaved}
+                onAdd={async (image) => {
+                  const id = crypto.randomUUID();
+                  const values = await api<Record<string, BoardResolved>>(
+                    `/projects/${projectId}/board-references/resolve`,
+                    'POST',
+                    { references: [{ nodeId: id, ref: { kind: 'media', id: image.id } }] },
+                  );
+                  if (
+                    !values[id]?.media ||
+                    values[id].status === 'unavailable' ||
+                    !actions.current.editable ||
+                    !actions.current.add({
+                      ref: { kind: 'media', id: image.id },
+                      value: values[id],
+                      ready: true,
+                    })
+                  )
+                    throw new Error('参考图已入库，请从项目资源库重新添加。');
+                }}
+              />
+            )}
             {editable && (
               <StudioButton
                 variant="primary"

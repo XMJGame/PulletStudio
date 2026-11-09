@@ -178,6 +178,79 @@
   inset: 0;
   background: var(--board-ground);
 }
+.creative-board-dialog .creative-node .creative-inline-text {
+  flex: 1;
+  min-height: 80px;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline-offset: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.65;
+  padding: 8px 0;
+}
+.creative-node-note {
+  background: #fff3bf;
+  color: #483c19;
+}
+.creative-node-note .creative-inline-text {
+  color: inherit;
+}
+[data-theme='dark'] .creative-node-note {
+  background: #393626;
+  color: #f2e7bf;
+}
+.creative-item-toolbar,
+.creative-create-menu {
+  background: var(--board-panel);
+  color: var(--board-ink);
+  border: 1px solid var(--board-line);
+  border-radius: 12px;
+  box-shadow: var(--board-shadow);
+  padding: 6px;
+}
+.creative-item-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: min(520px, calc(100vw - 28px));
+}
+.creative-item-toolbar button,
+.creative-item-toolbar a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.creative-create-menu {
+  position: absolute;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  width: 180px;
+}
+.creative-create-menu button,
+.creative-create-menu label {
+  text-align: left;
+  padding: 10px;
+}
+.creative-create-menu input {
+  max-width: 100%;
+  font-size: 11px;
+}
+.creative-item-dialog .creative-inspector {
+  --board-panel: var(--paper);
+  --board-line: var(--line);
+  --board-ink: var(--ink);
+  --board-muted: var(--muted);
+  box-shadow: none;
+  border: 0;
+  max-height: none;
+}
 .creative-surface .react-flow__node-boardNode {
   border-radius: 12px;
   border: 1px solid var(--board-line);
@@ -623,4 +696,71 @@
   cursor: pointer;
   color: var(--board-muted);
   font-size: 12px;
+}
+.creative-node-generation > strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 14px;
+}
+.creative-generation-state {
+  color: var(--board-muted);
+  font-size: 11px;
+}
+.creative-generation-references {
+  display: grid;
+  gap: 5px;
+  max-height: 80px;
+  overflow: auto;
+}
+.creative-generation-reference {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--board-line);
+  border-radius: 8px;
+  font-size: 11px;
+}
+.creative-generation-reference > span {
+  min-width: 0;
+  flex: 1;
+}
+.creative-generation-reference small {
+  display: block;
+  color: var(--board-muted);
+}
+.creative-generation-reference > span > span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.creative-generation-reference img {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+}
+.creative-generation-reference button {
+  padding: 3px;
+  display: grid;
+  place-items: center;
+}
+.creative-generation-prompt {
+  margin: 0;
+  line-height: 1.6;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  color: var(--board-ink);
+}
+.creative-surface .react-flow__handle.creative-compatible-port {
+  width: 13px;
+  height: 13px;
+  background: var(--board-accent);
+  border: 2px solid var(--board-panel);
+  box-shadow: 0 0 0 5px var(--accent-soft);
 }

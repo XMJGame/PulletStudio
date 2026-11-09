@@ -10,7 +10,7 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 
 点击项目直接进入上次使用的画布，用「切换 / 新建画布」管理多张画布。项目资源库可导入、筛选和预览媒体，多画布共用固定版本。生成节点可就地应用提示词、选择工作流、查看或对照候选；关闭页面后任务继续。[正式画布使用指南](docs/CREATIVE-CANVAS.md)
 
-项目工作流中心支持 API 图导入、版本管理、创作参数和依赖诊断。管理员可直接粘贴提示词试跑；自由创作可用已保存固定版本，正式镜头保留团队发布机制。[工作流中心](docs/WORKFLOW-CENTER.md)
+工作台侧栏底部「设置」统一管理 ComfyUI 与 API：左侧选择分类、实例或平台，右侧配置。实例属于工作区全局，没有项目也可添加和测试；工作流仍按所属项目管理。切换分类保留草稿，项目与画布内只保留创作选择。管理员可直接粘贴提示词试跑；自由创作可用已保存固定版本。[工作流中心](docs/WORKFLOW-CENTER.md)
 
 项目提示词库可保存、搜索、复制和修订完整正负词，在不同画布或生成窗口应用固定版本；修改不影响历史任务。[提示词库](docs/PROMPT-LIBRARY.md)
 
@@ -26,6 +26,8 @@ Web多用户AI影视创作与素材生产平台，主栈NestJS、React/Vite、Dr
 - [开发运行与恢复](docs/operations/DEVELOPMENT.md)：完整命令、Worker、检查节奏及备份。
 
 ## 本地开发
+
+只想体验当前版本可使用 [Windows 本机体验包说明](docs/operations/LOCAL-PREVIEW.md)：自带运行环境，双击 `start.cmd` / `stop.cmd`。新体验空间与旧工程数据隔离。开发者构建后通过 `npm run package:preview -- 输出目录` 打包，不提交运行数据和二进制包。
 
 Node.js≥22、npm；媒体能力及媒体测试需要FFmpeg/FFprobe。当前不依赖Docker、PostgreSQL或Redis。
 

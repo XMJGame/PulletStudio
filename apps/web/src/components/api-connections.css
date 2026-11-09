@@ -1,0 +1,49 @@
+.api-connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 12px;
+}
+
+.api-connection-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  min-width: 0;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.api-connection-heading,
+.api-connection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.api-connection-heading {
+  justify-content: space-between;
+}
+
+.api-connection-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.api-connection-heading span,
+.api-connection-model {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.api-connection-heading span {
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--soft);
+}
+
+.api-connection-card a {
+  color: var(--accent);
+}

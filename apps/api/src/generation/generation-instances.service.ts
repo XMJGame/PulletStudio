@@ -81,6 +81,8 @@ export class GenerationInstancesService {
       () => {
         const connection = this.generation.connection(connectionId);
         this.generation.manage(user, connection.workspaceId);
+        if (connection.provider !== 'comfyui')
+          fail(400, 'WORKFLOW_PROVIDER_UNSUPPORTED', '云端 API 不加入 ComfyUI 实例池');
         if (connection.poolVersion !== input.expectedPoolVersion)
           fail(409, 'INSTANCE_POOL_VERSION_CONFLICT', '实例池配置已更新，请刷新后重试');
         if (input.poolEnabled && !connection.poolEnabled) {

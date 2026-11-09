@@ -81,6 +81,7 @@ export function CanvasImportDialog({
             attempt: item.attempt,
             signal: controller.signal,
             reconcile: true,
+            addToLibrary: false,
             onSession: (session) =>
               patch(
                 item.id,
@@ -116,7 +117,7 @@ export function CanvasImportDialog({
       if (live.current)
         setError(
           controller.signal.aborted
-            ? '已停止等待，已归档文件仍在项目素材中。'
+            ? '已停止等待，已保存文件保留，可继续导入到画布。'
             : reason instanceof Error
               ? reason.message
               : '导入失败',
@@ -138,7 +139,7 @@ export function CanvasImportDialog({
   return (
     <Dialog
       title="导入到画布"
-      description="文件归档后自动加入当前草稿，完成后请保存画布。"
+      description="文件保存后加入画布草稿；需要收藏时，再从节点顶部的素材库主动保存。"
       busy={busy}
       onClose={onClose}
     >

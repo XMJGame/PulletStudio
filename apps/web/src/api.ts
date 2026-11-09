@@ -55,7 +55,10 @@ export async function api<T>(
 }
 import type { VisualStyle } from './visual-style';
 export async function uploadMediaContent<T>(id: string, file: File, signal: AbortSignal): Promise<T> {
-  const response = await fetch(`/api/v1/media-uploads/${id}/content`, {
+  return uploadBinaryContent<T>(`/media-uploads/${id}/content`, file, signal);
+}
+export async function uploadBinaryContent<T>(path: string, file: File, signal: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/v1${path}`, {
     method: 'PUT',
     credentials: 'include',
     headers: {

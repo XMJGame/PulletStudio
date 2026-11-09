@@ -1,11 +1,19 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { readParameterBindings, WorkflowParameterFields } from '../components/GenerationParameters';
+import {
+  readParameterBindings,
+  WorkflowParameterFields,
+  parameterLabels,
+} from '../components/GenerationParameters';
 import type { GenerationConfig, WorkflowEditing } from './workflow-types';
 import { ExposedFieldsEditor } from './ExposedFieldsEditor';
 import type { ExposedField } from '../../../../packages/contracts/src/workflow';
 import { readWorkflowGraph } from './workflow-graph';
 import { StudioButton } from '../shared/ui/StudioUI';
+import { WorkflowMediaEditor } from './WorkflowMediaEditor';
+import type { WorkflowMediaSchema, WorkflowMediaType } from '../../../../packages/contracts/src/workflow';
+import { suggestField } from './workflow-draft';
+import { WorkflowFormPreview, type WorkflowPreviewDraft } from './WorkflowFormPreview';
 const WorkflowGraphPreview = lazy(() => import('./WorkflowGraphPreview'));
 const initialBindings: Record<string, string> = {
   positiveNode: '',
@@ -42,7 +50,7 @@ export function GenerationSettings({
   editing?: WorkflowEditing;
   onSaved?: (id: string) => void | Promise<void>;
 }) {
-  const [dirtyForms, setDirtyForms] = useState({ connection: false, workflow: false });
+  const [dirtyForms, setDirtyForms] = useState({ workflow: false });
   const definition = editing?.definition;
   const initial = {
     ...initialBindings,
@@ -61,13 +69,29 @@ export function GenerationSettings({
   };
   const [bindings, setBindings] = useState(initial);
   const [fields, setFields] = useState<ExposedField[]>(definition?.fields ?? []);
+  const [mediaSchema, setMediaSchema] = useState<WorkflowMediaSchema | undefined>(definition?.mediaSchema);
+  const [primaryBatch, setPrimaryBatch] = useState(definition?.output.batch);
+  const [instance, setInstance] = useState(
+    definition?.defaultRouting === 'auto' || !definition ? 'auto' : definition.connectionId,
+  );
+  const [parameterTargets, setParameterTargets] = useState(
+    (definition?.parameters ?? []).map((item) => ({
+      node: item.node,
+      input: item.input,
+      label: parameterLabels[item.key],
+    })),
+  );
+  const formRef = useRef<HTMLFormElement>(null);
+  const [preview, setPreview] = useState<WorkflowPreviewDraft>();
+  const [revealField, setRevealField] = useState<string>();
   const attempt = useRef({ body: '', key: '' });
   const [showGraph, setShowGraph] = useState(false);
-  useEffect(() => onDraftChange?.(dirtyForms.connection || dirtyForms.workflow), [dirtyForms, onDraftChange]);
+  useEffect(() => onDraftChange?.(dirtyForms.workflow), [dirtyForms, onDraftChange]);
   const [bindingFormVersion, setBindingFormVersion] = useState(0);
   const [capability, setCapability] = useState(definition?.capability ?? 'image.text_to_image');
   const [graphText, setGraphText] = useState(definition ? JSON.stringify(definition.graph, null, 2) : '');
   const nodeListId = useId();
+  const sectionPrefix = useId();
   const workflowNodes = useMemo(() => {
     try {
       return Object.entries(readWorkflowGraph(graphText));
@@ -75,90 +99,95 @@ export function GenerationSettings({
       return [];
     }
   }, [graphText]);
+  function mapped(node: string, input: string) {
+    const targets = [
+      { node: bindings.positiveNode, input: bindings.positiveInput },
+      { node: bindings.negativeNode, input: bindings.negativeInput },
+      ...(capability === 'video.image_to_video'
+        ? [{ node: bindings.imageNode, input: bindings.imageInput }]
+        : []),
+      ...fields,
+      ...(mediaSchema?.inputs ?? []),
+      ...readParameterBindings(new FormData(formRef.current!)),
+    ];
+    return targets.some((target) => target.node === node && target.input === input);
+  }
+  function mapInput(node: string, input: string, type?: WorkflowMediaType) {
+    void run(async () => {
+      if (mapped(node, input)) throw new Error('此输入已有映射，请编辑原映射或先解除绑定。');
+      if (type) {
+        if ((mediaSchema?.inputs.length ?? 0) >= 32) throw new Error('最多配置 32 份媒体输入。');
+        setMediaSchema({
+          version: 'studio.workflow-media.v1',
+          inputs: [
+            ...(mediaSchema?.inputs ?? []),
+            {
+              id: crypto.randomUUID(),
+              node,
+              input,
+              mediaType: type,
+              label: `${({ image: '图片', video: '视频', audio: '音频' } as const)[type]} ${(mediaSchema?.inputs.length ?? 0) + 1}`,
+              role: 'reference',
+              required: true,
+              onMissing: 'error',
+            },
+          ],
+          outputs: mediaSchema?.outputs ?? [],
+        });
+      } else {
+        if (fields.length >= 20) throw new Error('最多公开 20 个创作参数。');
+        const field = suggestField(
+          crypto.randomUUID(),
+          node,
+          input,
+          readWorkflowGraph(graphText)[node]?.inputs[input],
+        );
+        setFields([...fields, field]);
+        setRevealField(field.id);
+      }
+      setDirtyForms((current) => ({ ...current, workflow: true }));
+      setMessage(
+        type
+          ? '已添加媒体映射，请核对用途、顺序和缺失处理。'
+          : '已添加创作参数，请核对名称、单位和节点实际允许范围。',
+      );
+    });
+  }
 
   return (
     <div className="v2-workflow-config">
-      <details className="v2-workflow-connection">
-        <summary>ComfyUI 连接</summary>
-        {config.connections.map((item) => (
-          <div className="entity-reference" key={item.id}>
-            <span>
-              {item.name} · {item.enabled ? '启用' : '停用'}
-            </span>
-            <div className="review-actions">
-              <button
-                disabled={busy || !item.enabled}
-                onClick={() =>
-                  void run(async () => {
-                    await api(`/generation-connections/${item.id}/test`, 'POST', {});
-                    setMessage('ComfyUI 可达。');
-                  })
-                }
-              >
-                测试连接
-              </button>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await api(`/generation-connections/${item.id}`, 'PATCH', {
-                      enabled: !item.enabled,
-                      expectedVersion: item.version,
-                    });
-                    await refreshConfig();
-                  })
-                }
-              >
-                {item.enabled ? '停用' : '启用'}
-              </button>
-            </div>
-          </div>
+      <nav className="workflow-config-nav" aria-label="工作流配置分区">
+        {['基础信息', '输入映射', '创作参数', '输出配置'].map((label, index) => (
+          <StudioButton
+            key={label}
+            variant="ghost"
+            onClick={() =>
+              document.getElementById(`${sectionPrefix}-${index}`)?.scrollIntoView({ block: 'start' })
+            }
+          >
+            {index + 1} · {label}
+          </StudioButton>
         ))}
-        <form
-          onChangeCapture={() => setDirtyForms((value) => ({ ...value, connection: true }))}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const data = new FormData(form);
-            void run(async () => {
-              await api(`${projectPath}/generation-connections`, 'POST', {
-                name: data.get('name'),
-                baseUrl: data.get('baseUrl'),
-                token: data.get('token'),
-                trustedPrivate: data.has('trustedPrivate'),
-              });
-              form.reset();
-              setDirtyForms((value) => ({ ...value, connection: false }));
-              await refreshConfig();
-              setMessage('已添加生成连接。');
-            });
-          }}
-        >
-          <fieldset className="plain-fieldset" disabled={busy}>
-            <label>
-              连接名称
-              <input name="name" required maxLength={120} />
-            </label>
-            <label>
-              ComfyUI 基础地址
-              <input name="baseUrl" type="url" placeholder="http://192.168.x.x:8188" required />
-            </label>
-            <label>
-              Bearer 凭据（可选）
-              <input name="token" type="password" autoComplete="off" />
-            </label>
-            <label className="checkbox-label">
-              <input type="checkbox" name="trustedPrivate" />
-              批准自部署 HTTP 或私有网络地址
-            </label>
-            <button>添加连接</button>
-          </fieldset>
-        </form>
-      </details>
+      </nav>
       <form
+        ref={formRef}
         onChangeCapture={(event) => {
-          if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview')))
+          if (!(event.target instanceof Element && event.target.closest('.workflow-graph-preview'))) {
             setDirtyForms((value) => ({ ...value, workflow: true }));
+            requestAnimationFrame(() => {
+              if (!formRef.current) return;
+              const data = new FormData(formRef.current);
+              setParameterTargets(
+                Object.entries(parameterLabels)
+                  .filter(([key]) => data.has(`parameter-${key}`))
+                  .map(([key, label]) => ({
+                    node: String(data.get(`${key}-node`) ?? ''),
+                    input: String(data.get(`${key}-input`) ?? ''),
+                    label,
+                  })),
+              );
+            });
+          }
         }}
         onSubmit={(event) => {
           event.preventDefault();
@@ -175,9 +204,13 @@ export function GenerationSettings({
               negativeInput = data.get('negativeInput');
             if (Boolean(negativeNode) !== Boolean(negativeInput))
               throw new Error('负向绑定须同时填写节点和输入。');
+            const connectionId =
+              instance === 'auto' ? config.connections.find((item) => item.enabled)?.id : instance;
+            if (!connectionId) throw new Error('请先添加并启用一个 ComfyUI 实例。');
             const definition = {
               name: data.get('name'),
-              connectionId: data.get('connectionId'),
+              connectionId,
+              defaultRouting: instance === 'auto' ? 'auto' : 'fixed',
               capability: data.get('capability'),
               graph,
               positive: { node: data.get('positiveNode'), input: data.get('positiveInput') },
@@ -185,9 +218,14 @@ export function GenerationSettings({
               ...(data.get('capability') === 'video.image_to_video'
                 ? { image: { node: data.get('imageNode'), input: data.get('imageInput') } }
                 : {}),
-              output: { node: data.get('outputNode'), field: data.get('outputField') },
+              output: {
+                node: data.get('outputNode'),
+                field: data.get('outputField'),
+                ...(primaryBatch ? { batch: primaryBatch } : {}),
+              },
               parameters: readParameterBindings(data),
               fields,
+              ...(mediaSchema ? { mediaSchema } : {}),
               ...(requireRelease ? { reviewRequired: true } : {}),
               ...(fields.length ? { fieldSchemaVersion: 'studio.workflow-fields.v1' } : {}),
             };
@@ -214,8 +252,12 @@ export function GenerationSettings({
             setBindings(initialBindings);
             setShowGraph(false);
             setCapability('image.text_to_image');
+            setInstance('auto');
+            setParameterTargets([]);
             setGraphText('');
             setFields([]);
+            setPrimaryBatch(undefined);
+            setMediaSchema(undefined);
             attempt.current = { body: '', key: '' };
             setBindingFormVersion((value) => value + 1);
             await refreshConfig();
@@ -227,7 +269,7 @@ export function GenerationSettings({
         }}
       >
         <fieldset className="plain-fieldset" disabled={busy}>
-          <section className="v2-workflow-step" aria-label="导入与基础配置">
+          <section id={`${sectionPrefix}-0`} className="v2-workflow-step" aria-label="导入与基础配置">
             <h4>导入与基础配置</h4>
             <div className="v2-workflow-columns">
               <label>
@@ -235,19 +277,24 @@ export function GenerationSettings({
                 <input name="name" required maxLength={120} defaultValue={definition?.name} />
               </label>
               <label>
-                工作流连接
+                运行实例
                 <select
                   name="connectionId"
-                  aria-label="工作流连接"
+                  aria-label="运行实例"
                   required
-                  defaultValue={definition?.connectionId}
+                  value={instance}
+                  onChange={(event) => setInstance(event.target.value)}
                 >
-                  <option value="">选择连接</option>
+                  <option value="auto">自动选择可用实例</option>
+                  {definition &&
+                    !config.connections.some(
+                      (item) => item.enabled && item.id === definition.connectionId,
+                    ) && <option value={definition.connectionId}>原指定实例（已停用或不可用）</option>}
                   {config.connections
                     .filter((item) => item.enabled)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name}
+                        指定：{item.name}
                       </option>
                     ))}
                 </select>
@@ -261,11 +308,17 @@ export function GenerationSettings({
                   onChange={(event) => setCapability(event.target.value)}
                 >
                   <option value="image.text_to_image">文字生图</option>
+                  <option value="audio.music">音频生成</option>
                   <option value="video.text_to_video">文字生视频</option>
                   <option value="video.image_to_video">图生视频</option>
                 </select>
               </label>
             </div>
+            <p className="field-hint">
+              {instance === 'auto'
+                ? '自动模式按当前工作流的兼容检查、健康和负载选择实例；没有合适实例时会明确提示，不会随意换模型。'
+                : '此工作流使用指定实例运行；该实例不可用时提示失败，不自动换机。'}
+            </p>
             <label>
               选择 API 格式 JSON 文件
               <input
@@ -303,8 +356,11 @@ export function GenerationSettings({
               请使用已验证且信任的工作流。节点可能访问 ComfyUI 主机上的文件或外部服务。
             </p>
           </section>
-          <section className="v2-workflow-step" aria-label="节点与输入输出映射">
-            <h4>节点与输入输出映射</h4>
+          <section id={`${sectionPrefix}-1`} className="v2-workflow-step" aria-label="输入映射">
+            <h4>输入映射</h4>
+            <p className="field-hint">
+              提示词和首帧单独绑定；其他图片、视频和音频按名称、用途及顺序声明。每个输入只能映射一次。
+            </p>
             {workflowNodes.length > 0 && (
               <div className="workflow-graph-controls">
                 <button type="button" onClick={() => setShowGraph((value) => !value)}>
@@ -318,6 +374,26 @@ export function GenerationSettings({
                       capability={capability}
                       bindings={bindings}
                       disabled={busy}
+                      onExpose={(node, input) => mapInput(node, input)}
+                      onMedia={(node, input, type) => mapInput(node, input, type)}
+                      mappedTargets={[
+                        ...parameterTargets.map((item) => ({ ...item, label: `参数 · ${item.label}` })),
+                        ...fields.map((field) => ({
+                          node: field.node,
+                          input: field.input,
+                          label: `参数 · ${field.label}`,
+                        })),
+                        ...(mediaSchema?.inputs ?? []).map((slot) => ({
+                          node: slot.node,
+                          input: slot.input,
+                          label: `输入 · ${slot.label}`,
+                        })),
+                        ...(mediaSchema?.outputs ?? []).map((slot) => ({
+                          node: slot.node,
+                          input: slot.field,
+                          label: `输出 · ${slot.label}`,
+                        })),
+                      ]}
                       onBind={(role, node, input) => {
                         setBindings((value) => ({
                           ...value,
@@ -416,6 +492,72 @@ export function GenerationSettings({
                 />
               </label>
             </div>
+
+            <WorkflowMediaEditor
+              mode="inputs"
+              value={mediaSchema}
+              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+              change={(value) => {
+                setMediaSchema(value);
+                setDirtyForms((current) => ({ ...current, workflow: true }));
+              }}
+            />
+          </section>
+          <section id={`${sectionPrefix}-2`} className="v2-workflow-step" aria-label="创作参数">
+            <h4>创作参数</h4>
+            <p className="field-hint">
+              默认值取自导入图；名称请包含必要单位，如宽度（像素）、分辨率（MP）。0.4 MP 约为 40
+              万像素预算，实际宽高由工作流按画幅和对齐规则计算。
+            </p>
+            <WorkflowParameterFields
+              key={bindingFormVersion}
+              nodeListId={nodeListId}
+              capability={capability}
+              initial={definition?.parameters}
+            />
+            <ExposedFieldsEditor
+              reveal={revealField}
+              fields={fields}
+              graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
+              change={(value) => {
+                setFields(value);
+                setDirtyForms((current) => ({ ...current, workflow: true }));
+              }}
+            />
+          </section>
+          <section id={`${sectionPrefix}-3`} className="v2-workflow-step" aria-label="输出配置">
+            <h4>输出配置</h4>
+            <label>
+              主输出类型
+              <select
+                aria-label="主输出类型"
+                value={
+                  capability.startsWith('video.')
+                    ? 'video'
+                    : capability.startsWith('audio.')
+                      ? 'audio'
+                      : 'image'
+                }
+                onChange={(event) =>
+                  setCapability(
+                    event.target.value === 'video'
+                      ? capability.startsWith('video.')
+                        ? capability
+                        : 'video.text_to_video'
+                      : event.target.value === 'audio'
+                        ? 'audio.music'
+                        : 'image.text_to_image',
+                  )
+                }
+              >
+                <option value="image">图片</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+              </select>
+            </label>
+            <p className="field-hint">
+              主输出类型与生成方式同步。请核对实际输出节点和历史字段；附加输出可以包含其他媒体类型。
+            </p>
             <div className="dialog-field-row">
               <label>
                 输出节点
@@ -439,23 +581,30 @@ export function GenerationSettings({
                 />
               </label>
             </div>
-          </section>
-          <section className="v2-workflow-step" aria-label="创作参数与保存">
-            <h4>创作参数与保存</h4>
-            <WorkflowParameterFields
-              key={bindingFormVersion}
-              nodeListId={nodeListId}
-              capability={capability}
-              initial={definition?.parameters}
-            />
-            <ExposedFieldsEditor
-              fields={fields}
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={Boolean(primaryBatch)}
+                onChange={(event) =>
+                  setPrimaryBatch(event.target.checked ? { id: crypto.randomUUID() } : undefined)
+                }
+              />
+              接收批量主结果（最多 8 份）
+            </label>
+            <p className="field-hint">
+              数量由工作流参数决定。开启后逐份归档同一输出字段的文件，不会重复调用模型。
+            </p>
+            <WorkflowMediaEditor
+              mode="outputs"
+              value={mediaSchema}
               graph={workflowNodes.length ? readWorkflowGraph(graphText) : undefined}
               change={(value) => {
-                setFields(value);
+                setMediaSchema(value);
                 setDirtyForms((current) => ({ ...current, workflow: true }));
               }}
             />
+          </section>
+          <div className="workflow-config-save">
             {editing && (
               <>
                 <p className="field-hint">
@@ -474,12 +623,36 @@ export function GenerationSettings({
                 </label>
               </>
             )}
+            <StudioButton
+              type="button"
+              icon="eye"
+              onClick={() =>
+                void run(async () => {
+                  const data = new FormData(formRef.current!);
+                  setPreview(
+                    structuredClone({
+                      name: String(data.get('name') ?? ''),
+                      capability,
+                      graph: readWorkflowGraph(graphText),
+                      bindings,
+                      fields,
+                      parameters: readParameterBindings(data),
+                      mediaSchema,
+                      primaryBatch: Boolean(primaryBatch),
+                    }),
+                  );
+                })
+              }
+            >
+              预览创作者表单
+            </StudioButton>
             <StudioButton type="submit" variant="primary" icon="check">
               验证绑定并保存
             </StudioButton>
-          </section>
+          </div>
         </fieldset>
       </form>
+      {preview && <WorkflowFormPreview draft={preview} onClose={() => setPreview(undefined)} theme={theme} />}
     </div>
   );
 }

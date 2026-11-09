@@ -77,6 +77,23 @@
   min-width: 0;
   margin: 0;
 }
+.v2-live-reference-slots {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.v2-live-reference-slots .creative-frame-chip {
+  max-width: 100%;
+}
+.v2-live-reference-slots label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.v2-live-reference-slots select {
+  width: 100%;
+}
 .creative-frame-chip {
   display: flex;
   align-items: center;
@@ -216,4 +233,27 @@
   .v2-live-composer-footer {
     padding-inline: 8px;
   }
+}
+.v2-common-parameters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  align-items: start;
+  gap: 4px 12px;
+  margin: 12px 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.v2-common-parameters-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--muted);
+}
+.v2-common-parameters > .creative-parameters {
+  display: contents;
+}
+.v2-live-composer-header h3 {
+  max-width: min(360px, 48vw);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

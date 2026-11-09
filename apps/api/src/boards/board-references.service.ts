@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, like, ne, or, sql } from 'drizzle-orm';
 import type { BoardReference, BoardResolved, BoardSource } from '../../../../packages/contracts/src/board';
 import { DatabaseService } from '../db/database.service';
 import { CurrentUser, fail } from '../common/http';
@@ -11,6 +11,9 @@ import {
   mediaAssets,
   shots,
   generationJobs,
+  generationOutputs,
+  libraryFolders,
+  libraryPlacements,
 } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { cardRecord } from '../production/shot-cards';
@@ -44,7 +47,7 @@ export class BoardReferencesService {
       references.map((item) => [item.nodeId, this.resolve(user, projectId, item.ref)]),
     );
   }
-  result(user: CurrentUser, projectId: string, id: string, strict = false): BoardResolved {
+  result(user: CurrentUser, projectId: string, id: string, strict = false, outputId?: string): BoardResolved {
     this.authz.project(user, projectId);
     const row = this.database.db
       .select()
@@ -54,6 +57,23 @@ export class BoardReferencesService {
     if (!row || row.purpose !== 'production' || row.shotId) {
       if (strict) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '生成结果不存在或无权访问');
       return { status: 'unavailable', title: '结果不可用' };
+    }
+    const output = outputId
+      ? this.database.db
+          .select()
+          .from(generationOutputs)
+          .where(
+            and(
+              eq(generationOutputs.id, outputId),
+              eq(generationOutputs.jobId, row.id),
+              eq(generationOutputs.projectId, projectId),
+            ),
+          )
+          .get()
+      : undefined;
+    if (outputId && !output) {
+      if (strict) fail(404, 'BOARD_REFERENCE_UNAVAILABLE', '生成产物不存在或无权访问');
+      return { status: 'unavailable', title: '产物不可用' };
     }
     if (row.state !== 'completed' || !row.mediaVersionId) {
       const states: Record<string, string> = {
@@ -68,7 +88,12 @@ export class BoardReferencesService {
       };
       return { status: 'draft', title: '生成结果', summary: states[row.state] ?? '请查看生成任务记录' };
     }
-    const value = this.resolve(user, projectId, { kind: 'media', id: row.mediaVersionId }, strict);
+    const value = this.resolve(
+      user,
+      projectId,
+      { kind: 'media', id: output?.mediaVersionId ?? row.mediaVersionId },
+      strict,
+    );
     return { ...value, title: value.status === 'unavailable' ? value.title : `生成结果 · ${value.title}` };
   }
   resolve(user: CurrentUser, projectId: string, ref: BoardReference, strict = false): BoardResolved {
@@ -138,7 +163,7 @@ export class BoardReferencesService {
       const head = this.database.db.select().from(mediaAssets).where(eq(mediaAssets.id, row.assetId)).get();
       return {
         status: head?.version === row.version ? 'current' : 'stale',
-        title: row.fileName,
+        title: head?.inLibrary ? value.libraryName : row.fileName,
         kind: row.mediaType,
         version: row.version,
         currentVersion: head?.version,
@@ -164,11 +189,28 @@ export class BoardReferencesService {
     cursor?: string,
     query?: string,
     mediaType?: 'image' | 'video' | 'audio',
+    folderId?: string,
   ) {
     this.authz.project(user, projectId);
+    if (
+      folderId &&
+      folderId !== 'root' &&
+      !this.database.db
+        .select({ id: libraryFolders.id })
+        .from(libraryFolders)
+        .where(and(eq(libraryFolders.id, folderId), eq(libraryFolders.projectId, projectId)))
+        .get()
+    )
+      fail(400, 'LIBRARY_FOLDER_UNAVAILABLE', '文件夹已移除或不可用，请切换到全部资源');
+    const folderFilter =
+      folderId === 'root'
+        ? isNull(libraryPlacements.folderId)
+        : folderId
+          ? eq(libraryPlacements.folderId, folderId)
+          : undefined;
     const q = query?.trim();
     const items: BoardSource[] = [];
-    let refs: { id: string; ref: BoardReference; fallback?: string }[];
+    let refs: { id: string; ref: BoardReference; fallback?: string; placement?: BoardSource['placement'] }[];
     if (kind === 'shots')
       refs = this.database.db
         .select()
@@ -190,7 +232,12 @@ export class BoardReferencesService {
         }));
     else if (kind === 'entities')
       refs = this.database.db
-        .select({ id: assetEntities.id, revisionId: assetEntityRevisions.id })
+        .select({
+          id: assetEntities.id,
+          revisionId: assetEntityRevisions.id,
+          folderId: libraryPlacements.folderId,
+          placementVersion: libraryPlacements.version,
+        })
         .from(assetEntities)
         .innerJoin(
           assetEntityRevisions,
@@ -199,9 +246,11 @@ export class BoardReferencesService {
             eq(assetEntityRevisions.version, assetEntities.version),
           ),
         )
+        .leftJoin(libraryPlacements, eq(libraryPlacements.entityId, assetEntities.id))
         .where(
           and(
             eq(assetEntities.projectId, projectId),
+            folderFilter,
             cursor ? gt(assetEntities.id, cursor) : undefined,
             q ? sql`instr(lower(${assetEntityRevisions.name}), lower(${q}))>0` : undefined,
           ),
@@ -209,29 +258,50 @@ export class BoardReferencesService {
         .orderBy(asc(assetEntities.id))
         .limit(21)
         .all()
-        .map((row) => ({ id: row.id, ref: { kind: 'entity', id: row.id, revisionId: row.revisionId } }));
+        .map((row) => ({
+          id: row.id,
+          ref: { kind: 'entity', id: row.id, revisionId: row.revisionId },
+          placement: { folderId: row.folderId, version: row.placementVersion ?? 0 },
+        }));
     else
       refs = this.database.db
-        .select({ id: mediaVersions.id })
+        .select({
+          id: mediaVersions.id,
+          folderId: libraryPlacements.folderId,
+          placementVersion: libraryPlacements.version,
+        })
         .from(mediaVersions)
         .innerJoin(mediaAssets, eq(mediaAssets.id, mediaVersions.assetId))
+        .leftJoin(libraryPlacements, eq(libraryPlacements.mediaAssetId, mediaAssets.id))
         .where(
           and(
             eq(mediaVersions.projectId, projectId),
+            folderFilter,
             ne(mediaVersions.origin, 'workflow_test'),
             eq(mediaAssets.inLibrary, true),
             mediaType ? eq(mediaVersions.mediaType, mediaType) : undefined,
             cursor ? gt(mediaVersions.id, cursor) : undefined,
-            q ? like(mediaVersions.fileName, `%${q}%`) : undefined,
+            q
+              ? or(
+                  like(mediaVersions.fileName, `%${q}%`),
+                  like(mediaAssets.name, `%${q}%`),
+                  like(libraryPlacements.displayName, `%${q}%`),
+                )
+              : undefined,
           ),
         )
         .orderBy(asc(mediaVersions.id))
         .limit(21)
         .all()
-        .map((row) => ({ id: row.id, ref: { kind: 'media', id: row.id } }));
+        .map((row) => ({
+          id: row.id,
+          ref: { kind: 'media', id: row.id },
+          placement: { folderId: row.folderId, version: row.placementVersion ?? 0 },
+        }));
     for (const item of refs.slice(0, 20)) {
       const value = this.resolve(user, projectId, item.ref);
-      if (value.status !== 'unavailable') items.push({ ref: item.ref, value, ready: true });
+      if (value.status !== 'unavailable')
+        items.push({ ref: item.ref, value, ready: true, placement: item.placement });
       else if (kind === 'shots' && item.fallback)
         items.push({
           ref: item.ref,

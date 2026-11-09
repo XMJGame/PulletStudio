@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { Dialog } from '../components/Dialog';
 import { parameterLabels } from '../components/GenerationParameters';
@@ -12,8 +12,9 @@ import {
 import { DependencyView, type Inspection } from './DependencyView';
 import { WorkflowReleaseDialog } from './WorkflowReleaseDialog';
 import { InstancePoolDialog } from './InstancePoolDialog';
+import { SettingsLayout, SettingsNavigation } from '../features/settings/SettingsLayout';
 import { StudioButton } from '../shared/ui/StudioUI';
-import { StudioLibraryNav, type LibraryPane } from '../shared/ui/StudioLibraryNav';
+
 import './workflow-center.css';
 type History = {
   familyId: string;
@@ -32,18 +33,19 @@ type History = {
 export default function WorkflowCenter({
   projectId,
   theme,
-  onClose,
   onUnauthorized,
+  onDraftChange,
+  onBusyChange,
 }: {
   projectId: string;
   theme: 'light' | 'dark';
-  onClose: () => void;
   onUnauthorized: () => void;
+  onDraftChange: (dirty: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const [config, setConfig] = useState<GenerationConfig>();
-  const [busy, setBusy] = useState(false),
-    [dirty, setDirty] = useState(false),
-    [leaving, setLeaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [workflowDirty, setDirty] = useState(false);
   const [error, setError] = useState(''),
     [message, setMessage] = useState(''),
     [query, setQuery] = useState('');
@@ -56,7 +58,13 @@ export default function WorkflowCenter({
   const [inspectionName, setInspectionName] = useState('');
   const [releaseWorkflow, setReleaseWorkflow] = useState<Workflow>();
   const [showInstancePool, setShowInstancePool] = useState(false);
-  const [pane, setPane] = useState<LibraryPane>('list');
+  const { section, showDetail } = useContext(SettingsLayout);
+  const setPane = (pane: 'list' | 'detail') => {
+    if (pane === 'detail') showDetail();
+  };
+  const dirty = workflowDirty;
+  useEffect(() => onDraftChange(dirty), [dirty, onDraftChange]);
+  useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   const restoreAttempt = useState(() => ({ body: '', key: '' }))[0];
   const path = `/projects/${projectId}`;
   const workflows = config?.workflows.filter((item) =>
@@ -69,6 +77,7 @@ export default function WorkflowCenter({
       setHistory(undefined);
       setInspection(undefined);
       setDirty(false);
+
       if (reason.status === 401) onUnauthorized();
     }
     setError(reason instanceof Error ? reason.message : '读取或保存失败，输入已保留');
@@ -77,6 +86,7 @@ export default function WorkflowCenter({
     setConfig(await api<GenerationConfig>(`${path}/generation-config`));
   }
   useEffect(() => {
+    if (section !== 'workflows') return;
     let live = true;
     void api<GenerationConfig>(`${path}/generation-config`)
       .then((value) => {
@@ -88,16 +98,7 @@ export default function WorkflowCenter({
     return () => {
       live = false;
     };
-  }, [projectId]);
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
+  }, [projectId, section]);
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError('');
@@ -125,7 +126,7 @@ export default function WorkflowCenter({
   }
   function requestEditor(id?: string) {
     setHistory(undefined);
-    if (dirty) setPending({ id });
+    if (workflowDirty) setPending({ id });
     else void run(() => loadEditor(id));
   }
   async function openHistory(item: Workflow) {
@@ -135,229 +136,204 @@ export default function WorkflowCenter({
     );
     setHistory({ ...value, familyId: item.familyId!, version: current.catalog.version });
   }
-  function close() {
-    if (dirty) setLeaving(true);
-    else onClose();
-  }
   return (
-    <Dialog
-      title="工作流中心"
-      description="导入 API JSON、配置画布可用参数，并对指定修订单独试跑。"
-      onClose={close}
-      busy={busy}
-      className="studio-v2 v2-library workflow-center-dialog"
-      theme={theme}
-    >
-      <StudioLibraryNav pane={pane} onChange={setPane} list="工作流列表" detail="工作流配置" />
-      <div className="dialog-body">
-        {error && (
-          <p role="alert" className="notice error">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="notice success">
-            {message}
-          </p>
-        )}
-        {!config && !error && <p role="status">正在读取项目工作流…</p>}
-        <div className="v2-library-layout" data-pane={pane}>
-          <section className="v2-library-list" aria-label="已保存的工作流">
-            <div className="v2-library-heading">
-              <h3>项目工作流</h3>
-              <StudioButton variant="ghost" disabled={busy} onClick={() => void run(refreshConfig)}>
-                刷新列表
+    <div className="settings-workflow-content">
+      {error && (
+        <p role="alert" className="notice error">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="notice success">
+          {message}
+        </p>
+      )}
+      {!config && !error && <p role="status">正在读取项目工作流…</p>}
+      <SettingsNavigation section="workflows">
+        <section className="v2-library-list" aria-label="已保存的工作流">
+          <div className="v2-library-heading">
+            <h3>项目工作流</h3>
+            <StudioButton variant="ghost" disabled={busy} onClick={() => void run(refreshConfig)}>
+              刷新列表
+            </StudioButton>
+          </div>
+          <input
+            aria-label="搜索工作流"
+            type="search"
+            maxLength={120}
+            placeholder="搜索名称或生成方式"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {config?.canConfigure && (
+            <div className="v2-library-tools">
+              <StudioButton icon="plus" variant="primary" disabled={busy} onClick={() => requestEditor()}>
+                新建工作流配置
+              </StudioButton>
+              <StudioButton variant="ghost" disabled={busy} onClick={() => setShowInstancePool(true)}>
+                检查工作流兼容性
               </StudioButton>
             </div>
-            <input
-              aria-label="搜索工作流"
-              type="search"
-              maxLength={120}
-              placeholder="搜索名称或生成方式"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            {config?.canConfigure && (
-              <div className="v2-library-tools">
-                <StudioButton icon="plus" variant="primary" disabled={busy} onClick={() => requestEditor()}>
-                  新建工作流配置
-                </StudioButton>
-                <StudioButton variant="ghost" disabled={busy} onClick={() => setShowInstancePool(true)}>
-                  管理实例池
-                </StudioButton>
-              </div>
-            )}
-            <div className="workflow-saved-list">
-              {workflows?.map((item) => (
-                <article className="panel" data-selected={editing?.id === item.id} key={item.id}>
-                  <strong>
-                    {item.name} · v{item.revision ?? 1}
-                  </strong>
-                  <p>
-                    {capabilityLabels[item.capability]} ·{' '}
-                    {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
-                  </p>
-                  <span className="v2-workflow-status">
-                    {item.releaseState === 'published'
+          )}
+          <div className="workflow-saved-list">
+            {workflows?.map((item) => (
+              <article className="panel" data-selected={editing?.id === item.id} key={item.id}>
+                <strong>
+                  {item.name} · v{item.revision ?? 1}
+                </strong>
+                <p>
+                  {capabilityLabels[item.capability]} ·{' '}
+                  {item.archived ? '已归档' : item.enabled ? '连接启用' : '连接已停用'}
+                </p>
+                <span className="v2-workflow-status">
+                  {item.executable === false
+                    ? '媒体声明已保存 · 执行未接通'
+                    : item.releaseState === 'published'
                       ? '已发布'
                       : item.releaseState === 'draft'
                         ? '待审核发布'
                         : '兼容配置'}
-                  </span>
-                  <p className="field-hint v2-workflow-metadata">
-                    {[
-                      ...item.parameters.map((parameter) => parameterLabels[parameter.key]),
-                      ...(item.fields ?? []).map((field) => field.label),
-                    ].join(' · ') || '使用工作流固定参数'}
-                  </p>
-                  <div className="v2-library-tools">
-                    {config?.canConfigure && (
-                      <StudioButton variant="ghost" disabled={busy} onClick={() => requestEditor(item.id)}>
-                        查看 / 修订
-                      </StudioButton>
-                    )}
-                    {item.familyId && (
-                      <StudioButton variant="ghost" disabled={busy} onClick={() => setReleaseWorkflow(item)}>
-                        试跑与发布
-                      </StudioButton>
-                    )}
-                  </div>
-                  {config?.canConfigure && (
-                    <details className="v2-workflow-more">
-                      <summary>管理此配置</summary>
-                      <div className="workflow-map-actions">
-                        <button
-                          disabled={busy || !item.familyId}
-                          onClick={() => void run(() => openHistory(item))}
-                        >
-                          修订历史
-                        </button>
-                        <button
-                          disabled={busy || dirty || !item.familyId}
-                          onClick={() =>
-                            void run(async () => {
-                              await api(`/workflow-catalogs/${item.familyId}`, 'PATCH', {
-                                expectedVersion: item.catalogVersion,
-                                archived: !item.archived,
-                              });
-                              await refreshConfig();
-                              if (editing?.catalog.familyId === item.familyId) await loadEditor(item.id);
-                              setMessage(item.archived ? '目录已取消归档' : '目录已归档，旧任务及历史保留');
-                            })
-                          }
-                        >
-                          {item.archived ? '取消归档' : '归档目录'}
-                        </button>
-                        <button
-                          disabled={busy || !item.enabled}
-                          onClick={() =>
-                            void run(async () => {
-                              setInspection(undefined);
-                              const value = await api<Inspection>(
-                                `/generation-workflows/${item.id}/inspection`,
-                                'POST',
-                                {},
-                              );
-                              setInspection(value);
-                              setInspectionName(`${item.name} · 固定 v${item.revision ?? 1}`);
-                              setPane('detail');
-                            })
-                          }
-                        >
-                          检查已保存依赖
-                        </button>
-                      </div>
-                    </details>
-                  )}
-                </article>
-              ))}
-            </div>
-            {workflows?.length === 0 && (
-              <p className="field-hint">
-                {query.trim()
-                  ? '没有匹配的工作流。'
-                  : '尚无工作流。导入 API JSON 并保存绑定后，可在画布中使用。'}
-              </p>
-            )}
-          </section>
-          <section className="v2-library-detail" aria-label="配置工作流">
-            {inspection && (
-              <>
-                <p>{inspectionName}</p>
-                <DependencyView report={inspection} />
-              </>
-            )}
-            {config?.canConfigure ? (
-              <>
-                <div className="v2-library-heading">
-                  <h3>
-                    {editing ? `${editing.definition.name} · v${editing.catalog.revision}` : '新建配置'}
-                  </h3>
-                </div>
-                {editing && (
-                  <div className="workflow-editor-heading">
-                    <p className="field-hint">
-                      目录当前 v{editing.catalog.headRevision} · 保存基线 {editing.catalog.version}
-                      {editing.catalog.archived ? ' · 目录已归档' : ''}
-                    </p>
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        if (dirty) setPending({ latestFamilyId: editing.catalog.familyId });
-                        else void run(() => loadEditor(undefined, editing.catalog.familyId));
-                      }}
-                    >
-                      载入最新配置
-                    </button>
-                  </div>
+                </span>
+                {item.executable === false && <p className="field-hint">{item.executionBlocker}</p>}
+                {item.executable && !!item.mediaSchema?.inputs.length && (
+                  <p className="field-hint">参考素材可在画布节点、自由生成与试跑中选择。</p>
                 )}
-                <GenerationSettings
-                  key={editorKey}
-                  config={config}
-                  projectPath={path}
-                  busy={busy}
-                  run={run}
-                  refreshConfig={refreshConfig}
-                  setMessage={setMessage}
-                  theme={theme}
-                  requireRelease
-                  onDraftChange={setDirty}
-                  editing={editing}
-                  onSaved={loadEditor}
-                />
-              </>
-            ) : (
-              config && (
-                <p className="field-hint">
-                  当前账户可以浏览已保存配置。连接与工作流由具有实例及工作区管理权限的管理员配置。
+                {(!!item.mediaSchema?.inputs.length || !!item.mediaSchema?.outputs.length) && (
+                  <p className="field-hint">
+                    扩展输入 {item.mediaSchema?.inputs.length ?? 0} 个 · 扩展输出{' '}
+                    {item.mediaSchema?.outputs.length ?? 0} 个
+                  </p>
+                )}
+                <p className="field-hint v2-workflow-metadata">
+                  {[
+                    ...item.parameters.map((parameter) => parameterLabels[parameter.key]),
+                    ...(item.fields ?? []).map((field) => field.label),
+                  ].join(' · ') || '使用工作流固定参数'}
                 </p>
-              )
-            )}
-          </section>
-        </div>
-      </div>
-      <div className="dialog-footer">
-        <span className="field-hint">
-          {dirty ? '有未保存的配置输入' : '画布任务使用提交时固定的工作流版本'}
-        </span>
-        <StudioButton disabled={busy} onClick={close}>
-          关闭工作流中心
-        </StudioButton>
-      </div>
-      {leaving && (
-        <Dialog
-          title="离开工作流配置"
-          className="studio-v2 v2-library v2-library-aux"
-          theme={theme}
-          description="尚有未保存的配置输入，离开会丢弃当前草稿。"
-          onClose={() => setLeaving(false)}
-        >
-          <div className="dialog-footer">
-            <button onClick={() => setLeaving(false)}>继续配置</button>
-            <button onClick={onClose}>丢弃输入并离开</button>
+                <div className="v2-library-tools">
+                  {config?.canConfigure && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => requestEditor(item.id)}>
+                      查看 / 修订
+                    </StudioButton>
+                  )}
+                  {item.familyId && (
+                    <StudioButton variant="ghost" disabled={busy} onClick={() => setReleaseWorkflow(item)}>
+                      试跑与发布
+                    </StudioButton>
+                  )}
+                </div>
+                {config?.canConfigure && (
+                  <details className="v2-workflow-more">
+                    <summary>管理此配置</summary>
+                    <div className="workflow-map-actions">
+                      <button
+                        disabled={busy || !item.familyId}
+                        onClick={() => void run(() => openHistory(item))}
+                      >
+                        修订历史
+                      </button>
+                      <button
+                        disabled={busy || workflowDirty || !item.familyId}
+                        onClick={() =>
+                          void run(async () => {
+                            await api(`/workflow-catalogs/${item.familyId}`, 'PATCH', {
+                              expectedVersion: item.catalogVersion,
+                              archived: !item.archived,
+                            });
+                            await refreshConfig();
+                            if (editing?.catalog.familyId === item.familyId) await loadEditor(item.id);
+                            setMessage(item.archived ? '目录已取消归档' : '目录已归档，旧任务及历史保留');
+                          })
+                        }
+                      >
+                        {item.archived ? '取消归档' : '归档目录'}
+                      </button>
+                      <button
+                        disabled={busy || !item.enabled}
+                        onClick={() =>
+                          void run(async () => {
+                            setInspection(undefined);
+                            const value = await api<Inspection>(
+                              `/generation-workflows/${item.id}/inspection`,
+                              'POST',
+                              {},
+                            );
+                            setInspection(value);
+                            setInspectionName(`${item.name} · 固定 v${item.revision ?? 1}`);
+                            setPane('detail');
+                          })
+                        }
+                      >
+                        检查已保存依赖
+                      </button>
+                    </div>
+                  </details>
+                )}
+              </article>
+            ))}
           </div>
-        </Dialog>
-      )}
+          {workflows?.length === 0 && (
+            <p className="field-hint">
+              {query.trim()
+                ? '没有匹配的工作流。'
+                : '尚无工作流。导入 API JSON 并保存绑定后，可在画布中使用。'}
+            </p>
+          )}
+        </section>
+      </SettingsNavigation>
+      <section className="v2-library-detail" aria-label="配置工作流">
+        {inspection && (
+          <>
+            <p>{inspectionName}</p>
+            <DependencyView report={inspection} />
+          </>
+        )}
+        {config?.canConfigure ? (
+          <>
+            <div className="v2-library-heading">
+              <h3>{editing ? `${editing.definition.name} · v${editing.catalog.revision}` : '新建配置'}</h3>
+            </div>
+            {editing && (
+              <div className="workflow-editor-heading">
+                <p className="field-hint">
+                  目录当前 v{editing.catalog.headRevision} · 保存基线 {editing.catalog.version}
+                  {editing.catalog.archived ? ' · 目录已归档' : ''}
+                </p>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    if (workflowDirty) setPending({ latestFamilyId: editing.catalog.familyId });
+                    else void run(() => loadEditor(undefined, editing.catalog.familyId));
+                  }}
+                >
+                  载入最新配置
+                </button>
+              </div>
+            )}
+            <GenerationSettings
+              key={editorKey}
+              config={config}
+              projectPath={path}
+              busy={busy}
+              run={run}
+              refreshConfig={refreshConfig}
+              setMessage={setMessage}
+              theme={theme}
+              requireRelease
+              onDraftChange={setDirty}
+              editing={editing}
+              onSaved={loadEditor}
+            />
+          </>
+        ) : (
+          config && (
+            <p className="field-hint">
+              当前账户可以浏览已保存配置。连接与工作流由具有实例及工作区管理权限的管理员配置。
+            </p>
+          )
+        )}
+      </section>
+
       {pending && (
         <Dialog
           title="切换工作流配置"
@@ -408,7 +384,7 @@ export default function WorkflowCenter({
                 <button disabled={busy} onClick={() => requestEditor(item.id)}>
                   查看 v{item.revision}
                 </button>
-                <button disabled={busy || dirty} onClick={() => setRestoring(item)}>
+                <button disabled={busy || workflowDirty} onClick={() => setRestoring(item)}>
                   恢复 v{item.revision} 为新修订
                 </button>
               </article>
@@ -508,6 +484,6 @@ export default function WorkflowCenter({
           </div>
         </Dialog>
       )}
-    </Dialog>
+    </div>
   );
 }

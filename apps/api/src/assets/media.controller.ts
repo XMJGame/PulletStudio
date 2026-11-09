@@ -19,13 +19,54 @@ import { jsonSchema } from '../common/openapi';
 import { StorageFailure } from '../storage/local-storage';
 import { MediaService, safeMediaError } from './media.service';
 import { takeInput, uploadInput } from './media-contract';
+import { VideoFrameService } from './video-frame.service';
 const uuid = z.uuid();
 const number = z.coerce.number().int().positive();
 @ApiTags('本地媒体与手工候选')
 @ApiCookieAuth()
 @Controller('api/v1')
 export class MediaController {
-  constructor(private readonly media: MediaService) {}
+  constructor(
+    private readonly media: MediaService,
+    private readonly frames: VideoFrameService,
+  ) {}
+  @Get('media-versions/:id/frame')
+  async frame(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Query('atMs') atMs: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const time = parse(z.coerce.number().int().min(0).max(86399999), atMs);
+    const abort = new AbortController(),
+      stop = () => abort.abort();
+    response.once('close', stop);
+    response.once('finish', () => response.off('close', stop));
+    const image = await this.run(() => this.frames.extract(req.user, parse(uuid, id), time, abort.signal));
+    response.setHeader('X-Content-SHA256', image.sha256);
+    response.setHeader('Cache-Control', 'no-store');
+    return new StreamableFile(image.bytes, { type: 'image/png', length: image.bytes.length });
+  }
+  @Post('media-versions/:id/frames')
+  saveFrame(
+    @Req() req: StudioRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: unknown,
+  ) {
+    const input = parse(
+      z
+        .object({
+          atMs: z.number().int().min(0).max(86399999),
+          expectedSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+        })
+        .strict(),
+      body,
+    );
+    return this.run(() =>
+      this.frames.save(req.user, parse(uuid, id), input.atMs, input.expectedSha256, parse(uuid, key)),
+    );
+  }
   private async run<T>(action: () => Promise<T>): Promise<T> {
     try {
       return await action();

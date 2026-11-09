@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Connection, EdgeChange, NodeChange } from '@xyflow/react';
 import type {
+  BoardInputPort,
   BoardLayout,
   BoardListItem,
   BoardNode,
@@ -16,13 +17,21 @@ import { MediaDialog } from '../components/MediaDialog';
 import { PromptLibraryDialog } from '../prompts/PromptLibraryDialog';
 import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-types';
 import type { MediaVersion } from '../media-types';
+import type { Workflow } from '../workflows/workflow-types';
 import { BoardSurface } from './BoardSurface';
+import { creationActions, isCreationTarget, type CanvasCreation } from './creation-actions';
+import { groupedResults } from './result-group';
+import { GroupOutputPicker } from './GroupOutputPicker';
+import { MediaLibraryPicker } from './MediaLibraryPicker';
+import { addLibraryMedia } from './add-library-media';
+import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
 import { mediaFileAccept } from '../media-upload';
 import { BoardExecutionPanel } from './BoardExecutionPanel';
 import type { GenerationJob } from '../components/GenerationDialog';
 import { BoardInspector, BoardNodeLayout } from './BoardInspector';
 import { BoardSources } from './BoardSources';
+import { ResizableLibrary } from './ResizableLibrary';
 import type { CanvasNode } from './board-types';
 import './board.css';
 import { StudioBrand, StudioButton } from '../shared/ui/StudioUI';
@@ -51,7 +60,6 @@ export default function BoardWorkspace({
   onUnauthorized,
   theme,
   onToggleTheme,
-  onWorkflows,
   projectActions,
 }: {
   projectId: string;
@@ -63,7 +71,6 @@ export default function BoardWorkspace({
   onUnauthorized: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
-  onWorkflows: () => void;
   projectActions?: ReactNode;
 }) {
   const [boards, setBoards] = useState<BoardListItem[]>([]);
@@ -73,6 +80,39 @@ export default function BoardWorkspace({
   const [title, setTitle] = useState('');
   const [resolved, setResolved] = useState<Record<string, BoardResolved>>({});
   const [selected, setSelected] = useState<string[]>([]);
+  const workflowsForNodes = useRef(new Map<string, Workflow>());
+  const [presentations, setPresentations] = useState<
+    Record<string, { workflowId?: string; name: string; latestState?: string }>
+  >({});
+  const registerWorkflow = useCallback((id: string, workflow: Workflow | undefined, latestState?: string) => {
+    if (workflow) workflowsForNodes.current.set(id, workflow);
+    else workflowsForNodes.current.delete(id);
+    const next = { workflowId: workflow?.id, name: workflow?.name ?? '选择工作流', latestState };
+    setPresentations((old) =>
+      JSON.stringify(old[id]) === JSON.stringify(next) ? old : { ...old, [id]: next },
+    );
+  }, []);
+  const [pendingInput, setPendingInput] = useState<{
+    source: string;
+    target: string;
+    workflowId: string;
+    ports: { port: BoardInputPort; label: string }[];
+  }>();
+  const [connecting, setConnecting] = useState(false);
+  const [pendingGroup, setPendingGroup] = useState<{
+    boardId: string;
+    groupId: string;
+    targetId: string;
+    workflowId: string;
+  }>();
+  useEffect(() => setPendingGroup(undefined), [base?.id]);
+  const connectionRequest = useRef(0);
+  useEffect(
+    () => () => {
+      connectionRequest.current++;
+    },
+    [],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -85,6 +125,8 @@ export default function BoardWorkspace({
   const [promptLibrary, setPromptLibrary] = useState<{ draft?: PromptDraft; target?: string }>();
   const [showSources, setShowSources] = useState(() => window.innerWidth > 760);
   const [mediaLibrary, setMediaLibrary] = useState(false);
+  const [mediaPicker, setMediaPicker] = useState(false);
+  useEffect(() => setMediaPicker(false), [base?.id]);
   const [entityLibrary, setEntityLibrary] = useState(false);
   const [fileImport, setFileImport] = useState<{ files: File[]; position?: BoardNode['position'] }>();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -317,12 +359,39 @@ export default function BoardWorkspace({
       setBusy(false);
     }
   }
-  function update(node: BoardNode) {
+  function update(node: BoardNode, clearFirstFrame = false) {
     if (editable)
-      setLayout(
-        (value) =>
-          value && { ...value, nodes: value.nodes.map((item) => (item.id === node.id ? node : item)) },
-      );
+      setLayout((value) => {
+        if (!value) return value;
+        const previous = value.nodes.find((item) => item.id === node.id);
+        const changedWorkflow = previous?.data.generation?.workflowId !== node.data.generation?.workflowId;
+        return {
+          ...value,
+          nodes: value.nodes.map((item) => (item.id === node.id ? node : item)),
+          edges: value.edges.filter(
+            (edge) =>
+              edge.target !== node.id ||
+              edge.kind !== 'input_binding' ||
+              !(
+                (changedWorkflow && edge.targetPort?.startsWith('reference:')) ||
+                (clearFirstFrame && edge.targetPort === 'first_frame')
+              ),
+          ),
+        };
+      });
+  }
+  function detachResult(node: BoardNode) {
+    if (!editable || !node.parentId || !layout) return;
+    const parent = layout.nodes.find((item) => item.id === node.parentId);
+    if (parent)
+      update({
+        ...node,
+        parentId: undefined,
+        position: {
+          x: clamp(node.position.x + parent.position.x, -50000, 50000),
+          y: clamp(node.position.y + parent.position.y, -50000, 50000),
+        },
+      });
   }
   function remove(ids: string[]) {
     if (!editable) return;
@@ -382,14 +451,14 @@ export default function BoardWorkspace({
       ),
     );
     let position = {
-      x: (30 - layout.viewport.x) / layout.viewport.zoom,
+      x: (80 - layout.viewport.x) / layout.viewport.zoom,
       y: (30 - layout.viewport.y) / layout.viewport.zoom,
     };
     // Choose a free grid cell in the current viewport rather than stacking new references.
     for (let index = 0; index <= layout.nodes.length * 12; index++) {
       position = {
         x: clamp(
-          (30 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * columnWidth,
+          (80 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * columnWidth,
           -50000,
           50000,
         ),
@@ -454,6 +523,55 @@ export default function BoardWorkspace({
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
     return true;
   }
+  function create(kind: CanvasCreation, at?: BoardNode['position']) {
+    if (isCreationTarget(kind)) add('generation', undefined, { generation: { creationTarget: kind } }, at);
+    else add(kind, undefined, undefined, at);
+  }
+  async function addPickedMedia(sources: BoardSource[]) {
+    if (!editable || !layout || !base) throw new Error('当前画布不可编辑。');
+    const boardId = base.id;
+    const references = sources.map((source) => ({ nodeId: crypto.randomUUID(), ref: source.ref }));
+    let values: Record<string, BoardResolved>;
+    try {
+      values = await api<Record<string, BoardResolved>>(
+        `/projects/${projectId}/board-references/resolve`,
+        'POST',
+        { references },
+      );
+    } catch (reason) {
+      if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
+      throw reason;
+    }
+    if (
+      !current.current.canEdit ||
+      current.current.base?.id !== boardId ||
+      JSON.stringify(current.current.layout) !== JSON.stringify(layout)
+    )
+      throw new Error('画布或权限已变化，选择已保留，请确认后重试。');
+    const verified = sources.map((source, index) => ({
+      ...source,
+      value: values[references[index].nodeId],
+      ready:
+        !!values[references[index].nodeId]?.media &&
+        values[references[index].nodeId]?.status !== 'unavailable',
+    }));
+    if (verified.some((source) => !source.ready))
+      throw new Error('部分素材已失效或无权读取，未添加任何节点，请调整选择。');
+    const next = addLibraryMedia(
+      layout,
+      resolved,
+      verified,
+      document.querySelector('.creative-surface')?.clientWidth ?? 800,
+    );
+    setLayout(next.layout);
+    setResolved((old) => ({ ...old, ...next.resolved }));
+    setSelected(next.selected);
+    setMediaPicker(false);
+    setError('');
+    setMessage(
+      next.added ? `已加入 ${next.added} 份素材，请保存画布。` : '所选素材已在画布中，已定位原节点。',
+    );
+  }
   function applyLibraryRevision(revision: LibraryRevision, target?: string) {
     if (revision.projectId !== projectId || !current.current.canEdit)
       throw new Error('当前提示词或画布已不可编辑，草稿已保留');
@@ -492,6 +610,10 @@ export default function BoardWorkspace({
       },
     };
     const existing = layout.nodes.find((item) => item.id === binding?.source);
+    if (existing?.type === 'brief' && !replace && draft.positivePrompt.length > 4000) {
+      setError('文字节点最多 4000 字，请缩短提示词或选择独立提示词来源。');
+      return false;
+    }
     if (
       existing &&
       !replace &&
@@ -589,6 +711,9 @@ export default function BoardWorkspace({
   }
   const flowNodes = useMemo<CanvasNode[]>(() => {
     if (!layout) return [];
+    const referenceTargets = new Set(
+      layout.edges.filter((edge) => edge.targetPort?.startsWith('reference:')).map((edge) => edge.target),
+    );
     return [...layout.nodes]
       .sort((a, b) => Number(b.type === 'group') - Number(a.type === 'group'))
       .map((node) => ({
@@ -609,20 +734,108 @@ export default function BoardWorkspace({
           height: node.type === 'group' && node.data.collapsed ? 120 : node.height,
         },
         zIndex: node.type === 'group' ? -1 : 1,
-        data: { domain: node, value: resolved[node.id] },
+        data: {
+          domain: node,
+          value: resolved[node.id],
+          hasReferenceInputs: referenceTargets.has(node.id),
+          generationCard:
+            node.type === 'generation'
+              ? (() => {
+                  const stored = presentations[node.id];
+                  const presentation =
+                    stored?.workflowId === node.data.generation?.workflowId ? stored : undefined;
+                  const workflow = workflowsForNodes.current.get(node.id);
+                  const currentWorkflow =
+                    workflow?.id === node.data.generation?.workflowId ? workflow : undefined;
+                  const inputs = layout.edges.filter(
+                    (edge) => edge.kind === 'input_binding' && edge.target === node.id,
+                  );
+                  const promptNode = layout.nodes.find(
+                    (item) => item.id === inputs.find((edge) => edge.targetPort === 'prompt')?.source,
+                  );
+                  const references = inputs
+                    .filter((edge) => edge.targetPort !== 'prompt')
+                    .map((edge) => {
+                      const value = resolved[edge.source];
+                      const slot = currentWorkflow?.mediaSchema?.inputs.find(
+                        (item) => `reference:${item.id}` === edge.targetPort,
+                      );
+                      return {
+                        port: edge.targetPort!,
+                        label: edge.targetPort === 'first_frame' ? '首帧' : (slot?.label ?? '参考素材'),
+                        title: value?.title ?? '固定素材',
+                        poster:
+                          value?.media?.posterUrl ??
+                          (value?.media?.mediaType === 'image' ? value.media.contentUrl : undefined),
+                        unavailable: !value?.media || value.status === 'unavailable',
+                      };
+                    });
+                  const accepts: string[] =
+                    currentWorkflow?.executable === true
+                      ? (currentWorkflow.mediaSchema?.inputs ?? [])
+                          .filter(
+                            (slot) => !inputs.some((edge) => edge.targetPort === `reference:${slot.id}`),
+                          )
+                          .map((slot) => slot.mediaType)
+                      : [];
+                  if (
+                    currentWorkflow?.capability === 'video.image_to_video' &&
+                    !inputs.some((edge) => edge.targetPort === 'first_frame')
+                  )
+                    accepts.push('image');
+                  if (!inputs.some((edge) => edge.targetPort === 'prompt')) accepts.push('text');
+                  return {
+                    name:
+                      presentation?.name ??
+                      (node.data.generation?.workflowId
+                        ? '固定工作流 · 选中查看'
+                        : node.data.generation?.creationTarget
+                          ? `${({ image: '图片', video: '视频', audio: '音频' } as const)[node.data.generation.creationTarget]}创作`
+                          : '选择工作流'),
+                    prompt: promptNode?.data.text ?? '',
+                    latestState: presentation?.latestState,
+                    accepts,
+                    references,
+                  };
+                })()
+              : undefined,
+          childCount:
+            node.type === 'group'
+              ? layout.nodes.filter((item) => item.parentId === node.id).length
+              : undefined,
+          hasResultOutputs:
+            node.type === 'group' &&
+            layout.nodes.some((child) => child.parentId === node.id && child.type === 'result'),
+        },
       }));
-  }, [layout, resolved, selected]);
+  }, [layout, resolved, selected, presentations]);
   const flowEdges = useMemo(
     () =>
-      (layout?.edges ?? []).map((edge) => ({
-        ...edge,
-        sourceHandle: edge.kind === 'input_binding' ? edge.sourcePort : 'out',
-        targetHandle: edge.kind === 'input_binding' ? edge.targetPort : 'in',
-        label: edge.kind === 'input_binding' ? (edge.targetPort === 'prompt' ? '提示词' : '首帧') : undefined,
-        style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
-        hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
-      })),
-    [layout?.edges, flowNodes],
+      (layout?.edges ?? []).map((edge) => {
+        const child = layout?.nodes.find((node) => node.id === edge.source);
+        const parent = layout?.nodes.find((node) => node.id === child?.parentId);
+        const source =
+          edge.kind === 'input_binding' && child?.type === 'result' && parent?.data.collapsed
+            ? parent.id
+            : edge.source;
+        return {
+          ...edge,
+          source,
+          sourceHandle: 'out',
+          targetHandle: 'in',
+          label:
+            edge.kind === 'input_binding'
+              ? edge.targetPort === 'prompt'
+                ? '提示词'
+                : edge.targetPort === 'first_frame'
+                  ? '首帧'
+                  : undefined
+              : undefined,
+          style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
+          hidden: flowNodes.some((node) => node.hidden && [source, edge.target].includes(node.id)),
+        };
+      }),
+    [layout?.edges, layout?.nodes, flowNodes],
   );
   function nodesChange(changes: NodeChange<CanvasNode>[]) {
     const selections = changes.filter((change) => change.type === 'select');
@@ -646,13 +859,26 @@ export default function BoardWorkspace({
           nodes: value.nodes.map((node) => {
             const change = changes.find((item) => item.type === 'position' && item.id === node.id);
             return change?.type === 'position' && change.position
-              ? {
-                  ...node,
-                  position: {
-                    x: clamp(change.position.x, -50000, 50000),
-                    y: clamp(change.position.y, -50000, 50000),
-                  },
-                }
+              ? (() => {
+                  const parent = value.nodes.find((item) => item.id === node.parentId);
+                  const pos = change.position!;
+                  const outside =
+                    node.type === 'result' &&
+                    parent &&
+                    change.dragging === false &&
+                    (pos.x + node.width < 0 ||
+                      pos.y + node.height < 0 ||
+                      pos.x > parent.width ||
+                      pos.y > parent.height);
+                  return {
+                    ...node,
+                    ...(outside ? { parentId: undefined } : {}),
+                    position: {
+                      x: clamp(pos.x + (outside ? parent!.position.x : 0), -50000, 50000),
+                      y: clamp(pos.y + (outside ? parent!.position.y : 0), -50000, 50000),
+                    },
+                  };
+                })()
               : node;
           }),
         },
@@ -670,39 +896,96 @@ export default function BoardWorkspace({
           },
       );
   }
-  function connect(connection: Connection) {
+  function matchingPorts(sourceId: string, targetId: string) {
+    const source = layout?.nodes.find((n) => n.id === sourceId),
+      target = layout?.nodes.find((n) => n.id === targetId);
+    const workflow = workflowsForNodes.current.get(targetId);
+    const media = resolved[sourceId];
+    if (
+      !source ||
+      !target ||
+      target.type !== 'generation' ||
+      !workflow ||
+      workflow.id !== target.data.generation?.workflowId ||
+      workflow.executable !== true
+    )
+      return [];
+    const ports: { port: BoardInputPort; label: string }[] = [];
+    if (source.type === 'brief' || source.type === 'note') ports.push({ port: 'prompt', label: '提示词' });
+    else if (
+      media?.status === 'unavailable' ||
+      !(source.type === 'result' || source.data.ref?.kind === 'media') ||
+      !media?.media
+    )
+      return [];
+    if (workflow.capability === 'video.image_to_video' && media?.media?.mediaType === 'image')
+      ports.push({ port: 'first_frame', label: '首帧' });
+    for (const slot of workflow.mediaSchema?.inputs ?? [])
+      if (slot.mediaType === media?.media?.mediaType)
+        ports.push({ port: `reference:${slot.id}`, label: slot.label });
+    return ports.filter(
+      (item) =>
+        !layout?.edges.some(
+          (edge) =>
+            edge.kind === 'input_binding' && edge.target === targetId && edge.targetPort === item.port,
+        ),
+    );
+  }
+  async function connect(connection: Connection) {
     if (!editable || !layout) return;
-    if (['prompt', 'first_frame'].includes(connection.targetHandle ?? '')) {
-      const target = layout.nodes.find((n) => n.id === connection.target),
-        source = layout.nodes.find((n) => n.id === connection.source),
-        port = connection.targetHandle as 'prompt' | 'first_frame';
-      if (
-        target?.type !== 'generation' ||
-        source?.id === target.id ||
-        (port === 'prompt'
-          ? source?.type !== 'note' || connection.sourceHandle !== 'text'
-          : !(
-              (source?.type === 'result' || source?.data.ref?.kind === 'media') &&
-              resolved[source.id]?.media?.mediaType === 'image' &&
-              connection.sourceHandle === 'image'
-            ))
-      ) {
-        setError('输入端口类型不匹配，请连接文本 TEXT 或图片 IMAGE 输出。');
+    const target = layout.nodes.find((item) => item.id === connection.target);
+    if (target?.type === 'generation') {
+      const workflowId = target.data.generation?.workflowId;
+      if (!workflowId || connection.source === connection.target) {
+        setError('请先选择目标节点的工作流，不能连接自身。');
         return;
       }
-      if (
-        layout.edges.some(
-          (e) => e.kind === 'input_binding' && e.target === target.id && e.targetPort === port,
-        )
-      ) {
-        setError('此输入已有来源，请先解除连接或在设置中替换。');
+      const request = ++connectionRequest.current;
+      if (workflowsForNodes.current.get(target.id)?.id !== workflowId) {
+        setConnecting(true);
+        setError('');
+        try {
+          const config = await api<{ pinnedWorkflow?: Workflow; canEdit: boolean }>(
+            `/projects/${projectId}/generation-config?workflowId=${workflowId}`,
+          );
+          if (request !== connectionRequest.current) return;
+          if (
+            JSON.stringify(current.current.layout) !== JSON.stringify(layout) ||
+            current.current.base?.id !== base?.id ||
+            !current.current.canEdit ||
+            !config.canEdit
+          ) {
+            setError('画布或输入已变化，请重新连接。');
+            return;
+          }
+          if (!config.pinnedWorkflow || config.pinnedWorkflow.id !== workflowId)
+            throw new Error('固定工作流暂不可用，请重试连接。');
+          registerWorkflow(target.id, config.pinnedWorkflow);
+        } catch (reason) {
+          if (request === connectionRequest.current) report(reason);
+          return;
+        } finally {
+          if (request === connectionRequest.current) setConnecting(false);
+        }
+      } else setConnecting(false);
+      const group = layout.nodes.find((node) => node.id === connection.source && node.type === 'group');
+      if (group) {
+        setPendingGroup({ boardId: base!.id, groupId: group.id, targetId: target.id, workflowId });
         return;
       }
-      bindInput(target.id, port, source!.id);
-      return;
-    }
-    if (['text', 'image'].includes(connection.sourceHandle ?? '')) {
-      setError('具名输出只能连接匹配的生成输入端口。');
+      const ports = matchingPorts(connection.source, connection.target);
+      if (!ports.length) {
+        setError('没有匹配的空输入，请检查素材类型或已有连接；已有来源不会被覆盖。');
+        return;
+      }
+      if (ports.length === 1) bindInput(connection.target, ports[0].port, connection.source);
+      else
+        setPendingInput({
+          source: connection.source,
+          target: connection.target,
+          workflowId: workflowsForNodes.current.get(connection.target)!.id,
+          ports,
+        });
       return;
     }
     if (
@@ -728,8 +1011,51 @@ export default function BoardWorkspace({
     });
   }
   const node = layout?.nodes.find((item) => item.id === selected[0]);
-  function bindInput(target: string, port: 'prompt' | 'first_frame', source: string) {
+  const inlineNode =
+    node &&
+    (node.type === 'note' ||
+      node.type === 'brief' ||
+      ((node.type === 'result' || (node.type === 'reference' && node.data.ref?.kind === 'media')) &&
+        !!resolved[node.id]?.media));
+  const inspector =
+    node && layout ? (
+      <BoardInspector
+        inlineEditing={!!inlineNode}
+        node={node}
+        value={node && resolved[node.id]}
+        onMediaSaved={() => setRefresh((value) => value + 1)}
+        onPinMedia={pinCandidate}
+        nodes={layout.nodes}
+        editable={editable}
+        update={update}
+        onDismiss={() => setSelected([])}
+        onUseImage={
+          editable &&
+          (node.type === 'result' || node.data.ref?.kind === 'media') &&
+          resolved[node.id]?.media?.mediaType === 'image'
+            ? () => add('generation', undefined, undefined, undefined, node)
+            : undefined
+        }
+        remove={() => node && remove([node.id])}
+        detail={detail}
+        closeDetail={() => setDetail(undefined)}
+        onDetail={() => {
+          if (!node?.data.ref) return;
+          void api<Record<string, BoardResolved>>(`/projects/${projectId}/board-references/resolve`, 'POST', {
+            references: [{ nodeId: node.id, ref: node.data.ref }],
+          })
+            .then((values) => {
+              setResolved((current) => ({ ...current, ...values }));
+              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
+            })
+            .catch(report);
+        }}
+      />
+    ) : undefined;
+  function bindInput(target: string, port: BoardInputPort, source: string) {
     if (!editable || !layout) return;
+    const sourcePort = port === 'prompt' ? 'text' : resolved[source]?.media?.mediaType;
+    if (source && (!sourcePort || (port === 'first_frame' && sourcePort !== 'image'))) return;
     const edges = layout.edges.filter(
       (e) => !(e.kind === 'input_binding' && e.target === target && e.targetPort === port),
     );
@@ -748,16 +1074,33 @@ export default function BoardWorkspace({
               source,
               target,
               kind: 'input_binding',
-              sourcePort: port === 'prompt' ? 'text' : 'image',
+              sourcePort,
               targetPort: port,
             },
           ]
         : edges,
     });
   }
-  function addResult(job: GenerationJob) {
+  function addResult(job: GenerationJob, grouped = false) {
     if (!editable || !layout) return;
-    const existing = layout.nodes.find((n) => n.type === 'result' && n.data.jobId === job.id);
+    if (grouped) {
+      try {
+        const next = groupedResults(layout, job);
+        setLayout(next.layout);
+        setSelected(next.selected);
+        setMessage(
+          next.added
+            ? `已将 ${next.added} 份产物加入结果组，请保存画布。`
+            : '这些产物已在画布中，未重复添加。',
+        );
+        setError('');
+      } catch (reason) {
+        report(reason);
+      }
+      return;
+    }
+    const resultId = job.selectedOutputId ?? job.id;
+    const existing = layout.nodes.find((n) => n.type === 'result' && n.id === resultId);
     if (existing) {
       setSelected([existing.id]);
       return;
@@ -767,26 +1110,43 @@ export default function BoardWorkspace({
       return;
     }
     const producer = layout.nodes.find((n) => n.id === job.boardExecution?.nodeId);
+    const parent = producer?.parentId
+      ? layout.nodes.find((item) => item.id === producer.parentId)
+      : undefined;
+    const origin = {
+      x: (producer?.position.x ?? 0) + (parent?.position.x ?? 0) + 320,
+      y: (producer?.position.y ?? 0) + (parent?.position.y ?? 0),
+    };
+    let position = origin;
+    for (let i = 0; i <= layout.nodes.length * 4; i++) {
+      position = {
+        x: clamp(origin.x + (i % 2) * 280, -50000, 50000),
+        y: clamp(origin.y + Math.floor(i / 2) * 310, -50000, 50000),
+      };
+      if (
+        !layout.nodes.some(
+          (item) => !item.parentId && item.type !== 'group' && overlaps(item, position, 250, 280),
+        )
+      )
+        break;
+    }
     setLayout({
       ...layout,
       nodes: [
         ...layout.nodes,
         {
-          id: job.id,
+          id: resultId,
           type: 'result',
-          position: {
-            x: clamp((producer?.position.x ?? 0) + 320, -50000, 50000),
-            y: producer?.position.y ?? 0,
-          },
+          position,
           width: 250,
           height: 280,
-          data: { jobId: job.id },
+          data: { jobId: job.id, ...(job.selectedOutputId ? { outputId: job.selectedOutputId } : {}) },
         },
       ],
     });
     setResolved((old) => ({
       ...old,
-      [job.id]: {
+      [resultId]: {
         status: job.state === 'completed' ? 'current' : 'draft',
         title: '生成结果',
         summary: job.state,
@@ -956,9 +1316,11 @@ export default function BoardWorkspace({
             >
               <summary>更多操作</summary>
               <div>
-                <StudioButton variant="ghost" onClick={onWorkflows}>
-                  工作流中心
-                </StudioButton>
+                {base && (
+                  <StudioButton variant="ghost" onClick={() => setMediaPicker(true)}>
+                    选择素材
+                  </StudioButton>
+                )}
                 <StudioButton variant="ghost" onClick={() => setMediaLibrary(true)}>
                   打开素材库
                 </StudioButton>
@@ -972,9 +1334,6 @@ export default function BoardWorkspace({
                       <>
                         <StudioButton variant="ghost" onClick={() => add('brief')}>
                           创作说明
-                        </StudioButton>
-                        <StudioButton variant="ghost" onClick={() => add('group')}>
-                          添加分组
                         </StudioButton>
                         {node?.type === 'note' && node.data.text?.trim() && (
                           <StudioButton
@@ -1127,6 +1486,11 @@ export default function BoardWorkspace({
               {message}
             </p>
           )}
+          {connecting && (
+            <p role="status" className="creative-notice">
+              正在读取目标工作流，确认可连接的输入…
+            </p>
+          )}
           {!base.canEdit && dirty && (
             <p role="alert" className="notice error creative-notice">
               编辑权限已变化，本地草稿保留但不能保存。
@@ -1156,26 +1520,28 @@ export default function BoardWorkspace({
           )}
           <div className={`creative-workspace ${showSources ? 'creative-workspace-library' : ''}`}>
             {showSources && (
-              <BoardSources
-                projectId={projectId}
-                editable={editable}
-                refresh={refresh}
-                add={(source) => {
-                  const added = add('reference', source);
-                  if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
-                  return Boolean(added);
-                }}
-                onDragSource={(source) => {
-                  draggedResource.current = source;
-                }}
-                onImport={() => setMediaLibrary(true)}
-                onClose={() => setShowSources(false)}
-                report={(reason) => {
-                  if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
-                }}
-              />
+              <ResizableLibrary userId={userId}>
+                <BoardSources
+                  projectId={projectId}
+                  editable={editable}
+                  refresh={refresh}
+                  add={(source) => {
+                    const added = add('reference', source);
+                    if (added && window.matchMedia('(max-width: 760px)').matches) setShowSources(false);
+                    return Boolean(added);
+                  }}
+                  onDragSource={(source) => {
+                    draggedResource.current = source;
+                  }}
+                  onImport={() => setMediaLibrary(true)}
+                  onClose={() => setShowSources(false)}
+                  report={(reason) => {
+                    if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) report(reason);
+                  }}
+                />
+              </ResizableLibrary>
             )}
-            <nav className="v2-live-tools" aria-label="画布工具">
+            <nav className="v2-live-tools v2-live-view-tools" aria-label="画布工具">
               <StudioButton
                 variant="ghost"
                 icon="cursor"
@@ -1192,9 +1558,34 @@ export default function BoardWorkspace({
                 aria-pressed={pan}
                 onClick={() => setPan(true)}
               />
+            </nav>
+            <nav className="v2-live-tools v2-live-create-tools" aria-label="创建与素材">
               {base.canEdit && (
                 <>
+                  {creationActions.map(({ kind, label, title, icon }) => (
+                    <StudioButton
+                      key={kind}
+                      variant="ghost"
+                      icon={icon}
+                      aria-label={`添加${label}`}
+                      title={title}
+                      disabled={!editable}
+                      onClick={() => create(kind)}
+                    />
+                  ))}
                   <hr />
+                </>
+              )}
+              <StudioButton
+                variant="ghost"
+                icon="folder"
+                aria-label="选择素材"
+                title="选择素材"
+                aria-pressed={mediaPicker}
+                onClick={() => setMediaPicker(true)}
+              />
+              {base.canEdit && (
+                <>
                   <StudioButton
                     variant="ghost"
                     icon="upload"
@@ -1214,26 +1605,44 @@ export default function BoardWorkspace({
                       event.currentTarget.value = '';
                     }}
                   />
-                  <StudioButton
-                    variant="ghost"
-                    icon="note"
-                    aria-label="添加便签"
-                    title="添加便签"
-                    disabled={!editable}
-                    onClick={() => add('note')}
-                  />
-                  <StudioButton
-                    variant="primary"
-                    icon="spark"
-                    aria-label="添加生成节点"
-                    title="添加生成节点"
-                    disabled={!editable}
-                    onClick={() => add('generation')}
-                  />
                 </>
               )}
             </nav>
             <BoardSurface
+              onUpdate={update}
+              onDisconnect={bindInput}
+              onCreate={create}
+              toolbar={
+                node && inlineNode && selected.length === 1
+                  ? {
+                      nodeId: node.id,
+                      content: (
+                        <BoardItemTools
+                          projectId={projectId}
+                          onLibrarySaved={() => {
+                            setRefresh((value) => value + 1);
+                            void refreshReferences();
+                            setMessage('已保存到项目素材库。');
+                          }}
+                          key={node.id}
+                          value={resolved[node.id]}
+                          editable={editable}
+                          onDetach={
+                            node.type === 'result' && node.parentId ? () => detachResult(node) : undefined
+                          }
+                          onRemove={() => remove([node.id])}
+                          onUseImage={
+                            editable && resolved[node.id]?.media?.mediaType === 'image'
+                              ? () => add('generation', undefined, undefined, undefined, node)
+                              : undefined
+                          }
+                        >
+                          {inspector}
+                        </BoardItemTools>
+                      ),
+                    }
+                  : undefined
+              }
               onPreviewStart={() => setSelected([])}
               nodes={flowNodes}
               edges={flowEdges}
@@ -1265,7 +1674,7 @@ export default function BoardWorkspace({
                   );
               }}
               overlay={
-                node ? (
+                node && !inlineNode ? (
                   <div
                     className={`creative-context ${node.type === 'generation' ? 'creative-context-composer' : ''}`}
                   >
@@ -1273,6 +1682,7 @@ export default function BoardWorkspace({
                       <BoardExecutionPanel
                         key={`${base.id}:${node.id}`}
                         board={base}
+                        onWorkflow={registerWorkflow}
                         userId={userId}
                         node={node}
                         layout={layout}
@@ -1284,6 +1694,7 @@ export default function BoardWorkspace({
                         onPromptLibrary={(draft) => setPromptLibrary({ target: node.id, draft })}
                         onApplyPrompt={(revision) => applyLibraryRevision(revision, node.id)}
                         onSavedToLibrary={() => setRefresh((value) => value + 1)}
+                        onPinMedia={pinCandidate}
                         update={update}
                         bind={(port, source) => bindInput(node.id, port, source)}
                         onResult={addResult}
@@ -1299,37 +1710,7 @@ export default function BoardWorkspace({
                         />
                       </BoardExecutionPanel>
                     ) : (
-                      <BoardInspector
-                        node={node}
-                        value={node && resolved[node.id]}
-                        nodes={layout.nodes}
-                        editable={editable}
-                        update={update}
-                        onDismiss={() => setSelected([])}
-                        onUseImage={
-                          editable &&
-                          (node.type === 'result' || node.data.ref?.kind === 'media') &&
-                          resolved[node.id]?.media?.mediaType === 'image'
-                            ? () => add('generation', undefined, undefined, undefined, node)
-                            : undefined
-                        }
-                        remove={() => node && remove([node.id])}
-                        detail={detail}
-                        closeDetail={() => setDetail(undefined)}
-                        onDetail={() => {
-                          if (!node?.data.ref) return;
-                          void api<Record<string, BoardResolved>>(
-                            `/projects/${projectId}/board-references/resolve`,
-                            'POST',
-                            { references: [{ nodeId: node.id, ref: node.data.ref }] },
-                          )
-                            .then((values) => {
-                              setResolved((current) => ({ ...current, ...values }));
-                              if (values[node.id]?.status !== 'unavailable') setDetail(values[node.id]);
-                            })
-                            .catch(report);
-                        }}
-                      />
+                      inspector
                     )}
                   </div>
                 ) : layout.nodes.length ? undefined : (
@@ -1366,6 +1747,19 @@ export default function BoardWorkspace({
           onClose={() => setFreeGeneration(false)}
         />
       )}
+      {mediaPicker && base && !denied && (
+        <MediaLibraryPicker
+          projectId={projectId}
+          editable={editable}
+          report={report}
+          onClose={() => setMediaPicker(false)}
+          onAdd={addPickedMedia}
+          onLibraryChanged={() => {
+            setRefresh((value) => value + 1);
+            void refreshReferences();
+          }}
+        />
+      )}
       {mediaLibrary && !denied && (
         <MediaDialog
           projectId={projectId}
@@ -1383,6 +1777,72 @@ export default function BoardWorkspace({
               : undefined
           }
         />
+      )}
+      {pendingGroup && pendingGroup.boardId === base?.id && editable && !denied && (
+        <GroupOutputPicker
+          choices={(layout?.nodes ?? [])
+            .filter((child) => child.type === 'result' && child.parentId === pendingGroup.groupId)
+            .map((child) => ({
+              id: child.id,
+              title: resolved[child.id]?.title ?? '正在读取结果…',
+              media: resolved[child.id]?.status === 'unavailable' ? undefined : resolved[child.id]?.media,
+              ports: matchingPorts(child.id, pendingGroup.targetId),
+            }))}
+          onClose={() => setPendingGroup(undefined)}
+          onConnect={(sourceId, mediaId, port) => {
+            const source = layout?.nodes.find((node) => node.id === sourceId);
+            const target = layout?.nodes.find((node) => node.id === pendingGroup.targetId);
+            if (
+              !editable ||
+              !layout?.nodes.some((node) => node.id === pendingGroup.groupId && node.type === 'group') ||
+              source?.parentId !== pendingGroup.groupId ||
+              source.type !== 'result' ||
+              target?.data.generation?.workflowId !== pendingGroup.workflowId ||
+              resolved[sourceId]?.media?.id !== mediaId ||
+              !matchingPorts(sourceId, pendingGroup.targetId).some((item) => item.port === port)
+            ) {
+              setError('组内产物或目标输入已变化，请重新连接。');
+              setPendingGroup(undefined);
+              return;
+            }
+            bindInput(pendingGroup.targetId, port, sourceId);
+            setPendingGroup(undefined);
+          }}
+        />
+      )}
+      {pendingInput && !denied && (
+        <Dialog
+          title="选择素材用途"
+          description="多个输入接受这种素材，请选择用途；已有来源不会被覆盖。"
+          onClose={() => setPendingInput(undefined)}
+        >
+          <div className="dialog-body">
+            {pendingInput.ports.map((item) => (
+              <button
+                key={item.port}
+                onClick={() => {
+                  const target = layout?.nodes.find((n) => n.id === pendingInput.target);
+                  if (
+                    !editable ||
+                    target?.data.generation?.workflowId !== pendingInput.workflowId ||
+                    !matchingPorts(pendingInput.source, pendingInput.target).some((p) => p.port === item.port)
+                  ) {
+                    setError('输入已变化，请重新连接。');
+                    setPendingInput(undefined);
+                    return;
+                  }
+                  bindInput(pendingInput.target, item.port, pendingInput.source);
+                  setPendingInput(undefined);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="dialog-footer">
+            <button onClick={() => setPendingInput(undefined)}>取消连接</button>
+          </div>
+        </Dialog>
       )}
       {fileImport && !denied && (
         <CanvasImportDialog
