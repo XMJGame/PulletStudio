@@ -9,6 +9,21 @@ const expectedVersion = z.number().int().positive();
 @Controller('api/v1/projects/:projectId')
 export class LibraryFoldersController {
   constructor(private readonly folders: LibraryFoldersService) {}
+  @Post('library-media')
+  saveMedia(@Req() req: StudioRequest, @Param('projectId') projectId: string, @Body() body: unknown) {
+    const input = parse(
+      z
+        .object({
+          mediaVersionId: uuid,
+          name: z.string().trim().min(1).max(180),
+          folderId: uuid.nullable(),
+          expectedAssetVersion: z.number().int().positive(),
+        })
+        .strict(),
+      body,
+    );
+    return this.folders.saveMedia(req.user, parse(uuid, projectId), input);
+  }
   @Get('library-folders')
   list(@Req() req: StudioRequest, @Param('projectId') projectId: string) {
     return this.folders.list(req.user, parse(uuid, projectId));

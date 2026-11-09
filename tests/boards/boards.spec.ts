@@ -1549,6 +1549,90 @@ async function pasteFiles(page: Page, transfer: any) {
     return event.defaultPrevented;
   }, transfer);
 }
+test('canvas imports and generated results enter the library only after explicit toolbar save', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const value = await project('Manual library collection');
+    const folder = await call('POST', `/projects/${value.id}/library-folders`, { name: 'Collected studies' });
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Collection fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const workflow = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureI2V(connection.id),
+    );
+    await open(page, value);
+    const id = await createBoard(page, 'Unfiled creations');
+    await dropFiles(
+      page,
+      await localTransfer(page, [{ name: 'canvas-only.png', fixture: 'image.png', type: 'image/png' }]),
+    );
+    await expect(page.getByRole('status').filter({ hasText: '素材已导入并加入画布' })).toBeVisible();
+    await save(page);
+    const initial = await call('GET', `/boards/${id}`);
+    const source = initial.layout.nodes[0];
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
+    await page.locator('.creative-surface img[alt="canvas-only.png"]').click();
+    const toolbar = page.getByLabel('节点工具条');
+    await toolbar.getByRole('button', { name: '素材库', exact: true }).click();
+    let dialog = page.getByRole('dialog', { name: '保存到素材库', exact: true });
+    await expect(dialog.getByLabel('收藏名称')).toHaveValue('canvas-only.png');
+    await dialog.getByLabel('收藏名称').fill('Cancelled name');
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
+    await toolbar.getByRole('button', { name: '以此图生成', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('A gentle camera movement');
+    await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    await panel.getByRole('button', { name: '加入画布结果', exact: true }).click();
+    await save(page);
+    const board = await call('GET', `/boards/${id}`);
+    const result = board.layout.nodes.find((node: any) => node.type === 'result');
+    expect(result).toBeTruthy();
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.locator(`[data-id="${result.id}"]`).click();
+    await toolbar.getByRole('button', { name: '素材库', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: '保存到素材库', exact: true });
+    await expect(dialog.getByLabel('收藏名称')).toBeVisible();
+    await dialog.getByLabel('收藏名称').fill('Selected video');
+    await dialog.getByLabel('收藏文件夹').selectOption(folder.id);
+    await page.screenshot({ path: 'test-results/manual-library-desktop.png' });
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(1);
+    await toolbar.getByRole('button', { name: '素材库', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('已在当前项目素材库');
+    await expect(dialog.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.locator(`[data-id="${source.id}"]`).click();
+    await toolbar.getByRole('button', { name: '素材库', exact: true }).click();
+    await expect(dialog.getByLabel('收藏名称')).toHaveValue('canvas-only.png');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'test-results/manual-library-mobile.png' });
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(2);
+    expect((await call('GET', `/media-versions/${source.data.ref.id}`)).fileName).toBe('canvas-only.png');
+    // Resizing the canvas changes its persisted viewport; save it before navigation.
+    await save(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.creative-surface')).toBeVisible();
+    expect((await call('GET', `/boards/${id}`)).layout.nodes.map((node: any) => node.id)).toEqual(
+      board.layout.nodes.map((node: any) => node.id),
+    );
+  } finally {
+    await remote.close();
+  }
+});
 test('local media drops and image paste create fixed references while text controls keep their paste', async ({
   page,
 }) => {
@@ -1620,7 +1704,7 @@ test('local media drops and image paste create fixed references while text contr
           node.position.y + node.height > other.position.y,
       ).toBeFalsy();
   const media = await call('GET', `/projects/${value.id}/media-assets`);
-  expect(media.items).toHaveLength(5);
+  expect(media.items).toHaveLength(0);
   await page.screenshot({ path: 'test-results/canvas-direct-import.png' });
 });
 
@@ -1706,7 +1790,7 @@ test('direct imports reuse upload intents after failed and lost responses', asyn
     await save(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(index + 1);
-    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(index + 1);
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
     expect((await call('GET', `/projects/${value.id}/media-uploads`)).items).toHaveLength(index + 1);
   }
   await dropFiles(
@@ -3926,7 +4010,7 @@ test('context import keeps the drop position and deleting its node preserves the
   await remove.click();
   await save(page);
   expect((await call('GET', `/boards/${id}`)).layout.nodes).toHaveLength(0);
-  expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(1);
+  expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
 });
 
 test('media connections match unique slots and require explicit choices for ambiguous slots without overwriting', async ({

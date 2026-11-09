@@ -20,6 +20,7 @@ export async function uploadProjectMedia({
   assetId = null,
   expectedAssetVersion = 0,
   reconcile = false,
+  addToLibrary = true,
 }: {
   projectId: string;
   file: File;
@@ -29,6 +30,7 @@ export async function uploadProjectMedia({
   assetId?: string | null;
   expectedAssetVersion?: number;
   reconcile?: boolean;
+  addToLibrary?: boolean;
 }): Promise<MediaUpload> {
   const accept = (session: MediaUpload) => {
     attempt.session = session;
@@ -57,6 +59,7 @@ export async function uploadProjectMedia({
             contentType: file.type,
             assetId,
             expectedAssetVersion,
+            ...(addToLibrary ? {} : { addToLibrary: false }),
           },
           { 'Idempotency-Key': attempt.key },
         ),

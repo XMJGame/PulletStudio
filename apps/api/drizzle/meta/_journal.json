@@ -379,6 +379,13 @@
       "when": 1794042836843,
       "tag": "0053_video_frames",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1794209562612,
+      "tag": "0054_canvas_library_intent",
+      "breakpoints": true
     }
   ]
 }

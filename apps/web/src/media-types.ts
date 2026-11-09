@@ -4,6 +4,9 @@ export type MediaVersion = {
   projectId: string;
   version: number;
   fileName: string;
+  inLibrary?: boolean;
+  libraryName?: string;
+  assetVersion?: number;
   mediaType: 'image' | 'video' | 'audio';
   mime: string;
   byteLength: number;

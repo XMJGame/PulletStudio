@@ -1521,6 +1521,12 @@ export default function BoardWorkspace({
                       nodeId: node.id,
                       content: (
                         <BoardItemTools
+                          projectId={projectId}
+                          onLibrarySaved={() => {
+                            setRefresh((value) => value + 1);
+                            void refreshReferences();
+                            setMessage('已保存到项目素材库。');
+                          }}
                           key={node.id}
                           value={resolved[node.id]}
                           editable={editable}

@@ -9,6 +9,7 @@ import {
   generationJobs,
   generationOutputs,
   mediaAssets,
+  libraryPlacements,
   mediaUploads,
   mediaFrameExtractions,
   mediaVersions,
@@ -78,6 +79,7 @@ export class MediaService {
       .run();
   }
   private view(row: typeof mediaVersions.$inferSelect) {
+    const asset = this.database.db.select().from(mediaAssets).where(eq(mediaAssets.id, row.assetId)).get();
     const librarySource =
       row.origin === 'workspace_library'
         ? (this.database.db
@@ -115,6 +117,16 @@ export class MediaService {
       projectId: row.projectId,
       version: row.version,
       fileName: row.fileName,
+      inLibrary: asset?.inLibrary ?? false,
+      libraryName:
+        this.database.db
+          .select()
+          .from(libraryPlacements)
+          .where(eq(libraryPlacements.mediaAssetId, row.assetId))
+          .get()?.displayName ??
+        asset?.name ??
+        row.fileName,
+      assetVersion: asset?.version ?? row.version,
       mediaType: row.mediaType,
       mime: row.mime,
       byteLength: row.byteLength,
@@ -287,6 +299,7 @@ export class MediaService {
             storageId,
             fileName: input.fileName,
             declaredMime: input.contentType,
+            addToLibrary: input.addToLibrary !== false,
             expectedBytes: input.byteLength,
             idempotencyKey: key,
             generationJobId,
@@ -507,13 +520,13 @@ export class MediaService {
               projectId: row.projectId,
               workspaceId: row.workspaceId,
               name: row.fileName,
-              inLibrary:
-                !managedJobId ||
-                this.database.db
-                  .select({ shotId: generationJobs.shotId })
-                  .from(generationJobs)
-                  .where(eq(generationJobs.id, managedJobId!))
-                  .get()?.shotId != null,
+              inLibrary: managedJobId
+                ? this.database.db
+                    .select({ shotId: generationJobs.shotId })
+                    .from(generationJobs)
+                    .where(eq(generationJobs.id, managedJobId!))
+                    .get()?.shotId != null
+                : row.addToLibrary,
               version: 1,
               createdBy: row.createdBy,
               createdAt: now,

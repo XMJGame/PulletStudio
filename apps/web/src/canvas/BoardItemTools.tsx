@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { BoardResolved } from '../../../../packages/contracts/src/board';
 import { Dialog } from '../components/Dialog';
 import { StudioIcon } from '../shared/ui/StudioUI';
+import { SaveMediaToLibrary } from './SaveMediaToLibrary';
 export function BoardItemTools({
   children,
   value,
@@ -9,6 +10,8 @@ export function BoardItemTools({
   onRemove,
   onUseImage,
   onDetach,
+  projectId,
+  onLibrarySaved,
 }: {
   children: ReactNode;
   value?: BoardResolved;
@@ -16,12 +19,21 @@ export function BoardItemTools({
   onRemove: () => void;
   onUseImage?: () => void;
   onDetach?: () => void;
+  projectId: string;
+  onLibrarySaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [library, setLibrary] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)}>{value?.media ? '预览与详情' : '更多设置'}</button>
       {onUseImage && <button onClick={onUseImage}>以此图生成</button>}
+      {editable && value?.media && (
+        <button onClick={() => setLibrary(true)}>
+          <StudioIcon name="folder" size={15} />
+          素材库
+        </button>
+      )}
       {editable && onDetach && <button onClick={onDetach}>移出分组</button>}
       {value?.media && (
         <a href={value.media.downloadUrl} download>
@@ -46,6 +58,14 @@ export function BoardItemTools({
             <button onClick={() => setOpen(false)}>返回画布</button>
           </div>
         </Dialog>
+      )}
+      {library && value?.media && (
+        <SaveMediaToLibrary
+          mediaId={value.media.id}
+          projectId={projectId}
+          onClose={() => setLibrary(false)}
+          onSaved={onLibrarySaved}
+        />
       )}
     </>
   );

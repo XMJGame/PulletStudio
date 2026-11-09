@@ -1,0 +1,46 @@
+.studio-dialog.creative-library-save {
+  width: min(720px, calc(100vw - 32px));
+}
+.creative-library-save-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 20px;
+  align-items: start;
+}
+.creative-library-save-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--ground);
+}
+.creative-library-save-preview :is(img, video) {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+.creative-library-save-preview audio {
+  width: 100%;
+  min-width: 0;
+}
+.creative-library-save-layout fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+@media (max-width: 540px) {
+  .creative-library-save-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .creative-library-save-preview {
+    min-height: 120px;
+  }
+  .creative-library-save-preview :is(img, video) {
+    max-height: 180px;
+  }
+}

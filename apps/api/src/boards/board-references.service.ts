@@ -163,7 +163,7 @@ export class BoardReferencesService {
       const head = this.database.db.select().from(mediaAssets).where(eq(mediaAssets.id, row.assetId)).get();
       return {
         status: head?.version === row.version ? 'current' : 'stale',
-        title: row.fileName,
+        title: head?.inLibrary ? value.libraryName : row.fileName,
         kind: row.mediaType,
         version: row.version,
         currentVersion: head?.version,
@@ -281,7 +281,13 @@ export class BoardReferencesService {
             eq(mediaAssets.inLibrary, true),
             mediaType ? eq(mediaVersions.mediaType, mediaType) : undefined,
             cursor ? gt(mediaVersions.id, cursor) : undefined,
-            q ? like(mediaVersions.fileName, `%${q}%`) : undefined,
+            q
+              ? or(
+                  like(mediaVersions.fileName, `%${q}%`),
+                  like(mediaAssets.name, `%${q}%`),
+                  like(libraryPlacements.displayName, `%${q}%`),
+                )
+              : undefined,
           ),
         )
         .orderBy(asc(mediaVersions.id))

@@ -855,6 +855,7 @@ export const libraryPlacements = sqliteTable(
     mediaAssetId: text('media_asset_id'),
     entityId: text('entity_id'),
     folderId: text('folder_id'),
+    displayName: text('display_name'),
     version: integer('version').notNull(),
   },
   (t) => [
@@ -938,6 +939,7 @@ export const mediaUploads = sqliteTable(
       .references(() => storageConnections.id),
     fileName: text('file_name').notNull(),
     declaredMime: text('declared_mime').notNull(),
+    addToLibrary: integer('add_to_library', { mode: 'boolean' }).notNull().default(true),
     expectedBytes: integer('expected_bytes').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     generationJobId: text('generation_job_id'),

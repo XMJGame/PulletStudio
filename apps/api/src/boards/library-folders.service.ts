@@ -3,7 +3,7 @@ import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser, fail } from '../common/http';
 import { DatabaseService } from '../db/database.service';
-import { auditEvents, libraryFolders, libraryPlacements, mediaVersions } from '../db/schema';
+import { auditEvents, libraryFolders, libraryPlacements, mediaVersions, mediaAssets } from '../db/schema';
 import { AuthorizationService } from '../production/authorization.service';
 import { BoardReferencesService } from './board-references.service';
 import type { BoardReference } from '../../../../packages/contracts/src/board';
@@ -188,6 +188,65 @@ export class LibraryFoldersService {
             .run();
         this.audit(user, project.workspaceId, 'library.resource.move', ref.id);
         return { folderId, version };
+      },
+      { behavior: 'immediate' },
+    );
+  }
+  saveMedia(
+    user: CurrentUser,
+    projectId: string,
+    input: { mediaVersionId: string; name: string; folderId: string | null; expectedAssetVersion: number },
+  ) {
+    return this.database.db.transaction(
+      () => {
+        const project = this.authz.project(user, projectId, 'edit');
+        this.references.resolve(user, projectId, { kind: 'media', id: input.mediaVersionId }, true);
+        const media = this.database.db
+          .select()
+          .from(mediaVersions)
+          .where(and(eq(mediaVersions.id, input.mediaVersionId), eq(mediaVersions.projectId, projectId)))
+          .get();
+        if (!media) fail(404, 'NOT_FOUND', '素材不存在或无权访问');
+        const asset = this.database.db
+          .select()
+          .from(mediaAssets)
+          .where(eq(mediaAssets.id, media.assetId))
+          .get()!;
+        if (asset.version !== input.expectedAssetVersion || media.version !== asset.version)
+          fail(409, 'VERSION_CONFLICT', '素材已有其他版本，请刷新后选择要收藏的当前版本');
+        if (input.folderId) this.folder(projectId, input.folderId);
+        if (asset.inLibrary) return { saved: true, alreadyInLibrary: true };
+        const placement = this.database.db
+          .select()
+          .from(libraryPlacements)
+          .where(eq(libraryPlacements.mediaAssetId, asset.id))
+          .get();
+        this.database.db
+          .update(mediaAssets)
+          .set({ inLibrary: true })
+          .where(eq(mediaAssets.id, asset.id))
+          .run();
+        if (placement)
+          this.database.db
+            .update(libraryPlacements)
+            .set({ folderId: input.folderId, displayName: input.name, version: placement.version + 1 })
+            .where(eq(libraryPlacements.id, placement.id))
+            .run();
+        else
+          this.database.db
+            .insert(libraryPlacements)
+            .values({
+              id: randomUUID(),
+              projectId,
+              workspaceId: project.workspaceId,
+              mediaAssetId: asset.id,
+              folderId: input.folderId,
+              displayName: input.name,
+              version: 1,
+            })
+            .run();
+        this.audit(user, project.workspaceId, 'library.media.save', media.id);
+        return { saved: true, alreadyInLibrary: false };
       },
       { behavior: 'immediate' },
     );
