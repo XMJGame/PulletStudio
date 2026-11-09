@@ -14,6 +14,7 @@ import {
   fixtureOptionalMedia,
   fixtureExtendedOutputs,
   fixturePrimaryBatch,
+  fixtureParameterized,
 } from '../fixtures/comfy-mock.mjs';
 import { zoomBrowser } from '../fixtures/browser-zoom.mjs';
 let owner: APIRequestContext, setup: any, fixtures: any;
@@ -4086,6 +4087,102 @@ test('one task adds a persistent result group and detaching or dissolving preser
     expect((await history()).items[0].mediaVersionId).toBe(job.mediaVersionId);
     expect((await history()).items[0].outputs.map((o: any) => o.mediaVersionId)).toEqual(
       job.outputs.map((o: any) => o.mediaVersionId),
+    );
+  } finally {
+    await remote.close();
+  }
+});
+
+test('generation card shows real context and common parameters stay editable outside advanced settings', async ({
+  page,
+}) => {
+  const remote = await startComfyMock({ 'clip.mp4': fixtures['clip.mp4'].bytes });
+  try {
+    const value = await project('Simple generation experience');
+    const media = await uploadMedia(value.id, 'image.png');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Polish fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const params = fixtureParameterized(connection.id),
+      i2v = fixtureI2V(connection.id);
+    const workflow = await call('POST', `/projects/${value.id}/generation-workflows`, {
+      ...params,
+      capability: i2v.capability,
+      image: i2v.image,
+      output: i2v.output,
+      name: 'Cinematic motion',
+      graph: { ...params.graph, ...i2v.graph },
+    });
+    await open(page, value);
+    const id = await createBoard(page, 'Simple composer');
+    await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
+    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByLabel('节点工作流').selectOption(workflow.id);
+    await panel.getByLabel('生成提示词').fill('A slow camera move through soft light');
+    const common = panel.getByRole('region', { name: '常用生成参数' });
+    await expect(common).toBeVisible();
+    await common.getByLabel('节点画幅', { exact: true }).selectOption('16:9 (Landscape)');
+    await common.getByLabel('节点时长（秒）', { exact: true }).fill('3');
+    await common.getByLabel('节点Seed', { exact: true }).fill('42');
+    const advanced = panel
+      .locator('details')
+      .filter({ has: page.getByText('输入绑定与参数', { exact: true }) });
+    await expect(advanced).not.toHaveAttribute('open', '');
+    await save(page);
+    let board = await call('GET', `/boards/${id}`);
+    const gen = board.layout.nodes.find((n: any) => n.type === 'generation'),
+      image = board.layout.nodes.find((n: any) => n.data.ref?.id === media.id);
+    const card = page.locator(`.react-flow__node[data-id="${gen.id}"]`);
+    await expect(card.locator('strong')).toHaveText('Cinematic motion');
+    await expect(card).toContainText('A slow camera move through soft light');
+    await expect(card.locator('.creative-port-label')).toHaveCount(0);
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    const source = page.locator(`.react-flow__node[data-id="${image.id}"] [data-handleid="image"]`),
+      target = card.locator('[data-handleid="references"]');
+    await source.click({ trial: true });
+    await target.click({ trial: true });
+    const a = (await source.boundingBox())!,
+      b = (await target.boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 40, a.y + 10, { steps: 5 });
+    await expect(target).toHaveClass(/creative-compatible-port/);
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 15 });
+    await page.mouse.up();
+    await expect(card.getByRole('button', { name: '断开首帧', exact: true })).toBeVisible();
+    await card.getByRole('button', { name: '断开首帧', exact: true }).click();
+    await expect(card.getByRole('button', { name: '断开首帧', exact: true })).toHaveCount(0);
+    await card.locator('strong').click();
+    await panel.getByLabel('节点首帧输入').selectOption(image.id);
+    await save(page);
+    await page.route(`**/api/v1/boards/${id}/nodes/${gen.id}/generation-jobs`, (route) =>
+      route.fulfill({ status: 503, json: { message: 'temporary submit error' } }),
+    );
+    await panel.getByRole('button', { name: '执行生成节点', exact: true }).click();
+    await expect(panel.getByRole('alert')).toContainText('temporary submit error');
+    await expect(common.getByLabel('节点Seed', { exact: true })).toHaveValue('42');
+    await expect(panel.getByLabel('生成提示词')).toHaveValue('A slow camera move through soft light');
+    await page.unroute(`**/api/v1/boards/${id}/nodes/${gen.id}/generation-jobs`);
+    await panel.getByRole('button', { name: '执行生成节点', exact: true }).click();
+    await expect
+      .poll(async () => (await call('GET', `/projects/${value.id}/generation-jobs`)).items[0]?.state)
+      .toBe('completed');
+    await expect(card).toContainText('最近任务 · 候选已生成');
+    await page.screenshot({ path: 'test-results/b17-generation-desktop.png' });
+    await page.getByRole('button', { name: '深色画布', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await common.getByLabel('节点Seed', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(common.getByLabel('节点Seed', { exact: true })).toBeInViewport();
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/b17-generation-mobile.png' });
+    board = await call('GET', `/boards/${id}`);
+    expect(JSON.stringify(board.layout)).not.toContain('generationCard');
+    expect(board.layout.nodes.find((n: any) => n.id === gen.id).data.generation.parameterValues.seed).toBe(
+      42,
     );
   } finally {
     await remote.close();

@@ -697,3 +697,70 @@
   color: var(--board-muted);
   font-size: 12px;
 }
+.creative-node-generation > strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 14px;
+}
+.creative-generation-state {
+  color: var(--board-muted);
+  font-size: 11px;
+}
+.creative-generation-references {
+  display: grid;
+  gap: 5px;
+  max-height: 80px;
+  overflow: auto;
+}
+.creative-generation-reference {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--board-line);
+  border-radius: 8px;
+  font-size: 11px;
+}
+.creative-generation-reference > span {
+  min-width: 0;
+  flex: 1;
+}
+.creative-generation-reference small {
+  display: block;
+  color: var(--board-muted);
+}
+.creative-generation-reference > span > span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.creative-generation-reference img {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+}
+.creative-generation-reference button {
+  padding: 3px;
+  display: grid;
+  place-items: center;
+}
+.creative-generation-prompt {
+  margin: 0;
+  line-height: 1.6;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  color: var(--board-ink);
+}
+.creative-surface .react-flow__handle.creative-compatible-port {
+  width: 13px;
+  height: 13px;
+  background: var(--board-accent);
+  border: 2px solid var(--board-panel);
+  box-shadow: 0 0 0 5px var(--accent-soft);
+}

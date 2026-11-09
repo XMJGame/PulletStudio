@@ -1,7 +1,25 @@
 import type { Node } from '@xyflow/react';
-import type { BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
+import type { BoardInputPort, BoardNode, BoardResolved } from '../../../../packages/contracts/src/board';
 export type CanvasNode = Node<
-  { domain: BoardNode; value?: BoardResolved; hasReferenceInputs?: boolean; childCount?: number },
+  {
+    domain: BoardNode;
+    value?: BoardResolved;
+    hasReferenceInputs?: boolean;
+    childCount?: number;
+    generationCard?: {
+      name: string;
+      prompt: string;
+      latestState?: string;
+      accepts: string[];
+      references: {
+        port: BoardInputPort;
+        label: string;
+        title: string;
+        poster?: string;
+        unavailable: boolean;
+      }[];
+    };
+  },
   'boardNode'
 >;
 export const statusLabels: Record<BoardResolved['status'], string> = {

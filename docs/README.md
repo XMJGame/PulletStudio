@@ -25,6 +25,7 @@
 | 节点就地操作与右键创建 | [就地操作](CREATIVE-CANVAS.md#就地操作) | [B14 合同](modules/CANVAS-INLINE-B14.md)；直接编辑文字、主动打开素材详情、节点删除与原件保留 |
 | 素材输入连接 | [按类型匹配](CREATIVE-CANVAS.md#按素材类型连接生成输入) | [B15 合同](modules/CANVAS-INPUT-CONNECTIONS-B15.md)；唯一空槽自动连接，多槽选择，不覆盖已有来源 |
 | 同任务结果组 | [整组添加及独立复用](CREATIVE-CANVAS.md#同任务结果组) | [B16 合同](modules/CANVAS-RESULT-GROUPS-B16.md)；完整产物清单、重复去重、容量原子失败、移出及解散保留原件 |
+| 生成卡片与常用参数 | [卡片与输入操作](CREATIVE-CANVAS.md#按素材类型连接生成输入) | [B17 合同](modules/CANVAS-GENERATION-POLISH-B17.md)；工作流/素材/提示词/状态摘要，常用参数直接调节，拖线提示 |
 | 当前自由创作 | [无镜头生成与候选入库](LIGHT-CREATION.md) | [L1 合同](modules/LIGHT-CREATION-L1.md)、[B5 引擎与类型](modules/GENERATION-TYPE-SELECTOR-B5.md)、[验收](history/LIGHT-CREATION-L1-2026-11-06.md)；共用Generation/Storage/RBAC |
 | 项目资产/多画布的当前差异与下一包 | [依赖路线](architecture/ASSET-CANVAS-IMPLEMENTATION.md) | 提示词库与单节点执行已接通，接下来做统一授权和多模态 |
 | 项目提示词库 | [保存、修订与复用](PROMPT-LIBRARY.md) | [L2-B合同](modules/PROMPT-LIBRARY-L2B.md)、[验收](history/PROMPT-LIBRARY-L2B-2026-11-06.md)；普通文本，共用Generation/Board |

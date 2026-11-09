@@ -69,7 +69,7 @@ export function BoardExecutionPanel({
   onResult: (job: GenerationJob, grouped?: boolean) => void;
   onOpenTasks: () => void;
   onDismiss: () => void;
-  onWorkflow: (nodeId: string, workflow: Workflow) => void;
+  onWorkflow: (nodeId: string, workflow: Workflow | undefined, latestState?: string) => void;
   children: ReactNode;
 }) {
   const [config, setConfig] = useState<GenerationConfig>(),
@@ -266,8 +266,8 @@ export function BoardExecutionPanel({
   const imageNodes = referenceNodes.filter((n) => resolved[n.id]?.media?.mediaType === 'image');
   const referenceSlots = workflow?.executable === true ? (workflow.mediaSchema?.inputs ?? []) : [];
   useEffect(() => {
-    if (workflow) onWorkflow(node.id, workflow);
-  }, [node.id, workflow, onWorkflow]);
+    onWorkflow(node.id, workflow, jobs?.items[0]?.state);
+  }, [node.id, workflow, jobs?.items[0]?.state, onWorkflow]);
   const missingSlot = referenceSlots.find((slot) => {
     const selected = source(`reference:${slot.id}`);
     return (
@@ -305,7 +305,7 @@ export function BoardExecutionPanel({
           <StudioIcon name="spark" />
         </span>
         <div>
-          <h3>生成节点</h3>
+          <h3>{workflow?.name ?? '生成'}</h3>
           <p>{workflow ? capabilityLabels[workflow.capability] : '选择工作流后开始创作'}</p>
         </div>
         <div className="v2-live-inline v2-live-composer-header-actions">
@@ -409,7 +409,7 @@ export function BoardExecutionPanel({
           {referenceSlots.length > 0 && (
             <section className="v2-live-reference-slots" aria-label="节点参考素材">
               <strong>参考素材</strong>
-              <p className="field-hint">按工作流槽位选择已加入画布的同类型素材。</p>
+
               {referenceSlots.map((slot, index) => {
                 const port = `reference:${slot.id}` as const;
                 const selected = source(port);
@@ -442,6 +442,15 @@ export function BoardExecutionPanel({
                         ))}
                       </select>
                     </label>
+                    {selected && (
+                      <StudioButton
+                        icon="close"
+                        variant="ghost"
+                        aria-label={`断开参考${label} ${index + 1}：${slot.label}`}
+                        title={`断开${slot.label}`}
+                        onClick={() => bind(port, '')}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -497,6 +506,81 @@ export function BoardExecutionPanel({
               onClose={() => setShowPrompts(false)}
             />
           )}
+          {workflow?.parameters.length || workflow?.fields?.length ? (
+            <section className="v2-common-parameters" aria-label="常用生成参数">
+              <span className="v2-common-parameters-label">生成参数</span>{' '}
+              {workflow?.parameters.map((p) => (
+                <label key={p.key}>
+                  {p.key === 'seed' ? '随机种子' : parameterLabels[p.key]}
+                  {p.key === 'aspectRatio' ? (
+                    <select
+                      aria-label={`节点${parameterLabels[p.key]}`}
+                      value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
+                      onChange={(e) =>
+                        update({
+                          ...node,
+                          data: {
+                            generation: {
+                              ...settings,
+                              parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
+                            },
+                          },
+                        })
+                      }
+                    >
+                      {p.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      aria-label={`节点${parameterLabels[p.key]}`}
+                      type="number"
+                      min={p.min}
+                      max={p.max}
+                      step={p.step}
+                      value={settings.parameterValues?.[p.key] ?? p.defaultValue}
+                      onChange={(e) =>
+                        update({
+                          ...node,
+                          data: {
+                            generation: {
+                              ...settings,
+                              parameterValues: {
+                                ...settings.parameterValues,
+                                [p.key]: Number(e.target.value),
+                              },
+                            },
+                          },
+                        })
+                      }
+                    />
+                  )}
+                </label>
+              ))}
+              <CreativeParameters
+                fields={workflow?.fields ?? []}
+                overrides={fieldOverrides}
+                change={(id, value) => {
+                  const field = workflow?.fields?.find((f) => f.id === id);
+                  update({
+                    ...node,
+                    data: {
+                      generation: {
+                        ...settings,
+                        fieldValues: {
+                          ...settings.fieldValues,
+                          [id]: field?.type === 'number' ? Number(value) : value,
+                        },
+                      },
+                    },
+                  });
+                }}
+              />
+            </section>
+          ) : null}
           <details className="creative-advanced">
             <summary>
               <StudioIcon name="sliders" size={16} />
@@ -535,73 +619,6 @@ export function BoardExecutionPanel({
                   ))}
               </select>
             </label>
-            {workflow?.parameters.map((p) => (
-              <label key={p.key}>
-                {parameterLabels[p.key]}
-                {p.key === 'aspectRatio' ? (
-                  <select
-                    aria-label={`节点${parameterLabels[p.key]}`}
-                    value={String(settings.parameterValues?.[p.key] ?? p.defaultValue)}
-                    onChange={(e) =>
-                      update({
-                        ...node,
-                        data: {
-                          generation: {
-                            ...settings,
-                            parameterValues: { ...settings.parameterValues, [p.key]: e.target.value },
-                          },
-                        },
-                      })
-                    }
-                  >
-                    {p.options.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    aria-label={`节点${parameterLabels[p.key]}`}
-                    type="number"
-                    min={p.min}
-                    max={p.max}
-                    step={p.step}
-                    value={settings.parameterValues?.[p.key] ?? p.defaultValue}
-                    onChange={(e) =>
-                      update({
-                        ...node,
-                        data: {
-                          generation: {
-                            ...settings,
-                            parameterValues: { ...settings.parameterValues, [p.key]: Number(e.target.value) },
-                          },
-                        },
-                      })
-                    }
-                  />
-                )}
-              </label>
-            ))}
-            <CreativeParameters
-              fields={workflow?.fields ?? []}
-              overrides={fieldOverrides}
-              change={(id, value) => {
-                const field = workflow?.fields?.find((f) => f.id === id);
-                update({
-                  ...node,
-                  data: {
-                    generation: {
-                      ...settings,
-                      fieldValues: {
-                        ...settings.fieldValues,
-                        [id]: field?.type === 'number' ? Number(value) : value,
-                      },
-                    },
-                  },
-                });
-              }}
-            />
             {poolConfigured && editable && (
               <div>
                 <label>

@@ -77,8 +77,16 @@ export default function BoardWorkspace({
   const [resolved, setResolved] = useState<Record<string, BoardResolved>>({});
   const [selected, setSelected] = useState<string[]>([]);
   const workflowsForNodes = useRef(new Map<string, Workflow>());
-  const registerWorkflow = useCallback((id: string, workflow: Workflow) => {
-    workflowsForNodes.current.set(id, workflow);
+  const [presentations, setPresentations] = useState<
+    Record<string, { workflowId?: string; name: string; latestState?: string }>
+  >({});
+  const registerWorkflow = useCallback((id: string, workflow: Workflow | undefined, latestState?: string) => {
+    if (workflow) workflowsForNodes.current.set(id, workflow);
+    else workflowsForNodes.current.delete(id);
+    const next = { workflowId: workflow?.id, name: workflow?.name ?? '选择工作流', latestState };
+    setPresentations((old) =>
+      JSON.stringify(old[id]) === JSON.stringify(next) ? old : { ...old, [id]: next },
+    );
   }, []);
   const [pendingInput, setPendingInput] = useState<{
     source: string;
@@ -656,13 +664,69 @@ export default function BoardWorkspace({
           domain: node,
           value: resolved[node.id],
           hasReferenceInputs: referenceTargets.has(node.id),
+          generationCard:
+            node.type === 'generation'
+              ? (() => {
+                  const stored = presentations[node.id];
+                  const presentation =
+                    stored?.workflowId === node.data.generation?.workflowId ? stored : undefined;
+                  const workflow = workflowsForNodes.current.get(node.id);
+                  const currentWorkflow =
+                    workflow?.id === node.data.generation?.workflowId ? workflow : undefined;
+                  const inputs = layout.edges.filter(
+                    (edge) => edge.kind === 'input_binding' && edge.target === node.id,
+                  );
+                  const promptNode = layout.nodes.find(
+                    (item) => item.id === inputs.find((edge) => edge.targetPort === 'prompt')?.source,
+                  );
+                  const references = inputs
+                    .filter((edge) => edge.targetPort !== 'prompt')
+                    .map((edge) => {
+                      const value = resolved[edge.source];
+                      const slot = currentWorkflow?.mediaSchema?.inputs.find(
+                        (item) => `reference:${item.id}` === edge.targetPort,
+                      );
+                      return {
+                        port: edge.targetPort!,
+                        label: edge.targetPort === 'first_frame' ? '首帧' : (slot?.label ?? '参考素材'),
+                        title: value?.title ?? '固定素材',
+                        poster:
+                          value?.media?.posterUrl ??
+                          (value?.media?.mediaType === 'image' ? value.media.contentUrl : undefined),
+                        unavailable: !value?.media || value.status === 'unavailable',
+                      };
+                    });
+                  const accepts =
+                    currentWorkflow?.executable === true
+                      ? (currentWorkflow.mediaSchema?.inputs ?? [])
+                          .filter(
+                            (slot) => !inputs.some((edge) => edge.targetPort === `reference:${slot.id}`),
+                          )
+                          .map((slot) => slot.mediaType)
+                      : [];
+                  if (
+                    currentWorkflow?.capability === 'video.image_to_video' &&
+                    !inputs.some((edge) => edge.targetPort === 'first_frame')
+                  )
+                    accepts.push('image');
+                  return {
+                    name:
+                      presentation?.name ??
+                      (node.data.generation?.workflowId ? '固定工作流 · 选中查看' : '选择工作流'),
+                    prompt: promptNode?.data.text ?? '',
+                    latestState: presentation?.latestState,
+                    accepts,
+                    references,
+                  };
+                })()
+              : undefined,
           childCount:
             node.type === 'group'
               ? layout.nodes.filter((item) => item.parentId === node.id).length
               : undefined,
         },
       }));
-  }, [layout, resolved, selected]);
+  }, [layout, resolved, selected, presentations]);
   const flowEdges = useMemo(
     () =>
       (layout?.edges ?? []).map((edge) => ({
@@ -1434,6 +1498,7 @@ export default function BoardWorkspace({
             </nav>
             <BoardSurface
               onUpdate={update}
+              onDisconnect={bindInput}
               onCreate={(type, at) => add(type, undefined, undefined, at)}
               toolbar={
                 node && inlineNode && selected.length === 1

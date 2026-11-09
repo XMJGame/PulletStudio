@@ -20,11 +20,19 @@ import { CanvasNode, kindLabels, statusLabels } from './board-types';
 import { boardResourceDrag } from './BoardSources';
 import { BoardMediaFrame, BoardVideoPreview } from './BoardMediaFrame';
 import { referenceMediaLabels } from '../workflows/workflow-types';
-import type { BoardNode } from '../../../../packages/contracts/src/board';
+import type { BoardInputPort, BoardNode } from '../../../../packages/contracts/src/board';
+import { generationStates } from '../components/GenerationDialog';
+import { StudioIcon } from '../shared/ui/StudioUI';
 import { mediaFileAccept } from '../media-upload';
-const InlineEditing = createContext<{ editable: boolean; update: (node: BoardNode) => void }>({
+const InlineEditing = createContext<{
+  editable: boolean;
+  update: (node: BoardNode) => void;
+  disconnect: (id: string, port: BoardInputPort) => void;
+  connectingType?: string;
+}>({
   editable: false,
   update: () => {},
+  disconnect: () => {},
 });
 const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNode>) {
   const { domain, value } = data;
@@ -51,7 +59,7 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
       />
       {visual && <BoardMediaFrame id={domain.id} title={value.title} media={media} />}
-      {domain.type !== 'note' && domain.type !== 'brief' && (
+      {domain.type !== 'note' && domain.type !== 'brief' && domain.type !== 'generation' && (
         <span className="creative-node-kind">{kindLabels[value?.kind ?? domain.type] ?? '业务引用'}</span>
       )}
       <strong>
@@ -61,7 +69,9 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
             ? '便签'
             : domain.type === 'brief'
               ? '文字'
-              : kindLabels[domain.type]}
+              : domain.type === 'generation'
+                ? (data.generationCard?.name ?? '生成')
+                : kindLabels[domain.type]}
       </strong>
       {domain.type === 'reference' || domain.type === 'result' ? (
         <>
@@ -79,7 +89,40 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
           </footer>
         </>
       ) : domain.type === 'generation' ? (
-        <p className="creative-note-text">选中后配置工作流和输入。</p>
+        <>
+          <span className="creative-generation-state">
+            {data.generationCard?.latestState
+              ? `最近任务 · ${generationStates[data.generationCard.latestState] ?? data.generationCard.latestState}`
+              : '准备创作'}
+          </span>
+          <div className="creative-generation-references nodrag nowheel nopan">
+            {data.generationCard?.references.map((ref) => (
+              <div className="creative-generation-reference nodrag nopan" key={ref.port} title={ref.title}>
+                {ref.poster && !ref.unavailable ? (
+                  <img src={ref.poster} alt="" loading="lazy" />
+                ) : (
+                  <StudioIcon name="folder" size={16} />
+                )}
+                <span>
+                  <small>{ref.label}</small>
+                  <span>{ref.unavailable ? '素材不可用' : ref.title}</span>
+                </span>
+                {editing.editable && (
+                  <button
+                    aria-label={`断开${ref.label}`}
+                    title={`断开${ref.label}`}
+                    onClick={() => editing.disconnect(domain.id, ref.port)}
+                  >
+                    <StudioIcon name="close" size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="creative-generation-prompt">
+            {data.generationCard?.prompt || '选中节点，写下你想创作的内容…'}
+          </p>
+        </>
       ) : (
         <textarea
           className="creative-inline-text nodrag nowheel nopan"
@@ -137,26 +180,28 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
             id="prompt"
             style={{ top: '65%' }}
             aria-label="提示词 TEXT 输入"
+            title="连接提示词"
           />
-          <span className="creative-port-label" style={{ top: '62%' }}>
-            提示词 · TEXT
-          </span>
           <Handle
             type="target"
             position={Position.Left}
             id="first_frame"
             style={{ top: '85%' }}
             aria-label="首帧 IMAGE 输入"
+            title="连接首帧"
           />
-          <span className="creative-port-label" style={{ top: '82%' }}>
-            首帧 · IMAGE
-          </span>
           <Handle
             type="target"
             position={Position.Left}
             id="references"
             style={{ top: '75%' }}
             aria-label="素材自动匹配输入"
+            title="连接图片、视频或音频"
+            className={
+              editing.connectingType && data.generationCard?.accepts.includes(editing.connectingType)
+                ? 'creative-compatible-port'
+                : undefined
+            }
           />
         </>
       )}
@@ -182,6 +227,7 @@ export function BoardSurface({
   toolbar,
   onUpdate,
   onCreate,
+  onDisconnect,
 }: {
   nodes: CanvasNode[];
   edges: Edge[];
@@ -195,6 +241,7 @@ export function BoardSurface({
   overlay?: React.ReactNode;
   toolbar?: { nodeId: string; content: ReactNode };
   onUpdate: (node: BoardNode) => void;
+  onDisconnect: (target: string, port: BoardInputPort, source: string) => void;
   onCreate: (type: 'note' | 'brief' | 'generation', at: { x: number; y: number }) => void;
   onNodesChange: OnNodesChange<CanvasNode>;
   onEdgesChange: OnEdgesChange;
@@ -202,6 +249,7 @@ export function BoardSurface({
   onViewportChange: (value: Viewport) => void;
 }) {
   const [fileDrag, setFileDrag] = useState(false);
+  const [connectingType, setConnectingType] = useState<string>();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const contextFileInput = useRef<HTMLInputElement>(null);
   const toolbarNode = nodes.find((item) => item.id === toolbar?.nodeId);
@@ -290,7 +338,14 @@ export function BoardSurface({
           });
         }}
       >
-        <InlineEditing.Provider value={{ editable, update: onUpdate }}>
+        <InlineEditing.Provider
+          value={{
+            editable,
+            update: onUpdate,
+            disconnect: (id, port) => onDisconnect(id, port, ''),
+            connectingType,
+          }}
+        >
           <BoardVideoPreview.Provider value={videoPreview}>
             <ReactFlow<CanvasNode>
               nodes={nodes}
@@ -299,6 +354,15 @@ export function BoardSurface({
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onConnectStart={(_, params) => {
+                if (params.handleType === 'source') {
+                  const source = nodes.find((node) => node.id === params.nodeId);
+                  setConnectingType(
+                    params.handleId === 'text' ? 'text' : source?.data.value?.media?.mediaType,
+                  );
+                }
+              }}
+              onConnectEnd={() => setConnectingType(undefined)}
               viewport={viewport}
               onViewportChange={onViewportChange}
               onPaneClick={() => setMenu(undefined)}
