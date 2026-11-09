@@ -14,3 +14,5 @@
 - 全量后补充新任务结果组避开既有内容，`b16-group-final.log` 的完整分组场景再次通过；原有结果组位置不改。
 - `b16-unit.log`：3 项通过，覆盖最大 40 份、尺寸/容量边界与原子失败、已有根层结果不重排、无效/不完整清单拒绝、删除后补回已有组空位、不同任务不重叠。复现 `npm run test:canvas-logic`，也已加入 `test:boards` 前置门禁。
 - `b16-build-final.log`、`b16-typecheck-final.log`、`b16-format-final.log`：构建、类型、格式通过。测试用独立数据库、Mock 和真实媒体，没有真实模型调用。无 DB/API/Worker 变化，本轮不重复全量后端测试。
+
+交付：程序来源 `153df04`，B16 体验目录及 ZIP 在仓库外；10049 份程序文件校验通过。完整保留 B15 的 70 张表、2 份媒体及加密配置，启动后无表变化、账号保持初始化、API 就绪，旧目录保留回退。原工程库仍 42 条迁移。收据 `data/e2e/b16-profile-receipt.json` 与私密配置不进入 ZIP 或 Git。
