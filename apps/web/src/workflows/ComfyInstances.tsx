@@ -1,20 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { Connection, GenerationConfig } from './workflow-types';
 import { StudioButton } from '../shared/ui/StudioUI';
+import { SettingsLayout, SettingsNavigation } from '../features/settings/SettingsLayout';
 
 type PoolDraft = Pick<Connection, 'poolEnabled' | 'poolVersion' | 'maxRunning' | 'maxPending'>;
 export function ComfyInstances({
   config,
-  projectPath,
+  workspacePath,
   busy,
   run,
   refreshConfig,
   setMessage,
   onDraftChange,
 }: {
-  config: GenerationConfig;
-  projectPath: string;
+  config: Pick<GenerationConfig, 'canConfigure' | 'connections'>;
+  workspacePath: string;
   busy: boolean;
   run: (action: () => Promise<void>) => Promise<void>;
   refreshConfig: () => Promise<void>;
@@ -25,6 +26,8 @@ export function ComfyInstances({
   const [drafts, setDrafts] = useState<Record<string, PoolDraft>>({});
   const [checks, setChecks] = useState<Record<string, { version: number; reachable: boolean }>>({});
   const [checking, setChecking] = useState('');
+  const [selectedId, setSelectedId] = useState(config.connections[0]?.id ?? '');
+  const { showDetail } = useContext(SettingsLayout);
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(
     () => onDraftChange(connectionDirty || Object.keys(drafts).length > 0),
@@ -35,14 +38,40 @@ export function ComfyInstances({
   }
   return (
     <section className="comfy-instances" aria-label="ComfyUI 实例管理">
-      <div className="comfy-instance-list">
-        <div className="v2-library-heading">
-          <h3>已添加的实例</h3>
-          <span className="field-hint">
-            {config.connections.filter((item) => item.poolEnabled).length}/12 已加入自动调度
-          </span>
+      <SettingsNavigation section="instances">
+        <h3>ComfyUI 实例</h3>
+        {config.canConfigure && (
+          <StudioButton
+            icon="plus"
+            variant="primary"
+            disabled={busy}
+            onClick={() => {
+              setSelectedId('');
+              showDetail();
+            }}
+          >
+            新增实例
+          </StudioButton>
+        )}
+        <div className="settings-object-list">
+          {config.connections.map((item) => (
+            <button
+              key={item.id}
+              disabled={busy}
+              aria-pressed={selectedId === item.id}
+              onClick={() => {
+                setSelectedId(item.id);
+                showDetail();
+              }}
+            >
+              <strong>{item.name}</strong>
+              <small>{item.enabled ? '已启用' : '已停用'}</small>
+            </button>
+          ))}
         </div>
-        <p className="field-hint">在这里管理连接与调度。工作流的输入、参数及输出在「工作流」中配置。</p>
+        {!config.connections.length && <p className="field-hint">尚无可管理的实例。</p>}
+      </SettingsNavigation>
+      <div className="comfy-instance-list">
         {!config.canConfigure && (
           <p className="notice">当前账号可浏览工作流，实例配置需要实例及工作区管理权限。</p>
         )}
@@ -55,7 +84,12 @@ export function ComfyInstances({
           const draft = drafts[item.id] ?? item;
           const check = checks[item.id]?.version === item.version ? checks[item.id] : undefined;
           return (
-            <article className="panel comfy-instance-card" key={item.id} aria-label={`实例 ${item.name}`}>
+            <article
+              hidden={selectedId !== item.id}
+              className="panel comfy-instance-card"
+              key={item.id}
+              aria-label={`实例 ${item.name}`}
+            >
               <header>
                 <strong>{item.name}</strong>
                 <span className="v2-workflow-status">{item.enabled ? '已启用' : '已停用'}</span>
@@ -194,7 +228,7 @@ export function ComfyInstances({
         })}
       </div>
       {config.canConfigure && (
-        <section className="comfy-instance-create" aria-label="添加 ComfyUI 实例">
+        <section hidden={selectedId !== ''} className="comfy-instance-create" aria-label="添加 ComfyUI 实例">
           <h3>添加实例</h3>
           <p className="field-hint">填写已有 ComfyUI 服务的地址。添加不会运行工作流或生成素材。</p>
           <form
@@ -204,7 +238,7 @@ export function ComfyInstances({
               event.preventDefault();
               const data = new FormData(event.currentTarget);
               void run(async () => {
-                await api(`${projectPath}/generation-connections`, 'POST', {
+                const created = await api<{ id: string }>(`${workspacePath}/generation-connections`, 'POST', {
                   name: data.get('name'),
                   baseUrl: data.get('baseUrl'),
                   token: data.get('token'),
@@ -213,6 +247,7 @@ export function ComfyInstances({
                 formRef.current?.reset();
                 setConnectionDirty(false);
                 await refreshConfig();
+                setSelectedId(created.id);
                 setMessage('已添加 ComfyUI 实例。可以测试连接或切换到「工作流」继续配置。');
               });
             }}

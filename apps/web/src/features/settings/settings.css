@@ -1,0 +1,174 @@
+.studio-dialog.studio-settings {
+  width: min(1320px, calc(100vw - 32px));
+}
+.studio-settings > .dialog-body.settings-split {
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+}
+.settings-navigation {
+  overflow: auto;
+  padding: 16px 12px;
+  border-right: 1px solid var(--line);
+  background: var(--ground);
+  min-width: 0;
+}
+.settings-navigation nav {
+  display: grid;
+  gap: 4px;
+}
+.settings-category {
+  padding: 16px 10px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+.settings-navigation nav button {
+  text-align: left;
+  border: 1px solid transparent;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+}
+.settings-navigation nav button[aria-current='page'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--line);
+  font-weight: 600;
+}
+.settings-context-nav {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 16px;
+}
+.settings-context-nav[hidden],
+.settings-panel[hidden] {
+  display: none;
+}
+.settings-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+.settings-project-filter {
+  display: block;
+  border-top: 1px solid var(--line);
+  padding: 16px 0 0;
+  margin: 18px 0 0;
+  font-size: 12px;
+}
+.settings-project-filter select {
+  margin-top: 6px;
+}
+.settings-panel {
+  min-width: 0;
+}
+.settings-detail .v2-library-detail {
+  padding: 0;
+}
+.settings-context-nav .workflow-saved-list article {
+  padding: 10px;
+}
+.settings-context-nav .v2-library-heading h3 {
+  font-size: 13px;
+}
+.settings-context-nav .v2-library-tools {
+  gap: 4px;
+}
+.settings-context-nav .workflow-map-actions {
+  gap: 4px;
+}
+.settings-context-nav input[type='search'] {
+  margin-block: 8px;
+}
+.settings-context-nav .workflow-saved-list {
+  margin-top: 10px;
+}
+.settings-empty {
+  max-width: 640px;
+  margin: 50px auto;
+  padding: 24px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.settings-empty h3 {
+  color: var(--ink);
+}
+.settings-mobile-nav {
+  display: none;
+}
+@media (max-width: 760px) {
+  .studio-settings > .dialog-body.settings-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-settings .settings-split[data-pane='navigation'] > .settings-detail,
+  .studio-settings .settings-split[data-pane='detail'] > .settings-navigation {
+    display: none;
+  }
+  .settings-navigation {
+    border-right: 0;
+  }
+  .settings-detail {
+    padding: 14px;
+  }
+  .settings-mobile-nav {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-mobile-nav button {
+    flex: 1;
+    padding: 8px;
+  }
+  .settings-mobile-nav button[aria-pressed='true'] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .studio-settings > .dialog-footer {
+    flex-wrap: wrap;
+  }
+}
+.settings-object-list {
+  display: grid;
+  gap: 6px;
+  margin-block: 12px;
+}
+.settings-object-list button {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  overflow-wrap: anywhere;
+}
+.settings-object-list button[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.settings-object-list small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.settings-detail .comfy-instances {
+  display: block;
+  padding: 0;
+  overflow: visible;
+}
+.settings-detail .comfy-instance-create {
+  max-width: 740px;
+}
+.settings-detail .comfy-instance-card {
+  margin: 0;
+  padding: 20px;
+}
+.settings-detail .api-connections-grid {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 740px;
+}
+.settings-detail .api-connection-card[hidden],
+.settings-detail .comfy-instance-card[hidden],
+.settings-detail .comfy-instance-create[hidden] {
+  display: none;
+}

@@ -161,6 +161,14 @@ export class GenerationController {
   connection(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.generation.createConnection(req.user, parse(uuid, id), parse(connectionInput, body));
   }
+  @Get('workspaces/:id/generation-connections')
+  workspaceConnections(@Req() req: StudioRequest, @Param('id') id: string) {
+    return this.generation.workspaceConnectionConfig(req.user, parse(uuid, id));
+  }
+  @Post('workspaces/:id/generation-connections')
+  workspaceConnection(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.generation.createWorkspaceConnection(req.user, parse(uuid, id), parse(connectionInput, body));
+  }
   @Patch('generation-connections/:id')
   toggle(@Req() req: StudioRequest, @Param('id') id: string, @Body() body: unknown) {
     const input = parse(connectionUpdate, body);

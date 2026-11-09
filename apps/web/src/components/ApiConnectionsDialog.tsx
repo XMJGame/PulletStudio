@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { StudioButton } from '../shared/ui/StudioUI';
-import { Dialog } from './Dialog';
+import { SettingsLayout } from '../features/settings/SettingsLayout';
 import './api-connections.css';
 
 const presets = [
@@ -30,15 +30,20 @@ type Connection = {
 };
 type Connections = { encryptionReady: boolean; items: Connection[] };
 
-export function ApiConnectionsDialog({
+export function ApiConnectionsPanel({
   workspaceId,
   canCreate,
-  onClose,
+  onDraftChange,
+  onBusyChange,
+  onUnauthorized,
 }: {
   workspaceId: string;
   canCreate: boolean;
-  onClose: () => void;
+  onDraftChange: (dirty: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
+  onUnauthorized: () => void;
 }) {
+  const { provider } = useContext(SettingsLayout);
   const path = `/workspaces/${workspaceId}/text-connections`;
   const imagePath = `/workspaces/${workspaceId}/modelscope-generation`;
   const [data, setData] = useState<Connections>();
@@ -48,6 +53,11 @@ export function ApiConnectionsDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  useEffect(
+    () => onDraftChange(Boolean(imageKey.length || Object.values(keys).some((key) => key.length))),
+    [imageKey, keys, onDraftChange],
+  );
+  useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => {
     let active = true;
     api<Connections>(path).then(
@@ -80,6 +90,13 @@ export function ApiConnectionsDialog({
       setData(await api<Connections>(path));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'API 设置未更新');
+      if (reason instanceof ApiError && reason.status === 401) onUnauthorized();
+      if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
+        setData(undefined);
+        setImage(undefined);
+        setKeys({});
+        setImageKey('');
+      }
       if (reason instanceof ApiError && reason.status === 409) {
         const latest = await api<Connections>(path).catch(() => undefined);
         if (latest) setData(latest);
@@ -90,14 +107,9 @@ export function ApiConnectionsDialog({
   }
 
   return (
-    <Dialog
-      title="API 设置"
-      description="快捷配置带免费额度或限时试用的文本模型。额度以平台账号为准。"
-      className="api-connections"
-      busy={busy}
-      onClose={onClose}
-    >
-      <div className="dialog-body">
+    <div className="settings-api-content">
+      <h3>{provider}</h3>
+      <div className="api-settings-body">
         <p className="field-hint">凭据按工作区加密保存。ModelScope 文生图在画布的「生成引擎」里使用。</p>
         {!data && !error && <p role="status">正在读取工作区连接…</p>}
         {data && !data.encryptionReady && (
@@ -115,6 +127,7 @@ export function ApiConnectionsDialog({
             {image && (
               <form
                 className="api-connection-card"
+                hidden={provider !== 'ModelScope'}
                 aria-label="ModelScope 文生图"
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -169,6 +182,7 @@ export function ApiConnectionsDialog({
                 <form
                   key={preset.name}
                   className="api-connection-card"
+                  hidden={provider !== preset.name}
                   aria-label={preset.name}
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -245,6 +259,6 @@ export function ApiConnectionsDialog({
           </div>
         )}
       </div>
-    </Dialog>
+    </div>
   );
 }

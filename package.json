@@ -32,8 +32,9 @@
     "test:boards": "npm run build && playwright test --config playwright.boards.config.ts",
     "test:workflow-graph": "node --import tsx --test tests/workflows/graph.test.mjs",
     "test:workflows": "npm run build && npm run test:workflow-graph && playwright test --config playwright.workflows.config.ts",
-    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts",
-    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts"
+    "test:settings": "npm run build && playwright test --config playwright.settings.config.ts",
+    "format": "prettier --write apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts playwright.settings.config.ts",
+    "format:check": "prettier --check apps/api/src apps/web/src tools tests playwright.config.ts playwright.boards.config.ts playwright.workflows.config.ts playwright.settings.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

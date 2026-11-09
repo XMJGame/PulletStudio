@@ -21,7 +21,7 @@
 
 | 领域 | 使用/API与限制 | 开工合同及代码入口 |
 |---|---|---|
-| ComfyUI 实例 / 工作流入口 | [两个 Tab、权限及草稿](WORKFLOW-CENTER.md) | [B12 合同](modules/COMFYUI-TABS-B12.md)；实例表单独立，保留旧任务/路由兼容 |
+| 全局设置 / ComfyUI / API | [左侧导航、右侧配置及权限](WORKFLOW-CENTER.md) | [B13 合同](modules/WORKSPACE-SETTINGS-B13.md)；实例在工作区共用，工作流保留项目归属；覆盖 B12 旧入口 |
 | 当前自由创作 | [无镜头生成与候选入库](LIGHT-CREATION.md) | [L1 合同](modules/LIGHT-CREATION-L1.md)、[B5 引擎与类型](modules/GENERATION-TYPE-SELECTOR-B5.md)、[验收](history/LIGHT-CREATION-L1-2026-11-06.md)；共用Generation/Storage/RBAC |
 | 项目资产/多画布的当前差异与下一包 | [依赖路线](architecture/ASSET-CANVAS-IMPLEMENTATION.md) | 提示词库与单节点执行已接通，接下来做统一授权和多模态 |
 | 项目提示词库 | [保存、修订与复用](PROMPT-LIBRARY.md) | [L2-B合同](modules/PROMPT-LIBRARY-L2B.md)、[验收](history/PROMPT-LIBRARY-L2B-2026-11-06.md)；普通文本，共用Generation/Board |

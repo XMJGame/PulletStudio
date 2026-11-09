@@ -69,10 +69,10 @@ export function StudioProjectGallery({
           </StudioButton>
         </div>
         <div className="v2-rail-bottom">
+          {railActions}
           <StudioButton variant="ghost" icon={dark ? 'sun' : 'moon'} onClick={toggleTheme}>
             {dark ? '浅色界面' : '深色界面'}
           </StudioButton>
-          {railActions}
           {reviewMode && <span className="v2-review-indicator">设计评审</span>}
         </div>
       </aside>

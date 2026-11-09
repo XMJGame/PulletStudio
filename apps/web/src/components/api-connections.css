@@ -1,7 +1,3 @@
-.studio-dialog.api-connections {
-  width: min(760px, calc(100vw - 24px));
-}
-
 .api-connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));

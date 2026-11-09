@@ -85,7 +85,7 @@ Playwright默认本机Edge，支持PLAYWRIGHT_CHANNEL指定Chrome/Chromium。当
 
 CI配置在.github/workflows/checks.yml，Ubuntu/Node24/FFmpeg/Chromium。远端某次提交是否通过要单独查对应运行，不能拿本机结果代替；本轮不重装依赖或重跑远端CI。
 
-正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 Mock ComfyUI。覆盖完整 UI 创作链、固定引用、冲突恢复、权限、交互和候选入库。工作流浏览器使用 `playwright.workflows.config.ts`，两套共用端口，须顺序执行。当前数量见[实施状态](../IMPLEMENTATION-STATUS.md)。
+正式画布使用 `npm run test:boards`，已构建时可运行 `npx playwright test --config playwright.boards.config.ts`。独立 API 3112、Web 5192、SQLite、Worker 和 Mock ComfyUI。覆盖完整 UI 创作链、固定引用、冲突恢复、权限、交互和候选入库。工作流浏览器使用 `playwright.workflows.config.ts`；全局设置使用 `npm run test:settings` 或已有构建下的 `npx playwright test --config playwright.settings.config.ts`。三套共用端口，须顺序执行，运行时不修改 Vite 源码。当前数量见[实施状态](../IMPLEMENTATION-STATUS.md)。
 
 评审原型可用 `npm run dev:studio-review` 在 5196 查看，测试用 `npm run test:studio-review`。原型使用隔离示例数据，正式创作仍从 Web 默认入口进入。
 

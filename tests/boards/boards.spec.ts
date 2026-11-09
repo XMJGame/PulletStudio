@@ -1781,18 +1781,20 @@ test('a new project imports media and a workflow, generates and shares its resul
     await page.screenshot({ path: 'test-results/studio-acceptance-media-light.png' });
     await media.getByRole('button', { name: '添加到画布', exact: true }).click();
     await expect(media).not.toBeVisible();
-    await page.getByRole('button', { name: 'ComfyUI', exact: true }).click();
-    const center = page.getByRole('dialog', { name: 'ComfyUI', exact: true });
-    await expect(center.getByRole('tab', { name: '实例', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect(page.getByRole('button', { name: 'ComfyUI', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: '保存画布', exact: true }).click();
+    await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const center = page.getByRole('dialog', { name: '设置', exact: true });
+    await center.getByRole('button', { name: '新增实例', exact: true }).click();
     await center.getByLabel('实例名称', { exact: true }).fill('Acceptance GPU');
     await center.getByLabel('ComfyUI 地址', { exact: true }).fill(remote.baseUrl);
     await center.getByLabel('批准自部署 HTTP 或私有网络地址').check();
     await center.getByRole('button', { name: '添加实例', exact: true }).click();
     await expect(center.getByRole('status')).toContainText('已添加 ComfyUI 实例');
-    await center.getByRole('tab', { name: '工作流', exact: true }).click();
+    await center.getByRole('button', { name: '工作流', exact: true }).click();
+    const owningBoard = await call('GET', `/boards/${boardId}`);
+    await center.getByLabel('工作流所属项目').selectOption(owningBoard.projectId);
     await center.getByLabel('工作流名称', { exact: true }).fill('Coastal image to video');
     await center.getByLabel('工作流连接', { exact: true }).selectOption({ label: 'Acceptance GPU' });
     await center.getByLabel('生成方式', { exact: true }).selectOption('video.image_to_video');
@@ -1806,8 +1808,10 @@ test('a new project imports media and a workflow, generates and shares its resul
     await center.getByLabel('输出节点', { exact: true }).fill('3');
     await center.getByRole('button', { name: '验证绑定并保存', exact: true }).click();
     await expect(center.getByRole('status')).toContainText('绑定节点已验证并保存');
-    await center.getByRole('button', { name: '关闭 ComfyUI', exact: true }).click();
+    await center.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await page.getByRole('button', { name: '打开项目 Coastal visual study', exact: true }).click();
     await expect(page.locator('.creative-surface img[alt="shore.png"]')).toBeVisible();
+    await page.locator('.creative-surface img[alt="shore.png"]').click();
     await page.getByRole('button', { name: '以此图生成', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
     await panel.getByLabel('节点工作流').selectOption({ label: 'Coastal image to video · v1 · 图生视频' });

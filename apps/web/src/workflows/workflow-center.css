@@ -1,3 +1,6 @@
+.comfy-instances {
+  min-width: 0;
+}
 .workflow-saved-list {
   display: grid;
   gap: 8px;
@@ -14,45 +17,7 @@
   color: var(--muted);
   font-size: var(--caption);
 }
-.workflow-center-dialog > .dialog-footer {
-  justify-content: space-between;
-}
-.comfy-tabs {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 8px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--line);
-}
-.comfy-tabs [role='tab'] {
-  padding: 9px 24px;
-  border: 1px solid transparent;
-  border-radius: var(--r-control);
-  font-weight: 600;
-}
-.comfy-tabs [role='tab'][aria-selected='true'] {
-  color: var(--accent);
-  border-color: var(--line);
-  background: var(--accent-soft);
-}
-.workflow-center-dialog [role='tabpanel'] {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-.workflow-center-dialog [role='tabpanel'][hidden] {
-  display: none;
-}
-.comfy-instances {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.65fr);
-  gap: 24px;
-  padding: 20px;
-  overflow: auto;
-  min-height: 0;
-}
+
 .comfy-instances > * {
   min-width: 0;
 }
@@ -96,17 +61,6 @@
   margin-bottom: 10px;
 }
 @media (max-width: 760px) {
-  .comfy-tabs {
-    padding: 8px 12px;
-  }
-  .comfy-tabs [role='tab'] {
-    flex: 1;
-  }
-  .comfy-instances {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 12px;
-    gap: 12px;
-  }
   .comfy-instance-scheduling .dialog-field-row {
     flex-wrap: wrap;
   }
@@ -329,9 +283,6 @@
   .workflow-technical-surface .react-flow__minimap {
     width: 110px;
     height: 80px;
-  }
-  .workflow-center-dialog > .dialog-footer {
-    flex-wrap: wrap;
   }
 }
 .workflow-media-editor {

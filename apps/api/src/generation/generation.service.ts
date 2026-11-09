@@ -281,29 +281,7 @@ export class GenerationService {
       .orderBy(desc(generationWorkflows.createdAt), desc(generationWorkflows.id))
       .limit(100)
       .all();
-    const connections = canConfigure
-      ? this.database.db
-          .select({
-            id: generationConnections.id,
-            name: generationConnections.name,
-            baseUrl: generationConnections.baseUrl,
-            enabled: generationConnections.enabled,
-            version: generationConnections.version,
-            poolEnabled: generationConnections.poolEnabled,
-            poolVersion: generationConnections.poolVersion,
-            maxRunning: generationConnections.maxRunning,
-            maxPending: generationConnections.maxPending,
-          })
-          .from(generationConnections)
-          .where(
-            and(
-              eq(generationConnections.workspaceId, project.workspaceId),
-              eq(generationConnections.provider, 'comfyui'),
-            ),
-          )
-          .limit(50)
-          .all()
-      : [];
+    const connections = canConfigure ? this.listConnections(project.workspaceId) : [];
     const summary = ({ definitionJson, ...workflow }: (typeof heads)[number]) => {
       const definition = JSON.parse(definitionJson) as WorkflowInput;
       const executable =
@@ -460,13 +438,48 @@ export class GenerationService {
       .all();
     return { items: rows.slice(0, 30), nextCursor: rows.length > 30 ? rows[29].id : null };
   }
+  private listConnections(workspaceId: string) {
+    return this.database.db
+      .select({
+        id: generationConnections.id,
+        name: generationConnections.name,
+        baseUrl: generationConnections.baseUrl,
+        enabled: generationConnections.enabled,
+        version: generationConnections.version,
+        poolEnabled: generationConnections.poolEnabled,
+        poolVersion: generationConnections.poolVersion,
+        maxRunning: generationConnections.maxRunning,
+        maxPending: generationConnections.maxPending,
+      })
+      .from(generationConnections)
+      .where(
+        and(
+          eq(generationConnections.workspaceId, workspaceId),
+          eq(generationConnections.provider, 'comfyui'),
+        ),
+      )
+      .limit(50)
+      .all();
+  }
+  workspaceConnectionConfig(user: CurrentUser, workspaceId: string) {
+    this.authz.workspace(user, workspaceId);
+    const canConfigure = this.canConfigure(user, workspaceId);
+    return { canConfigure, connections: canConfigure ? this.listConnections(workspaceId) : [] };
+  }
   createConnection(
     user: CurrentUser,
     projectId: string,
     input: { name: string; baseUrl: string; trustedPrivate: boolean; token: string },
   ) {
     const project = this.authz.project(user, projectId);
-    this.manage(user, project.workspaceId);
+    return this.createWorkspaceConnection(user, project.workspaceId, input);
+  }
+  createWorkspaceConnection(
+    user: CurrentUser,
+    workspaceId: string,
+    input: { name: string; baseUrl: string; trustedPrivate: boolean; token: string },
+  ) {
+    this.manage(user, workspaceId);
     let baseUrl: string;
     try {
       baseUrl = approvedBaseUrl(input.baseUrl, input.trustedPrivate);
@@ -479,15 +492,15 @@ export class GenerationService {
         .insert(generationConnections)
         .values({
           id,
-          workspaceId: project.workspaceId,
+          workspaceId: workspaceId,
           name: input.name,
           baseUrl,
           trustedPrivate: input.trustedPrivate,
-          encryptedSecret: input.token ? this.secrets.encrypt(input.token, id, project.workspaceId) : null,
+          encryptedSecret: input.token ? this.secrets.encrypt(input.token, id, workspaceId) : null,
           createdAt: now(),
         })
         .run();
-      this.audit(user, project.workspaceId, 'generation.connection.create', id);
+      this.audit(user, workspaceId, 'generation.connection.create', id);
       return { id };
     });
   }
