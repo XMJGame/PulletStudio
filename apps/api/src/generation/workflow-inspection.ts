@@ -16,6 +16,19 @@ function optionalMediaDeclaration(key: string, metadata: unknown) {
   );
   return type ? [type] : undefined;
 }
+export function metadataOptions(definition: unknown): unknown[] | undefined {
+  if (!Array.isArray(definition)) return undefined;
+  const choices = Array.isArray(definition[0])
+    ? definition[0]
+    : definition[0] === 'COMBO'
+      ? record(definition[1]).options
+      : undefined;
+  return Array.isArray(choices) &&
+    choices.length > 0 &&
+    choices.every((value) => ['string', 'number', 'boolean'].includes(typeof value))
+    ? choices
+    : undefined;
+}
 export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
   if (!Array.isArray(definition)) return false;
   const [type, raw] = definition,
@@ -33,7 +46,13 @@ export function fieldMatchesMetadata(field: ExposedField, definition: unknown) {
     );
   if (field.type === 'boolean') return type === 'BOOLEAN';
   if (field.type === 'enum')
-    return type === 'STRING' || (Array.isArray(type) && field.options.every((value) => type.includes(value)));
+    return (
+      type === 'STRING' ||
+      Boolean(
+        metadataOptions(definition) &&
+        field.options.every((value) => metadataOptions(definition)!.includes(value)),
+      )
+    );
   return (
     ['INT', 'FLOAT'].includes(type) &&
     (type !== 'INT' || field.integer) &&
@@ -198,8 +217,9 @@ export async function inspectWorkflow(
           workflow.mediaSchema?.inputs.some((slot) => slot.node === id && slot.input === input)
         )
           continue; // Uploaded fixed media is validated separately, not a remote file-existence claim.
-        if (Array.isArray(type)) {
-          if (!type.some((option) => JSON.stringify(option) === JSON.stringify(value)))
+        const choices = metadataOptions(declaration);
+        if (choices) {
+          if (!choices.some((option) => JSON.stringify(option) === JSON.stringify(value)))
             add('OPTION_UNAVAILABLE', input);
         } else if (type === 'STRING') {
           if (typeof value !== 'string') add('VALUE_TYPE_MISMATCH', input);

@@ -14,7 +14,12 @@ import {
   type ReferenceMediaType,
   WorkflowParameter,
 } from './generation-contract';
-import { DependencyReport, fieldMatchesMetadata, inspectWorkflow } from './workflow-inspection';
+import {
+  DependencyReport,
+  fieldMatchesMetadata,
+  inspectWorkflow,
+  metadataOptions,
+} from './workflow-inspection';
 import type { OutputDescriptor } from './generation-output-contract';
 import {
   mediaDisconnectTargets,
@@ -235,7 +240,8 @@ export class ComfyProvider {
           if (binding.key === 'aspectRatio') {
             if (
               type !== 'STRING' &&
-              (!Array.isArray(type) || binding.options.some((option) => !type.includes(option.value)))
+              (!metadataOptions(definition) ||
+                binding.options.some((option) => !metadataOptions(definition)!.includes(option.value)))
             )
               throw new GenerationError('WORKFLOW_PARAMETER_BINDING_INVALID');
             return;

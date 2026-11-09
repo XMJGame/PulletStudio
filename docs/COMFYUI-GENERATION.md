@@ -1,5 +1,7 @@
 # ComfyUI 单镜头生成
 
+2026-11-09：本机 H3 的 I2V、T2I、T2V 已在独立验收空间真实跑通，复用当前无镜头画布生成链路。T2I 为 INT8 VAE 适配版，R2V 由用户决定待专用模型准备后再测；不把三类实测扩大成所有 H3 工作流或尺寸均已通过。新旧 COMBO 枚举声明兼容已补齐。[本次具体证据与限制](history/COMFY-H3-LIVE-2026-11-09.md)。
+
 当前项目与画布入口已支持图片/视频/音频参考及单份音频主输出；可选媒体必须通过专用加载器和下游可省略检查。音频结果可试听、下载、入库及继续引用，试跑证据独立保存。配置和实际限制见[工作流中心](WORKFLOW-CENTER.md#扩展媒体声明l3-b1)与[B4 合同](modules/WORKFLOW-OPTIONAL-MEDIA-AUDIO-B4.md)。下文镜头流程保留为历史后台兼容说明。
 
 > 2026-11-06 后续决定：[ADR-012](ADR-012-remove-retired-creation-ui.md) 已删除 G0、旧创作/镜头/编译/预演 UI 及兼容菜单，覆盖下文对应保留建议。历史固定引用与后台依赖保留；[多画布与后续顺序](architecture/ASSET-CANVAS-IMPLEMENTATION.md) 以实施状态为准。
