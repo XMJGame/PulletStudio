@@ -6,6 +6,7 @@ export type CanvasNode = Node<
     value?: BoardResolved;
     hasReferenceInputs?: boolean;
     childCount?: number;
+    hasResultOutputs?: boolean;
     generationCard?: {
       name: string;
       prompt: string;

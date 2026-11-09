@@ -21,6 +21,7 @@ import type { Workflow } from '../workflows/workflow-types';
 import { BoardSurface } from './BoardSurface';
 import { creationActions, isCreationTarget, type CanvasCreation } from './creation-actions';
 import { groupedResults } from './result-group';
+import { GroupOutputPicker } from './GroupOutputPicker';
 import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
 import { mediaFileAccept } from '../media-upload';
@@ -96,6 +97,13 @@ export default function BoardWorkspace({
     ports: { port: BoardInputPort; label: string }[];
   }>();
   const [connecting, setConnecting] = useState(false);
+  const [pendingGroup, setPendingGroup] = useState<{
+    boardId: string;
+    groupId: string;
+    targetId: string;
+    workflowId: string;
+  }>();
+  useEffect(() => setPendingGroup(undefined), [base?.id]);
   const connectionRequest = useRef(0);
   useEffect(
     () => () => {
@@ -746,27 +754,39 @@ export default function BoardWorkspace({
             node.type === 'group'
               ? layout.nodes.filter((item) => item.parentId === node.id).length
               : undefined,
+          hasResultOutputs:
+            node.type === 'group' &&
+            layout.nodes.some((child) => child.parentId === node.id && child.type === 'result'),
         },
       }));
   }, [layout, resolved, selected, presentations]);
   const flowEdges = useMemo(
     () =>
-      (layout?.edges ?? []).map((edge) => ({
-        ...edge,
-        sourceHandle: 'out',
-        targetHandle: 'in',
-        label:
-          edge.kind === 'input_binding'
-            ? edge.targetPort === 'prompt'
-              ? '提示词'
-              : edge.targetPort === 'first_frame'
-                ? '首帧'
-                : undefined
-            : undefined,
-        style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
-        hidden: flowNodes.some((node) => node.hidden && [edge.source, edge.target].includes(node.id)),
-      })),
-    [layout?.edges, flowNodes],
+      (layout?.edges ?? []).map((edge) => {
+        const child = layout?.nodes.find((node) => node.id === edge.source);
+        const parent = layout?.nodes.find((node) => node.id === child?.parentId);
+        const source =
+          edge.kind === 'input_binding' && child?.type === 'result' && parent?.data.collapsed
+            ? parent.id
+            : edge.source;
+        return {
+          ...edge,
+          source,
+          sourceHandle: 'out',
+          targetHandle: 'in',
+          label:
+            edge.kind === 'input_binding'
+              ? edge.targetPort === 'prompt'
+                ? '提示词'
+                : edge.targetPort === 'first_frame'
+                  ? '首帧'
+                  : undefined
+              : undefined,
+          style: edge.kind === 'input_binding' ? { stroke: 'var(--accent)', strokeWidth: 2 } : undefined,
+          hidden: flowNodes.some((node) => node.hidden && [source, edge.target].includes(node.id)),
+        };
+      }),
+    [layout?.edges, layout?.nodes, flowNodes],
   );
   function nodesChange(changes: NodeChange<CanvasNode>[]) {
     const selections = changes.filter((change) => change.type === 'select');
@@ -899,6 +919,11 @@ export default function BoardWorkspace({
           if (request === connectionRequest.current) setConnecting(false);
         }
       } else setConnecting(false);
+      const group = layout.nodes.find((node) => node.id === connection.source && node.type === 'group');
+      if (group) {
+        setPendingGroup({ boardId: base!.id, groupId: group.id, targetId: target.id, workflowId });
+        return;
+      }
       const ports = matchingPorts(connection.source, connection.target);
       if (!ports.length) {
         setError('没有匹配的空输入，请检查素材类型或已有连接；已有来源不会被覆盖。');
@@ -1684,6 +1709,38 @@ export default function BoardWorkspace({
                 }
               : undefined
           }
+        />
+      )}
+      {pendingGroup && pendingGroup.boardId === base?.id && editable && !denied && (
+        <GroupOutputPicker
+          choices={(layout?.nodes ?? [])
+            .filter((child) => child.type === 'result' && child.parentId === pendingGroup.groupId)
+            .map((child) => ({
+              id: child.id,
+              title: resolved[child.id]?.title ?? '正在读取结果…',
+              media: resolved[child.id]?.status === 'unavailable' ? undefined : resolved[child.id]?.media,
+              ports: matchingPorts(child.id, pendingGroup.targetId),
+            }))}
+          onClose={() => setPendingGroup(undefined)}
+          onConnect={(sourceId, mediaId, port) => {
+            const source = layout?.nodes.find((node) => node.id === sourceId);
+            const target = layout?.nodes.find((node) => node.id === pendingGroup.targetId);
+            if (
+              !editable ||
+              !layout?.nodes.some((node) => node.id === pendingGroup.groupId && node.type === 'group') ||
+              source?.parentId !== pendingGroup.groupId ||
+              source.type !== 'result' ||
+              target?.data.generation?.workflowId !== pendingGroup.workflowId ||
+              resolved[sourceId]?.media?.id !== mediaId ||
+              !matchingPorts(sourceId, pendingGroup.targetId).some((item) => item.port === port)
+            ) {
+              setError('组内产物或目标输入已变化，请重新连接。');
+              setPendingGroup(undefined);
+              return;
+            }
+            bindInput(pendingGroup.targetId, port, sourceId);
+            setPendingGroup(undefined);
+          }}
         />
       )}
       {pendingInput && !denied && (

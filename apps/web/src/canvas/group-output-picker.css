@@ -1,0 +1,46 @@
+.studio-dialog.creative-group-picker {
+  width: min(740px, calc(100vw - 32px));
+}
+.creative-group-output-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.creative-group-output-grid > button {
+  padding: 8px;
+  min-width: 0;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  border-radius: 12px;
+}
+.creative-group-output-grid > button[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.creative-group-output-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.creative-group-output-grid small {
+  color: var(--muted);
+}
+.creative-group-output-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--ground);
+}
+.creative-group-output-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+@media (max-width: 540px) {
+  .creative-group-output-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

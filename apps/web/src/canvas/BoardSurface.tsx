@@ -46,6 +46,16 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         <small>
           {data.childCount ?? 0} 项{domain.data.collapsed ? ' · 已折叠' : ''}
         </small>
+        {data.hasResultOutputs && (
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="out"
+            isConnectable={editing.editable}
+            aria-label={`${domain.data.label} 产物输出`}
+            title="连接后选择组内具体产物"
+          />
+        )}
       </div>
     );
   return (
@@ -56,6 +66,7 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         type="target"
         position={Position.Left}
         id="in"
+        isConnectable={editing.editable}
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输入`}
         title={domain.type === 'generation' ? '连接文字、图片、视频或音频，自动识别用途' : '创作连线'}
         className={
@@ -159,6 +170,7 @@ const BoardCard = memo(function BoardCard({ data, selected }: NodeProps<CanvasNo
         type="source"
         position={Position.Right}
         id="out"
+        isConnectable={editing.editable}
         aria-label={`${value?.title ?? kindLabels[domain.type]} 输出`}
       />
     </article>

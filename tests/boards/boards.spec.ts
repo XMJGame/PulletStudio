@@ -4205,6 +4205,255 @@ test('media connections match unique slots and require explicit choices for ambi
   }
 });
 
+test('result groups choose fixed compatible outputs and purposes without replacing existing inputs', async ({
+  page,
+  browser,
+}) => {
+  const remote = await startComfyMock({
+    'clip.mp4': fixtures['clip.mp4'].bytes,
+    'image.jpg': fixtures['image.jpg'].bytes,
+    'extra.png': fixtures['image.png'].bytes,
+    'sound.mp3': fixtures['sound.mp3'].bytes,
+    'image.png': fixtures['image.png'].bytes,
+  });
+  try {
+    const value = await project('Explicit group outputs');
+    const connection = await call('POST', `/projects/${value.id}/generation-connections`, {
+      name: 'Group selection fixture',
+      baseUrl: remote.baseUrl,
+      trustedPrivate: true,
+    });
+    const production = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureExtendedOutputs(connection.id),
+    );
+    const imagesDefinition = fixtureReferenceImages(connection.id);
+    const images = await call('POST', `/projects/${value.id}/generation-workflows`, imagesDefinition);
+    const mixed = await call(
+      'POST',
+      `/projects/${value.id}/generation-workflows`,
+      fixtureRequiredMedia(connection.id),
+    );
+    const sourceJob = await call('POST', `/projects/${value.id}/generation-jobs`, {
+      workflowId: production.id,
+      positivePrompt: 'Produce storyboard and sound',
+      confirmed: true,
+    });
+    await expect
+      .poll(async () => (await call('GET', `/generation-jobs/${sourceJob.id}`)).state, { timeout: 20000 })
+      .toBe('completed');
+    const job = await call('GET', `/generation-jobs/${sourceJob.id}`);
+    await open(page, value);
+    const id = await createBoard(page, 'Group output choices');
+    let board = await call('GET', `/boards/${id}`);
+    const groupId = randomUUID(),
+      imageTarget = randomUUID(),
+      mixedTarget = randomUUID();
+    const promptId = randomUUID();
+    const results = [
+      { id: job.id, jobId: job.id },
+      ...job.outputs.map((row: any) => ({ id: row.id, jobId: job.id, outputId: row.id })),
+    ];
+    await call('POST', `/boards/${id}/revisions`, {
+      title: board.title,
+      expectedRevision: board.revision,
+      layout: {
+        ...board.layout,
+        nodes: [
+          {
+            id: groupId,
+            type: 'group',
+            position: { x: 0, y: 0 },
+            width: 840,
+            height: 400,
+            data: { label: 'Selected production', collapsed: true },
+          },
+          ...results.map((row, index) => ({
+            id: row.id,
+            type: 'result',
+            parentId: groupId,
+            position: { x: 16 + index * 194, y: 60 },
+            width: 180,
+            height: 280,
+            data: { jobId: row.jobId, ...(row.outputId ? { outputId: row.outputId } : {}) },
+          })),
+          {
+            id: imageTarget,
+            type: 'generation',
+            position: { x: 1040, y: 0 },
+            width: 250,
+            height: 280,
+            data: { generation: { workflowId: images.id } },
+          },
+          {
+            id: mixedTarget,
+            type: 'generation',
+            position: { x: 1040, y: 370 },
+            width: 250,
+            height: 280,
+            data: { generation: { workflowId: mixed.id } },
+          },
+          {
+            id: promptId,
+            type: 'brief',
+            position: { x: 0, y: 470 },
+            width: 250,
+            height: 180,
+            data: { text: 'Use the selected fixed production references' },
+          },
+        ],
+        edges: [imageTarget, mixedTarget].map((target) => ({
+          id: randomUUID(),
+          source: promptId,
+          target,
+          kind: 'input_binding',
+          sourcePort: 'text',
+          targetPort: 'prompt',
+        })),
+      },
+    });
+    await page.reload();
+    if (await page.getByRole('button', { name: '收起资源库', exact: true }).isVisible())
+      await page.getByRole('button', { name: '收起资源库', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    const group = page.locator(`.react-flow__node[data-id="${groupId}"]`);
+    const picker = page.getByRole('dialog', { name: '选择组内产物', exact: true });
+    const choices = picker.getByRole('group', { name: '组内固定产物' }).getByRole('button');
+    async function wire(target = imageTarget) {
+      const from = group.locator('[data-handleid="out"]');
+      const to = page.locator(`.react-flow__node[data-id="${target}"] [data-handleid="in"]`);
+      await from.click({ trial: true });
+      await to.click({ trial: true });
+      const a = (await from.boundingBox())!;
+      const b = (await to.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 16 });
+      await page.mouse.up();
+      await expect(picker).toBeVisible();
+    }
+    await wire();
+    await expect(choices).toHaveCount(4);
+    await expect(choices.nth(0)).toBeDisabled();
+    await expect(choices.nth(3)).toBeDisabled();
+    await expect(picker.getByRole('button', { name: '连接产物', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(picker).toHaveCount(0);
+    expect((await call('GET', `/boards/${id}`)).layout.edges).toHaveLength(2);
+    await wire();
+    await choices.nth(2).focus();
+    await page.keyboard.press('Enter');
+    await expect(picker.getByRole('button', { name: '连接产物', exact: true })).toBeDisabled();
+    await picker
+      .getByLabel('组内产物输入用途')
+      .selectOption(`reference:${imagesDefinition.mediaSchema.inputs[1].id}`);
+    await page.screenshot({ path: 'test-results/b21c-group-picker-desktop.png' });
+    await picker.getByRole('button', { name: '连接产物', exact: true }).click();
+    await save(page);
+    board = await call('GET', `/boards/${id}`);
+    const selectedEdge = board.layout.edges.find(
+      (edge: any) => edge.targetPort === `reference:${imagesDefinition.mediaSchema.inputs[1].id}`,
+    );
+    expect(selectedEdge.source).toBe(results[2].id);
+    await expect(page.locator(`.react-flow__edge[data-id="${selectedEdge.id}"]`)).toBeVisible();
+    await wire();
+    await choices.nth(1).click();
+    await expect(picker.getByLabel('组内产物输入用途')).toHaveValue(
+      `reference:${imagesDefinition.mediaSchema.inputs[0].id}`,
+    );
+    await picker.getByRole('button', { name: '连接产物', exact: true }).click();
+    await save(page);
+    await wire();
+    for (const choice of await choices.all()) await expect(choice).toBeDisabled();
+    await picker.getByRole('button', { name: '取消连接', exact: true }).click();
+    await page.locator(`.react-flow__node[data-id="${imageTarget}"]`).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await panel.getByRole('button', { name: /^(保存并生成|执行生成节点)$/ }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    const generated = (await call('GET', `/boards/${id}/nodes/${imageTarget}/generation-jobs`)).items[0];
+    expect(generated.referenceImages.map((row: any) => row.fileName)).toEqual([
+      job.outputs[0].result.fileName,
+      job.outputs[1].result.fileName,
+    ]);
+    expect(
+      generated.boardExecution.bindings.find((row: any) => row.port === selectedEdge.targetPort).sourceNodeId,
+    ).toBe(results[2].id);
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    for (const index of [0, 3, 1]) {
+      if (index === 3) await page.getByRole('button', { name: '深色画布', exact: true }).click();
+      await wire(mixedTarget);
+      await choices.nth(index).click();
+      await expect(picker.getByRole('button', { name: '连接产物', exact: true })).toBeEnabled();
+      if (index === 3) {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.screenshot({ path: 'test-results/b21c-group-picker-mobile.png' });
+      }
+      await picker.getByRole('button', { name: '连接产物', exact: true }).click();
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    }
+    await save(page);
+    await page.locator(`.react-flow__node[data-id="${mixedTarget}"]`).click();
+    await panel.getByRole('button', { name: /^(保存并生成|执行生成节点)$/ }).click();
+    await expect(panel.getByText('候选已生成', { exact: true })).toBeVisible({ timeout: 20000 });
+    const mixedJob = (await call('GET', `/boards/${id}/nodes/${mixedTarget}/generation-jobs`)).items[0];
+    expect(mixedJob.referenceMedia.map((row: any) => row.mediaType)).toEqual(['image', 'video', 'audio']);
+    expect((await call('GET', `/projects/${value.id}/media-assets`)).items).toHaveLength(0);
+    await panel.getByRole('button', { name: '关闭节点面板', exact: true }).click();
+    const actor = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' });
+    try {
+      const invite = await call('POST', `/workspaces/${setup.workspace.id}/invitations`, {
+        email: `group-reader-${randomUUID()}@board.test`,
+      });
+      const joinedResponse = await actor.post('/api/v1/invitations/accept', {
+        data: { token: invite.token, name: 'Group reader', password: 'Studio8!' },
+        headers: { 'X-Studio-Request': '1' },
+      });
+      expect(joinedResponse.ok()).toBeTruthy();
+      const joined = await joinedResponse.json();
+      await call('POST', `/projects/${value.id}/members`, { userId: joined.user.id, role: 'VIEWER' });
+      const readonly = await context.newPage();
+      await open(readonly, value, actor, joined.user.id);
+      await readonly.getByRole('button', { name: 'Fit View', exact: true }).click();
+      await expect(
+        readonly.locator(`.react-flow__node[data-id="${groupId}"] [data-handleid="out"]`),
+      ).not.toHaveClass(/(?:^| )connectable(?: |$)/);
+      await readonly.locator(`.react-flow__node[data-id="${imageTarget}"]`).click();
+      await expect(
+        readonly
+          .getByRole('region', { name: '生成节点设置' })
+          .getByRole('button', { name: '执行生成节点', exact: true }),
+      ).toHaveCount(0);
+      await expect(readonly.getByRole('dialog', { name: '选择组内产物', exact: true })).toHaveCount(0);
+    } finally {
+      await context.close();
+      await actor.dispose();
+    }
+    await group.locator('strong').first().click();
+    await page.getByLabel('折叠分组', { exact: true }).uncheck();
+    await save(page);
+    await page.reload();
+    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await expect(page.locator(`.react-flow__edge[data-id="${selectedEdge.id}"]`)).toBeVisible();
+    expect(
+      (await call('GET', `/boards/${id}`)).layout.edges.find((edge: any) => edge.id === selectedEdge.id)
+        .source,
+    ).toBe(results[2].id);
+    await group.locator('strong').first().click();
+    await page.getByRole('button', { name: '删除', exact: true }).click();
+    await save(page);
+    const dissolved = await call('GET', `/boards/${id}`);
+    expect(dissolved.layout.nodes.find((node: any) => node.id === results[2].id).parentId).toBeUndefined();
+    expect(dissolved.layout.edges.find((edge: any) => edge.id === selectedEdge.id).source).toBe(
+      results[2].id,
+    );
+  } finally {
+    await remote.close();
+  }
+});
+
 test('one task adds a persistent result group and detaching or dissolving preserves fixed outputs', async ({
   page,
 }) => {
