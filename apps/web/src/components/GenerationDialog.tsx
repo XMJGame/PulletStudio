@@ -232,12 +232,25 @@ export function GenerationDialog({
     (slot) => slot.required && !selectedReferenceVersions[slot.id],
   );
   const selectableWorkflows = workflows.filter(
-    (item) => !item.archived && (poolRouting || item.enabled) && matchesGenerationType(item, engine, output),
+    (item) =>
+      !item.archived &&
+      (poolRouting || item.enabled) &&
+      matchesGenerationType(item, engine, engine === 'comfyui' ? 'all' : output),
   );
   const unavailableWorkflow = Boolean(
     selectedWorkflow && (selectedWorkflow.archived || (!selectedWorkflow.enabled && !poolRouting)),
   );
   function chooseWorkflow(id: string, known?: Workflow) {
+    if (
+      id !== workflowId &&
+      selectedWorkflow &&
+      (Object.keys(parameterOverrides).length ||
+        Object.keys(fieldOverrides).length ||
+        imageVersionId ||
+        Object.keys(selectedReferenceVersions).length) &&
+      !window.confirm('切换将清除当前工作流的参数和素材绑定，保留提示词和原素材。继续吗？')
+    )
+      return false;
     const next = known ?? workflows.find((item) => item.id === id);
     setWorkflowId(id);
     if (next) {
@@ -258,14 +271,16 @@ export function GenerationDialog({
       !images
     )
       void run(loadImages);
+    return true;
   }
   function chooseOutput(next: GenerationOutputFilter) {
-    if (selectedWorkflow && !matchesGenerationType(selectedWorkflow, engine, next)) chooseWorkflow('');
+    if (selectedWorkflow && !matchesGenerationType(selectedWorkflow, engine, next) && !chooseWorkflow(''))
+      return;
     setOutput(next);
   }
   async function chooseEngine(next: GenerationEngine) {
     if (next === 'comfyui') {
-      chooseWorkflow('');
+      if (!chooseWorkflow('')) return;
       setEngine(next);
       return;
     }

@@ -25,6 +25,7 @@ const node = z.discriminatedUnion('type', [
           generation: z
             .object({
               workflowId: z.uuid().optional(),
+              creationTarget: z.enum(['image', 'video', 'audio']).optional(),
               parameterValues: parameterValues.optional(),
               fieldValues: fieldValuesInput.optional(),
             })

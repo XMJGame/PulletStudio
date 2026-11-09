@@ -18,6 +18,7 @@ export type BoardNode = {
     outputId?: string;
     generation?: {
       workflowId?: string;
+      creationTarget?: 'image' | 'video' | 'audio';
       parameterValues?: Partial<Record<'aspectRatio' | 'durationSeconds' | 'seed', string | number>>;
       fieldValues?: Record<string, string | number | boolean>;
     };

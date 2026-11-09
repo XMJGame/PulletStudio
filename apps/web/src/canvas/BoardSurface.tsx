@@ -24,6 +24,7 @@ import type { BoardInputPort, BoardNode } from '../../../../packages/contracts/s
 import { generationStates } from '../components/GenerationDialog';
 import { StudioIcon } from '../shared/ui/StudioUI';
 import { mediaFileAccept } from '../media-upload';
+import { creationActions, type CanvasCreation } from './creation-actions';
 const InlineEditing = createContext<{
   editable: boolean;
   update: (node: BoardNode) => void;
@@ -242,7 +243,7 @@ export function BoardSurface({
   toolbar?: { nodeId: string; content: ReactNode };
   onUpdate: (node: BoardNode) => void;
   onDisconnect: (target: string, port: BoardInputPort, source: string) => void;
-  onCreate: (type: 'note' | 'brief' | 'generation', at: { x: number; y: number }) => void;
+  onCreate: (type: CanvasCreation, at: { x: number; y: number }) => void;
   onNodesChange: OnNodesChange<CanvasNode>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
@@ -442,19 +443,13 @@ export function BoardSurface({
               }
             }}
           >
-            {(
-              [
-                ['brief', '文字节点'],
-                ['note', '便签节点'],
-                ['generation', '生成节点'],
-              ] as const
-            ).map(([type, label], index) => (
+            {creationActions.map(({ kind, label }, index) => (
               <button
-                key={type}
+                key={kind}
                 role="menuitem"
                 autoFocus={index === 0}
                 onClick={() => {
-                  onCreate(type, menu.at);
+                  onCreate(kind, menu.at);
                   setMenu(undefined);
                 }}
               >

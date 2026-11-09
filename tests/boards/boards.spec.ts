@@ -53,6 +53,12 @@ async function call(method: string, path: string, data?: unknown, actor = owner)
   expect(result.ok(), `${method} ${path}: ${await result.text()}`).toBeTruthy();
   return result.json();
 }
+test.beforeEach(async ({ page }) => {
+  page.on('dialog', (dialog) =>
+    dialog.message().startsWith('切换将清除') ? dialog.accept() : dialog.dismiss(),
+  );
+});
+
 test.beforeAll(async () => {
   owner = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
   const initialized = (await (await owner.get('/api/v1/setup/status')).json()).initialized;
@@ -797,7 +803,7 @@ test('project main view keeps drafts and isolates modal focus and clipboard inpu
   await expect(prompts).toBeFocused();
   await expect(workspace).toBeVisible();
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByRole('button', { name: '保存画布', exact: true }).hover();
   await expectReadable(page.getByRole('button', { name: '保存画布', exact: true }));
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
@@ -905,7 +911,7 @@ test('inline prompt selection pins the displayed revision and keeps drafts on fa
   const entry = await call('POST', `/projects/${value.id}/prompt-library`, body);
   await open(page, value);
   const boardId = await createBoard(page, 'Prompt choices');
-  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
   const panel = page.getByRole('region', { name: '生成节点设置' });
   // No workflow is required to prepare a prompt; configuration still loads from the real API.
   await expect(panel.getByLabel('生成提示词')).toBeEnabled();
@@ -1274,7 +1280,7 @@ test('asset preview switching rejects stale responses and preserves explicit cho
   await expect(preview.getByRole('button', { name: '添加此参考素材' })).toBeVisible();
   await page.route('**/board-references/resolve', async (route) => {
     const response = await route.fetch();
-    await page.getByRole('button', { name: '添加便签', exact: true }).click();
+    await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
     await route.fulfill({ response });
   });
   await preview.getByRole('button', { name: '添加此参考素材' }).click();
@@ -1590,7 +1596,7 @@ test('local media drops and image paste create fixed references while text contr
   ).setFiles({ name: 'picked.png', mimeType: 'image/png', buffer: fixtures['image.png'].bytes });
   await expect(page.locator('.creative-surface img[alt="picked.png"]')).toBeVisible();
   await save(page);
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Preserve this note');
   const intercepted = await page.evaluate((transfer) => {
     const event = new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true });
@@ -1985,7 +1991,7 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
     )
     .toBe(96);
   await page.getByRole('button', { name: '返回画布', exact: true }).click();
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   const text = page.getByRole('textbox', { name: '画布文字内容', exact: true });
   await text.fill('Keep the blue hour');
   await text.press('End');
@@ -2034,7 +2040,7 @@ test('formal project resources, fixed versions, real media, layout, keyboard and
   await expect(page.getByLabel('当前画布名称')).toHaveValue('Harbor unit board');
   expect((await call('GET', `/boards/${scopedId}`)).unitId).toBe(unit.id);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Phone note');
   await save(page);
   await page.screenshot({ path: 'test-results/boards-mobile.png', fullPage: true });
@@ -2053,10 +2059,10 @@ test('two windows preserve a conflicting draft, compare, explicitly rebase, and 
   await expect(second.getByLabel('当前画布名称')).toHaveValue('Two artists');
   // Delay background GETs in this tab to reproduce a stale writer reaching the server before polling.
   await second.route(`**/api/v1/boards/${id}`, (route) => route.abort());
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Server artist note');
   await save(page);
-  await second.getByRole('button', { name: '添加便签', exact: true }).click();
+  await second.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await second.getByLabel('画布文字内容').fill('LOCAL DRAFT MUST SURVIVE');
   await second.unroute(`**/api/v1/boards/${id}`);
   const conflict = second.waitForResponse(
@@ -2092,7 +2098,7 @@ test('two windows preserve a conflicting draft, compare, explicitly rebase, and 
   await expect(second.getByLabel('画布文字内容')).toHaveValue('LOCAL DRAFT MUST SURVIVE');
   await save(second);
   expect((await call('GET', `/boards/${id}`)).revision).toBe(3);
-  await second.getByRole('button', { name: '添加便签', exact: true }).click();
+  await second.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await second.getByLabel('画布文字内容').fill('Unsaved close check');
   await second.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(second.getByRole('dialog', { name: '保留当前创作' })).toBeVisible();
@@ -2176,7 +2182,7 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   const media = await uploadMedia(value.id, 'image.png');
   await open(page, value);
   const id = await createBoard(page, 'Relations and notes');
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('First note');
   await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '创作说明', exact: true }).click();
@@ -2213,7 +2219,7 @@ test('drag, annotation connections, multi-select delete, grouping, viewport and 
   await page.getByText('更多操作', { exact: true }).click();
   await page.getByRole('button', { name: '添加分组', exact: true }).click();
   await page.getByLabel('分组名称').fill('Visual group');
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容').fill('Grouped note');
   await page.getByRole('button', { name: '更多设置', exact: true }).click();
   await page.getByText('布局设置', { exact: true }).click();
@@ -2275,11 +2281,11 @@ test('typed canvas inputs execute one recoverable I2V job and persist one result
     );
     await open(page, value);
     const id = await createBoard(page, 'Station generation');
-    await page.getByRole('button', { name: '添加便签', exact: true }).click();
+    await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
     await page.getByLabel('画布文字内容').fill('A quiet dolly across the station');
     await page.getByRole('button', { name: '媒体', exact: true }).click();
     await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     let layout = (await call('GET', `/boards/${id}`)).layout;
@@ -2436,7 +2442,7 @@ test('canvas binds typed image video and audio inputs in one generation', async 
     await open(page, value);
     const boardId = await createBoard(page, 'Three media types');
     for (const name of names) await page.getByRole('button', { name: `添加 ${name}`, exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Test a mixed reference scene');
@@ -2499,7 +2505,7 @@ test('one job exposes independent storyboard sound and main results as fixed can
     );
     await open(page, value);
     const boardId = await createBoard(page, 'Storyboard and sound');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('One production with distinct deliverables');
@@ -2557,7 +2563,6 @@ test('one job exposes independent storyboard sound and main results as fixed can
     expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: 'test-results/b6-canvas-outputs-mobile.png', animations: 'disabled' });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await panel.getByRole('button', { name: '生成音频', exact: true }).click();
     await panel.getByLabel('节点工作流').selectOption(nextWorkflow.id);
     await panel
       .getByLabel('节点参考音频 2：Sound reference', { exact: true })
@@ -2614,7 +2619,7 @@ test('primary batch candidates pin independent canvas results and reuse the sele
     );
     await open(page, value);
     const boardId = await createBoard(page, 'Main image choices');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Two independent main images');
@@ -2660,7 +2665,6 @@ test('primary batch candidates pin independent canvas results and reuse the sele
     const gen = board.layout.nodes.find((n: any) => n.type === 'generation');
     await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
     await picker.selectOption(second.id);
-    await panel.getByRole('button', { name: '生成视频', exact: true }).click();
     await panel.getByLabel('节点工作流').selectOption(next.id);
     await panel.getByLabel('节点首帧').selectOption(second.id);
     await panel.getByRole('button', { name: '保存并生成', exact: true }).click();
@@ -2697,7 +2701,7 @@ test('same batch comparison keeps independent file choices and archives only the
     );
     await open(page, value);
     const boardId = await createBoard(page, 'Choose between batch images');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Three image candidates');
@@ -2835,7 +2839,7 @@ test('same task comparison handles mixed media preview failure and releases play
     const workflow = await call('POST', '/projects/' + value.id + '/generation-workflows', definition);
     await open(page, value);
     const boardId = await createBoard(page, 'Video and music review');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Compare motion and music');
@@ -2983,7 +2987,7 @@ test('bulk output actions preserve selections after lost responses and download 
     );
     await open(page, value);
     const boardId = await createBoard(page, 'Selected originals');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Files for bulk delivery');
@@ -3300,14 +3304,11 @@ test('generation type filters preserve pinned revisions and clear incompatible c
     await open(page, value);
     const id = await createBoard(page, 'Type filters');
     for (const name of names) await page.getByRole('button', { name: '添加 ' + name, exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     const picker = panel.getByRole('group', { name: '生成输出类型' });
     const select = panel.getByLabel('节点工作流', { exact: true });
-    await expect(picker.getByRole('button', { name: '全部生成类型', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await expect(picker).toHaveCount(0);
     await expect(select.locator('option')).toHaveCount(4);
     await select.selectOption(motion.id);
     await panel.getByLabel('生成提示词').fill('Keep this exact prompt through type changes');
@@ -3325,15 +3326,16 @@ test('generation type filters preserve pinned revisions and clear incompatible c
     await page.reload();
     await page.locator('.react-flow__node[data-id="' + gen.id + '"]').click();
     await expect(select).toHaveValue(motion.id);
-    await expect(picker.getByRole('button', { name: '生成视频', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await expect(picker).toHaveCount(0);
     await expect(select.locator('option:checked')).toContainText('固定 v1');
     await expect(panel.getByLabel('节点首帧输入')).toHaveValue(sourceNodes[0].id);
-    await picker.getByRole('button', { name: '生成音频', exact: true }).click();
-    await expect(select).toHaveValue('');
-    await expect(select.locator('option')).toHaveCount(2);
+    page.removeAllListeners('dialog');
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await select.selectOption(audio.id);
+    await expect(select).toHaveValue(motion.id);
+    await expect(panel.getByLabel('节点首帧输入')).toHaveValue(sourceNodes[0].id);
+    page.on('dialog', (dialog) => dialog.accept());
+    await select.selectOption(audio.id);
     await expect(panel.getByLabel('节点首帧输入')).toHaveCount(0);
     await expect(panel.getByLabel('生成提示词')).toHaveValue('Keep this exact prompt through type changes');
     await select.selectOption(audio.id);
@@ -3346,10 +3348,7 @@ test('generation type filters preserve pinned revisions and clear incompatible c
     await save(page);
     board = await call('GET', '/boards/' + id);
     expect(board.layout.edges.filter((e: any) => e.targetPort?.startsWith('reference:'))).toHaveLength(2);
-    const imageButton = picker.getByRole('button', { name: '生成图片', exact: true });
-    await imageButton.focus();
-    await page.keyboard.press('Space');
-    await expect(select).toHaveValue('');
+
     await select.selectOption(image.id);
     await save(page);
     board = await call('GET', '/boards/' + id);
@@ -3397,8 +3396,8 @@ test('generation type filters preserve pinned revisions and clear incompatible c
     await page.screenshot({ path: 'test-results/b5-canvas-types-desktop.png', animations: 'disabled' });
     await page.getByRole('button', { name: '深色画布', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await picker.scrollIntoViewIfNeeded();
-    await expect(picker).toBeInViewport();
+    await panel.getByLabel('生成引擎').scrollIntoViewIfNeeded();
+    await expect(picker).toHaveCount(0);
     expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: 'test-results/b5-canvas-types-mobile-dark.png', animations: 'disabled' });
     expect((await call('GET', '/projects/' + value.id + '/generation-jobs')).items).toHaveLength(0);
@@ -3422,7 +3421,7 @@ test('canvas previews audio output and reuses it through optional media slots', 
     const workflow = await call('POST', '/projects/' + value.id + '/generation-workflows', definition);
     await open(page, value);
     const boardId = await createBoard(page, 'Sound study');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('Soft piano in a quiet station');
@@ -3511,7 +3510,7 @@ test('canvas generation runs with an empty optional reference image slot', async
     await open(page, value);
     const boardId = await createBoard(page, 'One required picture');
     await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('A station at sunrise');
@@ -3556,7 +3555,7 @@ test('canvas image slots persist fixed bindings and execute the original workflo
     const boardId = await createBoard(page, 'Two fixed pictures');
     await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
     await page.getByRole('button', { name: '添加 image.jpg', exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流', { exact: true }).selectOption(workflow.id);
     await panel.getByLabel('生成提示词', { exact: true }).fill('Quiet platform, coastal light');
@@ -3947,7 +3946,7 @@ test('media connections match unique slots and require explicit choices for ambi
     await open(page, value);
     const boardId = await createBoard(page, 'Mapped slots');
     await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('A character in a scene');
@@ -4022,7 +4021,7 @@ test('one task adds a persistent result group and detaching or dissolving preser
     );
     await open(page, value);
     const id = await createBoard(page, 'Result collection');
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('A scene with multiple deliverables');
@@ -4118,7 +4117,7 @@ test('generation card shows real context and common parameters stay editable out
     await open(page, value);
     const id = await createBoard(page, 'Simple composer');
     await page.getByRole('button', { name: '添加 image.png', exact: true }).click();
-    await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
     const panel = page.getByRole('region', { name: '生成节点设置' });
     await panel.getByLabel('节点工作流').selectOption(workflow.id);
     await panel.getByLabel('生成提示词').fill('A slow camera move through soft light');
@@ -4187,4 +4186,47 @@ test('generation card shows real context and common parameters stay editable out
   } finally {
     await remote.close();
   }
+});
+
+test('classified creation persists targets and shares toolbar and context actions', async ({ page }) => {
+  const value = await project('Classified creation');
+  await open(page, value);
+  const id = await createBoard(page, 'Creation targets');
+  const tools = page.getByRole('navigation', { name: '创建与素材' });
+  for (const label of ['文字节点', '图片节点', '视频节点', '音频节点', '便签节点', '分组'])
+    await expect(tools.getByRole('button', { name: '添加' + label, exact: true })).toBeVisible();
+  for (const label of ['图片', '音频']) {
+    await tools.getByRole('button', { name: '添加' + label + '节点', exact: true }).click();
+    const panel = page.getByRole('region', { name: '生成节点设置' });
+    await expect(panel.getByRole('heading', { name: label + '创作', exact: true })).toBeVisible();
+    await expect(panel.getByRole('group', { name: '生成输出类型' })).toHaveCount(0);
+    await panel.getByRole('button', { name: '关闭节点面板' }).click();
+  }
+  const surface = page.getByLabel('正式画布工作区', { exact: true });
+  await surface.focus();
+  await page.locator('.react-flow__pane').click({ button: 'right', position: { x: 650, y: 130 } });
+  await page
+    .getByRole('menu', { name: '创建画布节点' })
+    .getByRole('menuitem', { name: '视频节点', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: '视频创作', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭节点面板' }).click();
+  await save(page);
+  const stored = await call('GET', '/boards/' + id);
+  expect(stored.layout.nodes.map((n: any) => n.data.generation.creationTarget)).toEqual([
+    'image',
+    'audio',
+    'video',
+  ]);
+  expect(stored.layout.nodes.every((n: any) => !n.data.generation.workflowId)).toBe(true);
+  await page.reload();
+  await expect(page.getByText('视频创作', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/b19-creation-desktop.png', animations: 'disabled' });
+  await page.getByRole('button', { name: '深色画布', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(tools).toBeInViewport();
+  await expect(tools.getByRole('button', { name: '添加音频节点', exact: true })).toBeInViewport();
+  expect(await page.locator('body').evaluate((el) => el.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/b19-creation-mobile-dark.png', animations: 'disabled' });
+  expect((await call('GET', '/projects/' + value.id + '/generation-jobs')).items).toHaveLength(0);
 });

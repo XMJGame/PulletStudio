@@ -9,6 +9,9 @@
   min-width: 0;
   margin: 0 !important;
 }
+.generation-type-picker:has(> label:last-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
 .generation-output-field {
   min-width: 0;
   display: grid;
@@ -17,7 +20,7 @@
 }
 .generation-output-options {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 3px;
   gap: 2px;
   border: 1px solid var(--line);

@@ -102,7 +102,7 @@ export function BoardExecutionPanel({
     workflow = listed ?? (pinned?.id === settings.workflowId ? pinned : undefined),
     selection = choice?.workflowId === settings.workflowId ? choice : undefined,
     engine = selection?.engine ?? workflowEngine(workflow),
-    output = selection?.output ?? workflowOutputType(workflow) ?? 'all',
+    output = selection?.output ?? workflowOutputType(workflow) ?? settings.creationTarget ?? 'image',
     apiImage = workflow?.provider === 'modelscope',
     poolConfigured = !!config?.poolConfigured && engine !== 'api',
     path = `/boards/${board.id}/nodes/${node.id}/generation-jobs`;
@@ -110,8 +110,24 @@ export function BoardExecutionPanel({
     ...(config?.workflows ?? []),
     ...(pinned && !config?.workflows.some((w) => w.id === pinned.id) ? [pinned] : []),
   ];
-  const visibleWorkflows = workflows.filter((w) => !w.archived && matchesGenerationType(w, engine, output));
+  const visibleWorkflows = workflows.filter(
+    (w) => !w.archived && matchesGenerationType(w, engine, engine === 'comfyui' ? 'all' : output),
+  );
+  function confirmChange() {
+    const hasMedia = layout.edges.some(
+      (edge) => edge.target === node.id && edge.kind === 'input_binding' && edge.targetPort !== 'prompt',
+    );
+    return (
+      !(
+        settings.workflowId &&
+        (hasMedia ||
+          Object.keys(settings.parameterValues ?? {}).length ||
+          Object.keys(settings.fieldValues ?? {}).length)
+      ) || window.confirm('切换将清除当前工作流的参数和素材绑定，保留提示词和原素材。继续吗？')
+    );
+  }
   function selectWorkflow(id: string) {
+    if (id === settings.workflowId || !confirmChange()) return;
     const next = workflows.find((w) => w.id === id);
     setChoice({
       workflowId: id || undefined,
@@ -119,7 +135,16 @@ export function BoardExecutionPanel({
       output: workflowOutputType(next) ?? output,
     });
     update(
-      { ...node, data: { ...node.data, generation: id ? { workflowId: id } : {} } },
+      {
+        ...node,
+        data: {
+          ...node.data,
+          generation: {
+            ...(id ? { workflowId: id } : {}),
+            creationTarget: workflowOutputType(next) ?? settings.creationTarget,
+          },
+        },
+      },
       next?.capability !== 'video.image_to_video',
     );
   }
@@ -127,13 +152,22 @@ export function BoardExecutionPanel({
     const clear = workflow
       ? !matchesGenerationType(workflow, engine, next)
       : Boolean(firstFrame && next !== 'all' && next !== 'video');
+    if (clear && !confirmChange()) return;
     setChoice({ workflowId: clear ? undefined : settings.workflowId, engine, output: next });
-    if (clear) update({ ...node, data: { ...node.data, generation: {} } }, true);
+    if (next !== 'all')
+      update(
+        { ...node, data: { ...node.data, generation: { ...(clear ? {} : settings), creationTarget: next } } },
+        clear,
+      );
   }
   async function selectEngine(next: GenerationEngine) {
+    if (next === engine || !confirmChange()) return;
     if (next === 'comfyui') {
       setChoice({ engine: next, output });
-      update({ ...node, data: { ...node.data, generation: {} } }, true);
+      update(
+        { ...node, data: { ...node.data, generation: { creationTarget: settings.creationTarget } } },
+        true,
+      );
       return;
     }
     setBusy(true);
@@ -147,7 +181,10 @@ export function BoardExecutionPanel({
       if (!value.pinnedWorkflow) throw new Error('API 模型配置暂不可用，请重试。');
       setPinned(value.pinnedWorkflow);
       setChoice({ workflowId: id, engine: next, output: 'image' });
-      update({ ...node, data: { ...node.data, generation: { workflowId: id } } }, true);
+      update(
+        { ...node, data: { ...node.data, generation: { workflowId: id, creationTarget: 'image' } } },
+        true,
+      );
     } catch (reason) {
       if (alive.current) report(reason);
     } finally {
@@ -302,10 +339,19 @@ export function BoardExecutionPanel({
     <section className="v2-live-composer" aria-label="生成节点设置">
       <header className="v2-live-composer-header">
         <span className="v2-live-composer-mark">
-          <StudioIcon name="spark" />
+          <StudioIcon
+            name={
+              ({ image: 'image', video: 'film', audio: 'audio' } as const)[
+                workflowOutputType(workflow) ?? settings.creationTarget ?? 'image'
+              ]
+            }
+          />
         </span>
         <div>
-          <h3>{workflow?.name ?? '生成'}</h3>
+          <h3>
+            {workflow?.name ??
+              `${({ image: '图片', video: '视频', audio: '音频' } as const)[settings.creationTarget ?? 'image']}创作`}
+          </h3>
           <p>{workflow ? capabilityLabels[workflow.capability] : '选择工作流后开始创作'}</p>
         </div>
         <div className="v2-live-inline v2-live-composer-header-actions">

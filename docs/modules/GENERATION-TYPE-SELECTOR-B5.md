@@ -1,5 +1,7 @@
 # B5 生成引擎与输出类型选择
 
+2026-11-09 后续调整见 [B19](CANVAS-CREATION-PLAN-B19.md)：ComfyUI 移除独立输出类型筛选，API 保留三类目标选择，分类草稿保存可选 creationTarget；执行仍以固定工作流为准。下文为 B5 历史交付，不再驱动恢复 ComfyUI 的重复筛选器。
+
 基线 e733e23。复用 BoardExecutionPanel、GenerationDialog、已保存工作流摘要和原 ModelScope 项目配置接口，不新增 DB、API、Provider 或执行队列。
 
 ## 修改范围

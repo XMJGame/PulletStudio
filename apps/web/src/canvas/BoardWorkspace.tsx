@@ -19,6 +19,7 @@ import type { PromptDraft, LibraryRevision } from '../prompts/prompt-library-typ
 import type { MediaVersion } from '../media-types';
 import type { Workflow } from '../workflows/workflow-types';
 import { BoardSurface } from './BoardSurface';
+import { creationActions, isCreationTarget, type CanvasCreation } from './creation-actions';
 import { groupedResults } from './result-group';
 import { BoardItemTools } from './BoardItemTools';
 import { CanvasImportDialog } from './CanvasImportDialog';
@@ -430,14 +431,14 @@ export default function BoardWorkspace({
       ),
     );
     let position = {
-      x: (30 - layout.viewport.x) / layout.viewport.zoom,
+      x: (80 - layout.viewport.x) / layout.viewport.zoom,
       y: (30 - layout.viewport.y) / layout.viewport.zoom,
     };
     // Choose a free grid cell in the current viewport rather than stacking new references.
     for (let index = 0; index <= layout.nodes.length * 12; index++) {
       position = {
         x: clamp(
-          (30 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * columnWidth,
+          (80 - layout.viewport.x) / layout.viewport.zoom + (index % columns) * columnWidth,
           -50000,
           50000,
         ),
@@ -501,6 +502,10 @@ export default function BoardWorkspace({
     setSelected([id]);
     if (source) setResolved((value) => ({ ...value, [id]: source.value }));
     return true;
+  }
+  function create(kind: CanvasCreation, at?: BoardNode['position']) {
+    if (isCreationTarget(kind)) add('generation', undefined, { generation: { creationTarget: kind } }, at);
+    else add(kind, undefined, undefined, at);
   }
   function applyLibraryRevision(revision: LibraryRevision, target?: string) {
     if (revision.projectId !== projectId || !current.current.canEdit)
@@ -712,7 +717,11 @@ export default function BoardWorkspace({
                   return {
                     name:
                       presentation?.name ??
-                      (node.data.generation?.workflowId ? '固定工作流 · 选中查看' : '选择工作流'),
+                      (node.data.generation?.workflowId
+                        ? '固定工作流 · 选中查看'
+                        : node.data.generation?.creationTarget
+                          ? `${({ image: '图片', video: '视频', audio: '音频' } as const)[node.data.generation.creationTarget]}创作`
+                          : '选择工作流'),
                     prompt: promptNode?.data.text ?? '',
                     latestState: presentation?.latestState,
                     accepts,
@@ -1234,9 +1243,6 @@ export default function BoardWorkspace({
                         <StudioButton variant="ghost" onClick={() => add('brief')}>
                           创作说明
                         </StudioButton>
-                        <StudioButton variant="ghost" onClick={() => add('group')}>
-                          添加分组
-                        </StudioButton>
                         {node?.type === 'note' && node.data.text?.trim() && (
                           <StudioButton
                             variant="ghost"
@@ -1438,7 +1444,7 @@ export default function BoardWorkspace({
                 />
               </ResizableLibrary>
             )}
-            <nav className="v2-live-tools" aria-label="画布工具">
+            <nav className="v2-live-tools v2-live-view-tools" aria-label="画布工具">
               <StudioButton
                 variant="ghost"
                 icon="cursor"
@@ -1455,9 +1461,34 @@ export default function BoardWorkspace({
                 aria-pressed={pan}
                 onClick={() => setPan(true)}
               />
+            </nav>
+            <nav className="v2-live-tools v2-live-create-tools" aria-label="创建与素材">
               {base.canEdit && (
                 <>
+                  {creationActions.map(({ kind, label, title, icon }) => (
+                    <StudioButton
+                      key={kind}
+                      variant="ghost"
+                      icon={icon}
+                      aria-label={`添加${label}`}
+                      title={title}
+                      disabled={!editable}
+                      onClick={() => create(kind)}
+                    />
+                  ))}
                   <hr />
+                </>
+              )}
+              <StudioButton
+                variant="ghost"
+                icon="folder"
+                aria-label="打开资源库"
+                title="资源库"
+                aria-pressed={showSources}
+                onClick={() => setShowSources((value) => !value)}
+              />
+              {base.canEdit && (
+                <>
                   <StudioButton
                     variant="ghost"
                     icon="upload"
@@ -1477,29 +1508,13 @@ export default function BoardWorkspace({
                       event.currentTarget.value = '';
                     }}
                   />
-                  <StudioButton
-                    variant="ghost"
-                    icon="note"
-                    aria-label="添加便签"
-                    title="添加便签"
-                    disabled={!editable}
-                    onClick={() => add('note')}
-                  />
-                  <StudioButton
-                    variant="primary"
-                    icon="spark"
-                    aria-label="添加生成节点"
-                    title="添加生成节点"
-                    disabled={!editable}
-                    onClick={() => add('generation')}
-                  />
                 </>
               )}
             </nav>
             <BoardSurface
               onUpdate={update}
               onDisconnect={bindInput}
-              onCreate={(type, at) => add(type, undefined, undefined, at)}
+              onCreate={create}
               toolbar={
                 node && inlineNode && selected.length === 1
                   ? {

@@ -25,37 +25,38 @@ export function GenerationTypePicker({
           onChange={(e) => onEngine(e.target.value as GenerationEngine)}
         >
           <option value="comfyui">ComfyUI</option>
-          <option value="api">API · ModelScope</option>
+          <option value="api">API</option>
         </select>
       </label>
-      <div className="generation-output-field">
-        <span>输出类型</span>
-        <div className="generation-output-options" role="group" aria-label="生成输出类型">
-          {(
-            [
-              ['all', '全部', 'layers'],
-              ['image', '图片', 'image'],
-              ['video', '视频', 'film'],
-              ['audio', '音频', 'audio'],
-            ] as const
-          ).map(([id, label, icon]) => (
-            <StudioButton
-              key={id}
-              aria-label={id === 'all' ? '全部生成类型' : `生成${label}`}
-              aria-pressed={output === id}
-              onClick={() => onOutput(id)}
-            >
-              <StudioIcon name={icon} size={15} />
-              {label}
-            </StudioButton>
-          ))}
+      {engine === 'api' && (
+        <div className="generation-output-field">
+          <span>生成类型</span>
+          <div className="generation-output-options" role="group" aria-label="生成输出类型">
+            {(
+              [
+                ['image', '图片', 'image'],
+                ['video', '视频', 'film'],
+                ['audio', '音频', 'audio'],
+              ] as const
+            ).map(([id, label, icon]) => (
+              <StudioButton
+                key={id}
+                aria-label={`生成${label}`}
+                aria-pressed={output === id}
+                onClick={() => onOutput(id)}
+              >
+                <StudioIcon name={icon} size={15} />
+                {label}
+              </StudioButton>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       {empty && (
         <p className="field-hint generation-type-empty" role="status">
           {engine === 'api'
             ? '当前 API 仅接入 ModelScope 文生图。视频和音频请使用已配置的 ComfyUI 工作流。'
-            : '没有匹配的工作流。可切换输出类型，或在工作流中心配置对应工作流。'}
+            : '还没有可用工作流，请在全局设置的 ComfyUI 工作流中配置。'}
         </p>
       )}
     </div>

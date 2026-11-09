@@ -32,6 +32,12 @@ async function api(method: string, path: string, data?: unknown, actor = owner) 
   expect(response.ok(), `${method} ${path}: ${await response.text()}`).toBeTruthy();
   return response.json();
 }
+test.beforeEach(async ({ page }) => {
+  page.on('dialog', (dialog) =>
+    dialog.message().startsWith('切换将清除') ? dialog.accept() : dialog.dismiss(),
+  );
+});
+
 test.beforeAll(async () => {
   owner = await request.newContext({ baseURL: 'http://127.0.0.1:5192' });
   const initialized = (await (await owner.get('/api/v1/setup/status')).json()).initialized;
@@ -159,7 +165,7 @@ test('configures free-quota API text presets without returning credentials', asy
   await page.getByRole('button', { name: `打开项目 ${value.title}`, exact: true }).click();
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('API engine board');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
-  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
   const panel = page.getByRole('region', { name: '生成节点设置' });
   await panel.getByLabel('生成提示词').fill('Keep my prompt when switching engines');
   await panel.getByLabel('生成引擎').selectOption('api');
@@ -302,7 +308,7 @@ test('empty project and canvas generate pasted prompts, save candidates and reop
   await page.screenshot({ path: 'test-results/light-project-desktop.png', fullPage: true });
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Prompt study');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
-  await page.getByRole('button', { name: '添加便签', exact: true }).click();
+  await page.getByRole('button', { name: '添加便签节点', exact: true }).click();
   await page.getByLabel('画布文字内容', { exact: true }).fill('A train entering a sunlit station');
   await page.getByRole('button', { name: '自由生成', exact: true }).click();
   const generation = page.getByRole('dialog', { name: '自由生成', exact: true });
@@ -953,12 +959,9 @@ test('free generation filters output types and keeps API jobs outside ComfyUI ro
     await dialog.getByText('负向提示词与来源（可选）', { exact: true }).click();
     await dialog.getByLabel('负向提示词', { exact: true }).fill('Noise');
     await dialog.getByLabel('提示词来源', { exact: true }).fill('Composer notes');
-    await picker.getByRole('button', { name: '生成视频', exact: true }).click();
-    await expect(select).toHaveValue('');
-    await expect(select.locator('option')).toHaveCount(2);
+    await expect(picker).toHaveCount(0);
     await select.selectOption(motion.id);
     await expect(dialog.getByLabel('首帧图片')).toHaveValue('');
-    await picker.getByRole('button', { name: '生成音频', exact: true }).click();
     await select.selectOption(audio.id);
     await expect(dialog.getByLabel('首帧图片')).toHaveCount(0);
     await expect(dialog.getByLabel('创作参数：补充描述')).toHaveCount(0);
@@ -1007,10 +1010,7 @@ test('free generation filters output types and keeps API jobs outside ComfyUI ro
     await page.screenshot({ path: 'test-results/b5-free-types-mobile.png', animations: 'disabled' });
     await page.unroute('**/projects/' + value.id + '/generation-jobs');
     await dialog.getByLabel('生成引擎').selectOption('comfyui');
-    await expect(picker.getByRole('button', { name: '生成音频', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await expect(picker).toHaveCount(0);
     await select.selectOption(audio.id);
     await dialog.getByLabel('负向提示词').fill('Noise');
     await submit.click();
@@ -1212,7 +1212,7 @@ test('media declarations edit fixed slots and outputs while unsupported executio
   await closeCenter(page);
   await page.getByRole('textbox', { name: '画布名称', exact: true }).fill('Media contract board');
   await page.getByRole('button', { name: '创建画布', exact: true }).click();
-  await page.getByRole('button', { name: '添加生成节点', exact: true }).click();
+  await page.getByRole('button', { name: '添加图片节点', exact: true }).click();
   const panel = page.getByRole('region', { name: '生成节点设置', exact: true });
   await panel.getByLabel('节点工作流', { exact: true }).selectOption(latest.id);
   await panel.getByLabel('生成提示词', { exact: true }).fill('A quiet coast');

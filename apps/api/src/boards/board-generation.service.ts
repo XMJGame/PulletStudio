@@ -105,7 +105,9 @@ export class BoardGenerationService {
           ),
         );
         const job = parse(createProjectJobInput, {
-          ...node.data.generation,
+          workflowId: node.data.generation.workflowId,
+          parameterValues: node.data.generation.parameterValues,
+          fieldValues: node.data.generation.fieldValues,
           positivePrompt: text.data.text,
           negativePrompt: text.data.prompt?.negativePrompt ?? '',
           source: text.data.prompt?.source ?? '',

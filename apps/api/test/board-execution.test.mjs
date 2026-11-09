@@ -126,7 +126,8 @@ test('saved canvas nodes execute typed fixed inputs through the existing generat
       prompt: { negativePrompt: 'no lettering', source: 'External notes' },
     });
     imageNode = node('reference', { ref: { kind: 'media', id: image.id } });
-    genNode = node('generation', { generation: { workflowId: workflow.id } });
+    // Creation target is a UI hint; even a conflicting hint must not enter the provider contract.
+    genNode = node('generation', { generation: { workflowId: workflow.id, creationTarget: 'audio' } });
     layout = {
       ...board.layout,
       nodes: [textNode, imageNode, genNode],
